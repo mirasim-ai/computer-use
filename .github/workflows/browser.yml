@@ -1,0 +1,28 @@
+# The driver suites against the runner's Chrome. The first gate of every publish (publish.yml
+# calls it, and nothing is published unless it passes); run it by hand from the Actions tab to
+# check a change before then.
+name: browser tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Ubuntu 23.10+ forbids the unprivileged user namespaces Chrome's sandbox is built on, and
+      # Chrome then refuses to start ("No usable sandbox"). Lift that rather than run unsandboxed.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The hosted runner ships Google Chrome at /usr/bin/google-chrome, where the suites look. The
+      # attached-profile suite starts a windowed Chrome, so the run gets a virtual display.
+      - run: xvfb-run -a npm run test:browser

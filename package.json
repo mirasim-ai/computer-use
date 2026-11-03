@@ -1,0 +1,72 @@
+{
+  "name": "@mirasim/computer-use",
+  "version": "0.1.0-rc.1",
+  "description": "Computer use for any agent: an MCP server that drives browsers, macOS apps, Windows apps and Electron apps through their accessibility trees.",
+  "type": "module",
+  "keywords": [
+    "computer-use",
+    "mcp",
+    "browser",
+    "macos",
+    "windows",
+    "accessibility",
+    "agent"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mirasim-ai/computer-use.git"
+  },
+  "homepage": "https://github.com/mirasim-ai/computer-use#readme",
+  "bugs": {
+    "url": "https://github.com/mirasim-ai/computer-use/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "mirasim-cu": "bin/mirasim-cu.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "extension",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES",
+    "scripts/extension.mjs",
+    "src"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
+    "dev": "tsx src/entries/cli.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "npm run typecheck && node scripts/test.mjs unit",
+    "test:browser": "node scripts/test.mjs browser",
+    "test:all": "npm run typecheck && node scripts/test.mjs all"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "acorn": "^8.16.0",
+    "playwright-core": "^1.62.1",
+    "typebox": "^1.3.9",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.2",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,136 @@
+# Publish @mirasim/computer-use and its four platform packages to npm.
+#
+# A release is pushing a tag `v<version>` that matches package.json; a manual run is a dry run
+# unless told otherwise. The helpers are compiled on the OS that can build them (Swift on macOS,
+# Rust on Windows, cross-compiled to the second arch on each) and published as
+# `@mirasim/computer-use-<platform>-<arch>`; the main package then lists them as optional
+# dependencies at the same version (scripts/platform-packages.mjs) and goes out last, so no
+# published version ever names a helper the registry lacks.
+#
+# Publishing authenticates with NPM_TOKEN, or with npm trusted publishing (OIDC) once it is
+# configured for a package. Provenance is attached only while the repository is public: npm
+# accepts it from public repositories only, and trusted publishing has the same limit.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and check everything, publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs beside the helper builds; the publish job waits for all three, so a failure here
+  # publishes nothing.
+  browser:
+    uses: ./.github/workflows/browser.yml
+
+  helpers-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # A helper whose sources and compiler did not change is copied, not compiled (the script
+      # checks both itself, so a stale entry is never used).
+      - uses: actions/cache@v4
+        with:
+          path: .helper-cache
+          key: helpers-macos-${{ hashFiles('src/platform/macos/ax/*.swift') }}
+          restore-keys: helpers-macos-
+      - run: node scripts/platform-packages.mjs build darwin-arm64 darwin-x64 --out dist-platform --cache .helper-cache
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helpers-macos
+          path: dist-platform/
+          if-no-files-found: error
+
+  helpers-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # The runner's rustup carries only the host target.
+      - run: rustup target add aarch64-pc-windows-msvc
+      # Compiled crates (windows-rs is most of the build), for when the helper itself changed.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/platform/windows/uia -> target
+      - uses: actions/cache@v4
+        with:
+          path: .helper-cache
+          key: helpers-windows-${{ hashFiles('src/platform/windows/uia/Cargo.*', 'src/platform/windows/uia/src/**') }}
+          restore-keys: helpers-windows-
+      - run: node scripts/platform-packages.mjs build win32-x64 win32-arm64 --out dist-platform --cache .helper-cache
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helpers-windows
+          path: dist-platform/
+          if-no-files-found: error
+
+  publish:
+    needs: [browser, helpers-macos, helpers-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      PROVENANCE: ${{ !github.event.repository.private && '--provenance' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: tag matches package.json
+        if: github.event_name == 'push'
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "tag ${GITHUB_REF_NAME} is not v${version}" >&2; exit 1; }
+      # A prerelease (`0.1.0-rc.1`) goes to the `next` dist-tag, all five packages alike, so
+      # `npm install @mirasim/computer-use` keeps resolving the last release.
+      - name: dist-tag
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
+          echo "DIST_TAG=$tag" >> "$GITHUB_ENV"
+          echo "publishing $version as $tag"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-platform/
+          merge-multiple: true
+      # Artifacts drop the mode bits, and npm packs the mode it finds: without this the macOS
+      # helper installs unexecutable. A lost artifact is an empty directory; refuse before
+      # anything is published.
+      - name: every helper is present and executable
+        run: |
+          for t in darwin-arm64 darwin-x64; do chmod 755 "dist-platform/$t/computer-use-ax-helper"; done
+          for t in win32-x64 win32-arm64; do test -s "dist-platform/$t/computer-use-uia-helper.exe"; done
+      # A re-run after a partial publish skips what the registry already has: versions are immutable.
+      - name: publish platform packages
+        run: |
+          for dir in dist-platform/*/; do
+            spec="$(node -p "const p = require('./${dir}package.json'); p.name + '@' + p.version")"
+            if npm view "$spec" version >/dev/null 2>&1; then echo "$spec already published"; continue; fi
+            npm publish "$dir" --access public --tag "$DIST_TAG" $PROVENANCE $DRY_RUN
+          done
+      - name: publish @mirasim/computer-use
+        run: |
+          node scripts/platform-packages.mjs pin
+          spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
+          if npm view "$spec" version >/dev/null 2>&1; then echo "$spec already published"; exit 0; fi
+          npm publish --access public --tag "$DIST_TAG" $PROVENANCE $DRY_RUN

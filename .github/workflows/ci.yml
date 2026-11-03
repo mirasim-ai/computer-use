@@ -1,0 +1,27 @@
+# Every push and pull request: typecheck, the suites that need no browser (side by side), build
+# and pack. The driver suites against a real Chrome gate each publish instead (browser.yml), and
+# the real-app suites need a desktop session, so they stay opt-in (`node scripts/test.mjs
+# macos-live`, `windows-live`, `electron-live`).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm pack --dry-run

@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Mirasim</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, sans-serif;
+        color: #333;
+        display: grid;
+        place-items: center;
+        min-height: 90vh;
+        margin: 0;
+      }
+      main { text-align: center; max-width: 28rem; padding: 0 1rem; }
+      .err { color: #b91c1c; }
+      .quiet { color: #888; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p id="status">Connecting to Mirasim…</p>
+      <p class="quiet">This tab closes itself once the bridge is up.</p>
+    </main>
+    <script src="connect.js"></script>
+  </body>
+</html>
