@@ -30,7 +30,7 @@ export const MACOS_VERBS: VerbSpec[] = [
     kind: "menu",
     schema: Type.Object({
       kind: Type.Literal("menu"),
-      path: Type.Optional(Type.String({ description: "Menu command to run, exactly as the listing shows it — menus are in the system language (文件 › 新建 on a Chinese Mac), so list first (menu({})) rather than guessing an English name. › > / all separate; the last segment alone also works. Omit to list the commands runnable right now." })),
+      path: Type.Optional(Type.String({ description: "Menu command to run, exactly as the listing shows it — menus are in the system language (Fichier › Nouveau on a French Mac), so list first (menu({})) rather than guessing an English name. › > / all separate; the last segment alone also works. Omit to list the commands runnable right now." })),
     }),
   },
   DRAG_VERB,

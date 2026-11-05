@@ -81,7 +81,7 @@ export function panelOnLaunchNote(name: string): string {
 /** An app that answers Accessibility and has NO window — said, because an empty observation
  *  reads as an app with nothing in it. `menu` is the way out, not another launch. */
 export function noWindowYetNote(name: string): string {
-  return `${name} has no window open: a document app with everything closed is a real state, not a failure, so the next observation will be empty. menu({}) lists its commands — 文件 › 新建 or the like opens one; an app with no menu bar (a toolbar-only agent such as 截屏) is opened from outside, not from here`;
+  return `${name} has no window open: a document app with everything closed is a real state, not a failure, so the next observation will be empty. menu({}) lists its commands — File › New (named in the system language) or the like opens one; an app with no menu bar (a toolbar-only agent such as Screenshot) is opened from outside, not from here`;
 }
 
 /**
