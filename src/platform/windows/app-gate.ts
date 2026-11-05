@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 
 import type { UserConsent } from "../types.ts";
 import { computerUseHome } from "../home.ts";
+import { approvalsAddCommand } from "../cli-command.ts";
 
 const key = (app: string) => app.trim().toLowerCase();
 
@@ -119,8 +120,12 @@ export class WindowsAppGate {
     });
     const waited = Date.now() - started;
     if (!answer.allowed) {
+      // The same way out as macOS's declinedNote: a store kept here is a yes that needs no prompt.
       throw new AppRefused(`permission to use ${app} was not granted${answer.reason ? ` — ${answer.reason}` : ""}. `
-        + "Do not retry and do not ask again in this task; continue without it, or tell the user what you could not do");
+        + "Do not retry and do not ask again in this task; continue without it, or tell the user what you could not do"
+        + (this.stored.file !== null
+          ? ` — and, if nobody was there to answer (a non-interactive run declines every question), that they can allow it ahead of time with \`${approvalsAddCommand(app)}\``
+          : ""));
     }
     if (!answer.persist) this.approvedThisCall.add(key(app));
     else {

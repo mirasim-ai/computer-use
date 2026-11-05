@@ -18,10 +18,18 @@ export function consentQuestion(name: string, bundle: string): string {
 }
 
 /** Any answer but an allow. The host's own reason (nobody could be asked, nobody answered in time)
- *  is appended when it gave one: "declined" is the wrong thing to report for a prompt no one saw. */
-export function declinedNote(name: string, bundle: string, reason?: string): string {
+ *  is appended when it gave one: "declined" is the wrong thing to report for a prompt no one saw.
+ *
+ *  `allowAhead`: the command that allows the app with no prompt, when this platform keeps the
+ *  "always allow" list itself (approvals.ts) — the only way to say yes at all when the host
+ *  declines every question unseen (a non-interactive run such as `claude -p`). The model passes
+ *  it on to the user; it never runs it. */
+export function declinedNote(name: string, bundle: string, reason?: string, allowAhead?: string): string {
   return `permission to drive ${name} (${bundle}) was not granted${reason ? ` — ${reason}` : ""}. `
-    + "Do not retry and do not ask again in this task; continue without it, or tell the user what you could not do";
+    + "Do not retry and do not ask again in this task; continue without it, or tell the user what you could not do"
+    + (allowAhead
+      ? ` — and, if nobody was there to answer (a non-interactive run declines every question), that they can allow it ahead of time with \`${allowAhead}\``
+      : "");
 }
 
 /** The listing's line for an app the session has not been cleared for: nameable, never read. */

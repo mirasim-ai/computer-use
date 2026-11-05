@@ -15,6 +15,7 @@ import { ACT_OPS, NO_ACCESSIBILITY_ACT, NO_SCREEN_RECORDING, grantRoute, noAcces
 import type { UserConsent } from "../types.ts";
 import type { MacosApprovals } from "./approvals.ts";
 import type { AppNameResolver } from "./app-names.ts";
+import { approvalsAddCommand } from "../cli-command.ts";
 import {
   NAME_AN_APP,
   appExitedNote,
@@ -155,7 +156,7 @@ export abstract class MacosDriverApps extends ComputerUseDriver {
       this.waitedOnUserMs += Date.now() - started;
     }
     if (!answer.allowed) {
-      this.permissionRefusal = `mirasim-cu: ${declinedNote(display, bundle, answer.reason)}`;
+      this.permissionRefusal = `mirasim-cu: ${declinedNote(display, bundle, answer.reason, this.stored.file !== null ? approvalsAddCommand(bundle) : undefined)}`;
       throw new Error(this.permissionRefusal);
     }
     if (!answer.persist) { this.approvedThisCall.add(bundle); return; }

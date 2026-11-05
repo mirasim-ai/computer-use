@@ -12,6 +12,7 @@ import { MacosDriver } from "../src/platform/macos/driver.ts";
 import type { ToolResult } from "../src/platform/types.ts";
 import { findCall, ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { WINDOW } from "./macos-stub-app.ts";
+import { approvalsAddCommand } from "../src/platform/cli-command.ts";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -201,6 +202,12 @@ async function main() {
     check("…and binding the row a name found asks about that app, then starts it",
       asked.at(-1) === "com.apple.Notes" && !!findCall(st.calls, "launch") && /备忘录/.test(took), took.split("\n")[0]);
 
+    answer = false;
+    const declined = await h.api.focus("com.apple.QuickTimePlayerX").then(() => "", (e: Error) => e.message);
+    check("a declined app says how to allow it ahead of time, when this platform keeps the approvals",
+      asked.at(-1) === "com.apple.QuickTimePlayerX" && /Do not retry/.test(declined) && /`mirasim-cu approvals add com\.apple\.QuickTimePlayerX`/.test(declined), declined);
+    answer = true;
+
     // An app allowed ahead of time (`mirasim-cu approvals add`) is as nameable as one allowed this
     // session: a quit one gets its "not running" row, so a name match on the listing finds it.
     writeFileSync(store, JSON.stringify({ approvedBundleIdentifiers: ["com.apple.QuickTimePlayerX"] }));
@@ -208,6 +215,18 @@ async function main() {
     check("an app in the approvals store that is not running is listed, with the way to start it",
       /QuickTime Player \(com\.apple\.QuickTimePlayerX\) — not running; binding it starts it/.test(listed),
       listed.split("\n").find((l) => /QuickTime/.test(l)) ?? listed);
+
+    // A host that keeps approvals itself turns the store off; then there is no command to point at.
+    const hosted = stubTransport();
+    const hostedDrv = new MacosDriver({ transport: hosted.transport, appsNamed, env: { COMPUTER_USE_MACOS_APPROVALS: "" },
+      consent: { ...consent, ask: async () => ({ allowed: false }) } });
+    const hostedNo = await createHarness(hostedDrv).api.focus("com.apple.Notes").then(() => "", (e: Error) => e.message);
+    check("…and a host that keeps its own approvals gets no `mirasim-cu approvals` hint",
+      /was not granted/.test(hostedNo) && !/approvals add/.test(hostedNo), hostedNo);
+
+    check("…spelled with npx when this process came from npx, where no mirasim-cu is on the PATH",
+      approvalsAddCommand("com.apple.Notes", "/Users/u/.npm/_npx/abc/node_modules/@mirasim/computer-use/bin/mirasim-cu.mjs") === "npx -y @mirasim/computer-use approvals add com.apple.Notes"
+      && approvalsAddCommand("com.apple.Notes", "/usr/local/lib/node_modules/@mirasim/computer-use/bin/mirasim-cu.mjs") === "mirasim-cu approvals add com.apple.Notes");
 
     // Under a fixed list with nobody to ask, a name is no way around the list.
     const fixed = new MacosDriver({ transport: stubTransport().transport, appsNamed, env: { COMPUTER_USE_MACOS_FALLBACK_APPS: "com.apple.TextEdit" } });
