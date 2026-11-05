@@ -162,6 +162,50 @@ async function main() {
       asked.at(-1) === "com.apple.Notes" && !!findCall(st.calls, "launch"), cold || asked.join());
   }
 
+  // ── A quit app answers to its NAME, not only its bundle id ───────────────────────
+  // The reference promises computer.surface('<bundle id or app name>'). On a Chinese Mac the
+  // listing says 备忘录 while the model says Notes; neither is in a quit app's (absent) row, so
+  // the name is resolved to installed bundle ids (app-names.ts, stubbed here).
+  {
+    const named: string[] = [];
+    const appsNamed = async (n: string) => {
+      named.push(n);
+      return ["notes", "notes.app", "备忘录"].includes(n.toLowerCase()) ? ["com.apple.Notes"] : n === "Agent Host" ? ["com.example.agenthost"] : [];
+    };
+    const asked: string[] = [];
+    let answer = true;
+    const consent = {
+      available: () => true,
+      ask: async (_m: string, meta: Record<string, unknown>) => {
+        asked.push((meta["mirasim-computer-use/macosApp"] as { bundle: string }).bundle);
+        return answer ? { allowed: true, persist: "session" as const } : { allowed: false };
+      },
+      onRevoke: () => {},
+    };
+    const store = join(mkdtempSync(join(tmpdir(), "computer-use-approvals-")), "approvals.json");
+    const st = stubTransport();
+    const drv = new MacosDriver({ transport: st.transport, consent, appsNamed, env: { COMPUTER_USE_MACOS_APPROVALS: store, COMPUTER_USE_HOST_APPS: "com.example.agenthost" } });
+    const h = createHarness(drv);
+
+    const byName = await drv.unlistedTarget("Notes");
+    const byLocal = await drv.unlistedTarget("备忘录");
+    check("a quit app resolves by its English file name and by its localized name",
+      byName?.id === "com.apple.Notes" && byLocal?.id === "com.apple.Notes" && /备忘录 \(com\.apple\.Notes\) — not running; binding it starts it/.test(byName.title),
+      JSON.stringify([byName, byLocal]));
+    check("…a name nothing installs resolves to nothing, as before", (await drv.unlistedTarget("Nope")) === null);
+    check("…and a name never resolves to the app this agent runs inside", (await drv.unlistedTarget("Agent Host")) === null);
+    const before = named.length;
+    await drv.unlistedTarget("com.apple.Notes");
+    check("…a bundle id is not looked up as a name", named.length === before, named.join());
+    const took = await h.api.focus(byName?.id ?? "").then(String, (e: Error) => e.message);
+    check("…and binding the row a name found asks about that app, then starts it",
+      asked.at(-1) === "com.apple.Notes" && !!findCall(st.calls, "launch") && /备忘录/.test(took), took.split("\n")[0]);
+
+    // Under a fixed list with nobody to ask, a name is no way around the list.
+    const fixed = new MacosDriver({ transport: stubTransport().transport, appsNamed, env: { COMPUTER_USE_MACOS_FALLBACK_APPS: "com.apple.TextEdit" } });
+    check("under a fallback list with no way to ask, a name offers nothing outside it", (await fixed.unlistedTarget("Notes")) === null);
+  }
+
   // ── The listing carries the apps that are NOT running, too ───────────────────────
   // A caller reads this list to pick a bundle id to name, and launchApp({bundle}) starts a quit
   // one, so whether the app is up right now does not decide whether it can be picked.

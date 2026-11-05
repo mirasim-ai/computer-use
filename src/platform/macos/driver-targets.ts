@@ -47,9 +47,9 @@ export abstract class MacosDriverTargets extends MacosDriverRead {
       }
     }
     // The other half: CLEARED apps that are not running (binding one starts it, see `focusTarget`).
-    // Only cleared ones, the one bounded set; any other installed app is reached by bundle id
-    // (`unlistedTarget`). Host apps are dropped here as in `scopedApps`, so the halves agree (see
-    // narrate.ts `ownAppNote`).
+    // Only cleared ones, the one bounded set; any other installed app is reached by bundle id or
+    // name (`unlistedTarget`). Host apps are dropped here as in `scopedApps`, so the halves agree
+    // (see narrate.ts `ownAppNote`).
     const nameable = new Set([...(this.fallback ?? []), ...this.approved]);
     let missing = [...nameable].filter((b) => !this.hostApps.has(b) && !apps.some((a) => a.bundle === b));
     // A cleared app can be RUNNING and still missing above: an accessory app (no Dock icon) is
@@ -87,19 +87,29 @@ export abstract class MacosDriverTargets extends MacosDriverRead {
 
 
   /**
-   * An installed app named by bundle id that the listing does not carry — not running, and not
-   * cleared, so it has no "not running" row. Binding the row this returns starts it through
-   * {@link launch}, which is where the user is asked. Under a fallback list with no way to ask,
-   * only the list's own apps qualify (and those are already listed), so nothing is offered.
+   * An installed app named by bundle id OR by name that the listing does not carry — not running,
+   * and not cleared, so it has no "not running" row. A name is either the bundle's file name
+   * (`TextEdit`) or its localized display name (`文本编辑`), which differ on a non-English Mac
+   * (app-names.ts). Binding the row this returns starts it through {@link launch}, which is where
+   * the user is asked. Under a fallback list with no way to ask, only the list's own apps qualify
+   * (and those are already listed), so nothing is offered.
    */
   override async unlistedTarget(query: string): Promise<TargetInfo | null> {
-    const q = query.trim();
-    if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+){1,}$/.test(q) || this.hostApps.has(q)) return null;
-    if (this.fallback && !this.asking) return null;
-    // RUNNING but not listed: an accessory app (e.g. com.apple.screencaptureui), which only a named
-    // lookup reaches. Its pid row is bound like any other, the consent gate included.
+    const asked = query.trim();
+    if (!asked || (this.fallback && !this.asking)) return null;
+    const isBundle = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+){1,}$/.test(asked);
+    // A name can match several bundles (two copies of one app share the id, so those collapse);
+    // the first is the app folders' own order (app-names.ts), the user's install before the system's.
+    const q = isBundle ? asked : (await this.appsNamed(asked).catch(() => [] as string[])).find((b) => !this.hostApps.has(b));
+    if (!q || this.hostApps.has(q)) return null;
+    // RUNNING but not listed: by bundle id, an accessory app (e.g. com.apple.screencaptureui), which
+    // only a named lookup reaches; by name, also a listed app whose row carries its LOCALIZED name
+    // (`Calendar` for 日历). Its pid row is bound like any other, the consent gate included.
     const running = (await this.lookup({ bundles: [q] }))[0];
-    if (running) return { id: `${running.pid}`, kind: "app", title: `${running.name} (${running.bundle}) — running without a Dock icon; binding it asks as usual`, active: false };
+    if (running) {
+      const how = isBundle ? "running without a Dock icon; binding it asks as usual" : "running";
+      return { id: `${running.pid}`, kind: "app", title: `${running.name} (${running.bundle}) — ${how}`, active: false };
+    }
     const app = (await this.installed([q]))[0];
     return app ? { id: app.bundle, kind: "app", title: `${app.name} (${app.bundle}) — not running; binding it starts it`, active: false } : null;
   }

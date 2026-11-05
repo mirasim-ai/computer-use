@@ -14,6 +14,7 @@ import { DESKTOP_INPUT_OPS, DesktopInteractionRequired, clipboardChord } from ".
 import { ACT_OPS, NO_ACCESSIBILITY_ACT, NO_SCREEN_RECORDING, grantRoute, noAccessibility } from "./permissions.ts";
 import type { UserConsent } from "../types.ts";
 import type { MacosApprovals } from "./approvals.ts";
+import type { AppNameResolver } from "./app-names.ts";
 import {
   NAME_AN_APP,
   appExitedNote,
@@ -64,6 +65,8 @@ export abstract class MacosDriverApps extends ComputerUseDriver {
   private readonly approvedThisCall = new Set<string>();
   /** The "always" answers this platform keeps itself, for a host that keeps none (approvals.ts). */
   protected abstract readonly stored: MacosApprovals;
+  /** An app NAME to its installed bundle ids — @see app-names.ts. */
+  protected abstract readonly appsNamed: AppNameResolver;
 
   override endCall(): void {
     this.approvedThisCall.clear();

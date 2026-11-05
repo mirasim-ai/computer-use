@@ -49,6 +49,7 @@ import { MACOS_INTERACTION_NOTES } from "./interaction-notes.ts";
 import { DesktopInteractionRequired, clipboardChord } from "./interaction-policy.ts";
 import { PANEL_SERVICE_BUNDLE } from "./ax-shapes.ts";
 import { MacosApprovals } from "./approvals.ts";
+import { findInstalledApps, type AppNameResolver } from "./app-names.ts";
 
 /** `toldAbout` key for the Save panel note; not a bundle id, so no app can collide with it. */
 const SAVE_PANEL = "#save-panel";
@@ -64,6 +65,9 @@ export interface MacosDriverOptions {
   consent?: UserConsent;
   /** Test seam: a canned transport makes the driver fully hermetic. */
   transport?: AxTransport;
+  /** Test seam: how an app NAME becomes installed bundle ids (default: the app folders, then
+   *  Spotlight — @see app-names.ts). */
+  appsNamed?: AppNameResolver;
   helper?: AxHelperOptions;
 }
 
@@ -118,6 +122,7 @@ export class MacosDriver extends MacosDriverTargets {
   protected readonly hostApps: ReadonlySet<string>;
   protected readonly consent: UserConsent | null;
   protected readonly stored: MacosApprovals;
+  protected readonly appsNamed: AppNameResolver;
   /** The menu verbs (menu-commands.ts) reach the helper and the target only through this. */
   private readonly menu: MenuHost = {
     checkCommand: async (pid, item) => {
@@ -231,6 +236,7 @@ export class MacosDriver extends MacosDriverTargets {
     this.hostApps = new Set((env.COMPUTER_USE_HOST_APPS ?? "").split(",").map((s) => s.trim()).filter(Boolean));
     this.consent = opts.consent ?? null;
     this.stored = new MacosApprovals(env);
+    this.appsNamed = opts.appsNamed ?? findInstalledApps;
     // Every action re-checks (MacosDriverApps.ensure), so dropping it here is all of revocation.
     this.consent?.onRevoke((ids) => this.revoke(ids));
   }
