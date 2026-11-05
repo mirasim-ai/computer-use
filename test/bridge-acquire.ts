@@ -1,11 +1,12 @@
 /**
- * Finding the bridge to the user's own browser — `node scripts/test.mjs bridge-acquire`.
+ * Finding and registering the bridge to the user's own browser — `node scripts/test.mjs bridge-acquire`.
  *
  * Hermetic: two fake bridges answer `/status` over HTTP, and a native-host record in the scratch
  * HOME names one of them as another program's. No browser, no extension.
  *
  *   · a bridge waiting for the extension stops waiting once another program's bridge holds it,
- *     instead of sitting out the whole first-connect wait (~35 s) for an answer it already has.
+ *     instead of sitting out the whole first-connect wait (~35 s) for an answer it already has;
+ *   · the native-host record keeps no `node_modules/.bin` folder of the project it was run in.
  */
 
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -15,6 +16,7 @@ import { join } from "node:path";
 import { extensionHeldElsewhere, waitForExtension } from "../src/platform/browser/bridge/acquire-bridge.ts";
 import { NATIVE_HOST_NAME } from "../src/platform/browser/bridge/native-host.ts";
 import { sharedHome } from "../src/platform/home.ts";
+import { recordedPath } from "../src/entries/commands/native-host-options.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -35,10 +37,17 @@ function fakeBridge(state: { connected: boolean }): Promise<{ url: string; serve
 }
 
 async function main() {
+  // What `npx` hands its child: a .bin per folder from the working directory up, then its cache's.
+  const npxPath = ["/work/app/node_modules/.bin", "/work/node_modules/.bin", "/node_modules/.bin",
+    "/Users/u/.npm/_npx/abc/node_modules/.bin", "/opt/homebrew/bin", "/usr/bin", "/bin"].join(":");
+  check("the recorded PATH drops the node_modules/.bin folders npm and npx put in front",
+    recordedPath(npxPath) === "/opt/homebrew/bin:/usr/bin:/bin", recordedPath(npxPath));
+  check("…and an empty one falls back to the system's", recordedPath("") === "/usr/bin:/bin" && recordedPath(undefined) === "/usr/bin:/bin");
+
   // A Windows pipe name says nothing about where its record lives, so there is no "elsewhere".
   if (process.platform === "win32") {
-    console.log("skipped: the owner of the extension is not looked up on Windows");
-    process.exit(0);
+    console.log("the rest is skipped: the owner of the extension is not looked up on Windows");
+    process.exit(failures ? 1 : 0);
   }
   const theirs = { connected: true };
   const other = await fakeBridge(theirs);

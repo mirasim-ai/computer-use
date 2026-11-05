@@ -51,6 +51,17 @@ export function hostEntry(flags: NativeHostFlags, socket: string, extensionIds: 
     priority,
     extensionIds,
     manifestDirs: flags["manifest-dir"] ?? [],
-    ...(process.platform === "win32" ? {} : { path: process.env.PATH ?? "/usr/bin:/bin" }),
+    ...(process.platform === "win32" ? {} : { path: recordedPath(process.env.PATH) }),
   };
+}
+
+/**
+ * The PATH a record gives the host Chrome starts: this process's, less the `node_modules/.bin`
+ * folders npm and npx put in front (one per folder from the working directory up). Those belong
+ * to whatever project the command happened to run in, and the host, whose program is already an
+ * absolute path, needs none of them.
+ */
+export function recordedPath(path: string | undefined): string {
+  const kept = (path ?? "").split(":").filter((dir) => dir && !/(^|\/)node_modules\/\.bin\/?$/.test(dir));
+  return kept.length ? kept.join(":") : "/usr/bin:/bin";
 }
