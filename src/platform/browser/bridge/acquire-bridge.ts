@@ -164,6 +164,8 @@ async function startBridge(home: string): Promise<BridgeState> {
   const log = fs.openSync(path.join(home, "bridge.log"), "a");
   const child = spawn(process.execPath, [...process.execArgv, script, "bridge", "--json", "--native-host"], {
     detached: true,
+    // On Windows a detached console program gets a console window of its own; keep it hidden.
+    windowsHide: true,
     stdio: ["ignore", "pipe", log],
     env,
   });
