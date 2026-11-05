@@ -12,7 +12,7 @@ import { MacosDriver } from "../src/platform/macos/driver.ts";
 import type { ToolResult } from "../src/platform/types.ts";
 import { findCall, ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { WINDOW } from "./macos-stub-app.ts";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -200,6 +200,14 @@ async function main() {
     const took = await h.api.focus(byName?.id ?? "").then(String, (e: Error) => e.message);
     check("…and binding the row a name found asks about that app, then starts it",
       asked.at(-1) === "com.apple.Notes" && !!findCall(st.calls, "launch") && /备忘录/.test(took), took.split("\n")[0]);
+
+    // An app allowed ahead of time (`mirasim-cu approvals add`) is as nameable as one allowed this
+    // session: a quit one gets its "not running" row, so a name match on the listing finds it.
+    writeFileSync(store, JSON.stringify({ approvedBundleIdentifiers: ["com.apple.QuickTimePlayerX"] }));
+    const listed = firstText(await h.targets());
+    check("an app in the approvals store that is not running is listed, with the way to start it",
+      /QuickTime Player \(com\.apple\.QuickTimePlayerX\) — not running; binding it starts it/.test(listed),
+      listed.split("\n").find((l) => /QuickTime/.test(l)) ?? listed);
 
     // Under a fixed list with nobody to ask, a name is no way around the list.
     const fixed = new MacosDriver({ transport: stubTransport().transport, appsNamed, env: { COMPUTER_USE_MACOS_FALLBACK_APPS: "com.apple.TextEdit" } });

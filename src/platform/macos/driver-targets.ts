@@ -49,8 +49,10 @@ export abstract class MacosDriverTargets extends MacosDriverRead {
     // The other half: CLEARED apps that are not running (binding one starts it, see `focusTarget`).
     // Only cleared ones, the one bounded set; any other installed app is reached by bundle id or
     // name (`unlistedTarget`). Host apps are dropped here as in `scopedApps`, so the halves agree
-    // (see narrate.ts `ownAppNote`).
-    const nameable = new Set([...(this.fallback ?? []), ...this.approved]);
+    // (see narrate.ts `ownAppNote`). The disk store counts exactly when `cleared` reads it: an app
+    // the user allowed ahead of time (`mirasim-cu approvals add`) is as nameable as one allowed
+    // this session.
+    const nameable = new Set([...(this.fallback ?? []), ...this.approved, ...(this.asking ? this.stored.list() : [])]);
     let missing = [...nameable].filter((b) => !this.hostApps.has(b) && !apps.some((a) => a.bundle === b));
     // A cleared app can be RUNNING and still missing above: an accessory app (no Dock icon) is
     // outside the regular-only listing. A named lookup reaches it.
