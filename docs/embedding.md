@@ -387,6 +387,11 @@ the wrapper Chrome runs tries them in priority order (the desktop app first) and
 whichever bridge is running. `mirasim-cu setup extension --remove` takes this computer-use's
 record back.
 
+A record names the node and script that wrote it, plus that process's PATH without the
+`node_modules/.bin` folders npm and npx put in front. Run through `npx`, the script lives in
+npx's cache (`~/.npm/_npx/<hash>/…`): when the cache is cleared the wrapper skips the record,
+and the next session's bridge writes it again with the new path.
+
 ### Native apps
 
 `COMPUTER_USE_PLATFORMS` picks what a session may reach, comma-separated (default `browser`):

@@ -52,6 +52,16 @@ between sessions. To drive the browser you are signed into instead, install the
 [Mirasim extension](https://chromewebstore.google.com/detail/mirasim/khflooofmndpmafhofjdcpjfgnlpikhg)
 and add `-e COMPUTER_USE_BROWSER=extension`.
 
+In extension mode the first browser call starts a bridge in the background and registers it as
+the extension's native-messaging host: a record under `~/.mirasim-computer-use/native-host/`
+and a manifest in each Chromium-family browser's configuration folder. The record names the
+program that started it, which under `npx` is a path in npx's cache; a record whose program is
+gone is skipped, and every bridge start writes it again.
+`npx -y @mirasim/computer-use setup extension --remove` takes it back. The extension serves one
+bridge at a time, and the Mirasim desktop app's comes first: while browser control is on there,
+extension mode says so at once and does not connect.
+Details in [docs/embedding.md](docs/embedding.md#your-own-browser-extension).
+
 **Native apps** are opt-in with `COMPUTER_USE_PLATFORMS` (comma-separated, default `browser`):
 
 ```sh
