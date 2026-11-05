@@ -120,6 +120,15 @@ jobs:
         run: |
           for t in darwin-arm64 darwin-x64; do chmod 755 "dist-platform/$t/computer-use-ax-helper"; done
           for t in win32-x64 win32-arm64; do test -s "dist-platform/$t/computer-use-uia-helper.exe"; done
+      # The package ships the minified build, never source: refuse before anything is published.
+      - name: the package carries no source
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e '
+            const files = require("./pack.json")[0].files.map((f) => f.path);
+            const source = files.filter((p) => /^src\//.test(p) || (/\.[cm]?ts$/.test(p) && !/\.d\.[cm]?ts$/.test(p)) || /\.(swift|rs)$|(^|\/)Cargo\.(toml|lock)$/.test(p));
+            if (source.length) { console.error("source in the package:\n" + source.join("\n")); process.exit(1); }
+            console.log(files.length + " files, no source");'
       # A re-run after a partial publish skips what the registry already has: versions are immutable.
       - name: publish platform packages
         run: |
