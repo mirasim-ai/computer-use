@@ -48,10 +48,10 @@ export const WINDOWS_INTERACTION_NOTES: readonly string[] = [
     + "use the real mouse. A tree node [collapsed] is expanded with uiaAction({ref, action:'expand'}), not by clicking it. "
     + "interaction:desktop is not proof of consent; obtain it first.",
   "Open menus, dropdown lists and context menus are read with the window: their items are listed last.",
-  "An app with no window open is started by binding its Start-menu name (computer.surface('计算器')) or, from a bound window, "
+  "An app with no window open is started by binding its Start-menu name (computer.surface('Calculator')) or, from a bound window, "
     + "launchApp({app}); listApps({query}) gives the names, which are in the system language. Starting one opens its window in "
     + "front of the user, so both need interaction:'desktop' and the user's permission; the app itself is cleared like any bind.",
-  "A menu-bar command runs by its path: menu({path:'文件 › 另存为'}) — names in the system language, so list them first with "
+  "A menu-bar command runs by its path: menu({path:'File › Save As'}) — names in the system language, so list them first with "
     + "menu({}); the last segment alone works when unique, and a path ending at a submenu lists it. A classic Win32 menu bar runs "
     + "the command directly; others are opened level by level. Prefer it to clicking through menus yourself.",
   "A datetime element (a Win32/WinForms date or time picker) shows its text and exact date; setText(ref, '2026-03-09'), "

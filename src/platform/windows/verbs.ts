@@ -39,21 +39,21 @@ export const WINDOWS_VERBS: VerbSpec[] = [
     readOnly: true,
     schema: Type.Object({
       kind: Type.Literal("list_apps"),
-      query: Type.Optional(Type.String({ description: "Only entries whose name or id contains this (any case), e.g. '记事本' or 'paint'" })),
-    }, { description: "The apps launchApp can start: the Start menu's entries as {name, id} — names are in the system language (计算器 on a Chinese Windows), so look them up here rather than guessing. A read; starts nothing." }),
+      query: Type.Optional(Type.String({ description: "Only entries whose name or id contains this (any case), e.g. 'notepad' or 'paint'" })),
+    }, { description: "The apps launchApp can start: the Start menu's entries as {name, id} — names are in the system language (Calculatrice on a French Windows), so look them up here rather than guessing. A read; starts nothing." }),
   },
   {
     kind: "launch_app",
     schema: Type.Object({
       kind: Type.Literal("launch_app"),
-      app: Type.String({ description: "A Start-menu name or id from listApps() ('记事本', 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App'), or a program name the Run box takes ('notepad', 'mspaint')" }),
+      app: Type.String({ description: "A Start-menu name or id from listApps() ('Notepad', 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App'), or a program name the Run box takes ('notepad', 'mspaint')" }),
     }, { description: "Start an app and bind its new window as this session's target (an app not cleared yet asks the user, like binding it). Opens a window in front of the user: explain and obtain permission first (interaction:'desktop'). A single-instance app may answer by bringing its existing window forward — or, like Windows 11 Notepad, open a tab in the user's own window; that window is then the target." }),
   },
   {
     kind: "menu",
     schema: Type.Object({
       kind: Type.Literal("menu"),
-      path: Type.Optional(Type.String({ description: "Menu command to run, as the listing shows it — names are in the system language (文件 › 另存为 on a Chinese Windows), so list first (menu({})) rather than guessing. › > / all separate; the last segment alone also works when unique; a path ending at a submenu lists its items. Omit to list the window's menu commands." })),
+      path: Type.Optional(Type.String({ description: "Menu command to run, as the listing shows it — names are in the system language (Fichier › Enregistrer sous on a French Windows), so list first (menu({})) rather than guessing. › > / all separate; the last segment alone also works when unique; a path ending at a submenu lists its items. Omit to list the window's menu commands." })),
     }, { description: "List the window's menu-bar commands, or run one by its path. A classic Win32 menu bar runs the command directly, opening nothing; other menu bars are opened level by level and the item pressed, the way a person does. Running one brings the window to the front: explain and obtain permission first. Listing is a read; in background mode it opens no menu." }),
   },
   {
