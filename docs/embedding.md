@@ -282,9 +282,11 @@ What the README's Install section leaves out.
 
 The macOS and Windows drivers each run a small native helper. npm installs it prebuilt, as the
 platform package `@mirasim/computer-use-<platform>-<arch>` (macOS arm64/x64, Windows x64/arm64).
-On any other target, or with `--omit=optional`, the first macOS or Windows call builds the helper
-from the sources shipped in the package (`swiftc` from the Xcode command line tools, or Rust's
-`cargo`) and caches it.
+The package itself carries no helper sources, so on any other target, or with
+`--omit=optional`, the macOS and Windows surfaces are unavailable until the helper is supplied:
+`COMPUTER_USE_MACOS_AX_BIN` / `COMPUTER_USE_WINDOWS_UIA_BIN` name a prebuilt one. A repository
+checkout instead builds it from its sources on first use (`swiftc` from the Xcode command line
+tools, or Rust's `cargo`) and caches it.
 
 ### Browser startup and state
 

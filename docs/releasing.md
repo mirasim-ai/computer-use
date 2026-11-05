@@ -31,6 +31,8 @@ node scripts/platform-packages.mjs build darwin-arm64   # → dist-platform/darw
 ```
 
 Then `npm install` the tarball and that directory into an empty project and run
-`npx @mirasim/computer-use mcp` there. A plain `npm pack` carries no prebuilt helper: those are
-the platform packages, built by the release workflow, so without one the first macOS or Windows
-call compiles the helper from source.
+`npx @mirasim/computer-use mcp` there. A plain `npm pack` carries no helper, prebuilt or as
+source: those are the platform packages, built by the release workflow, so without one the macOS
+and Windows surfaces are unavailable.
+
+The package ships `dist/` minified and no `src/` (`scripts/build.mjs`).
