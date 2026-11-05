@@ -152,7 +152,7 @@ async function main(): Promise<void> {
     return;
   }
   // No fall-through: an unknown word is a mistake.
-  console.error(`computer-use: unknown command ${head === undefined ? "(none given)" : `"${head}"`}`);
+  console.error(`mirasim-cu: unknown command ${head === undefined ? "(none given)" : `"${head}"`}`);
   topUsage();
 }
 

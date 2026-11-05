@@ -48,7 +48,7 @@ export async function runBrowserStateCommand(argv: string[]): Promise<void> {
       if (values.out) writeFileSync(values.out, json);
       else process.stdout.write(json);
       console.error(
-        `computer-use: exported ${state.cookies.length} cookie(s), ${state.origins.length} origin(s) with localStorage`
+        `mirasim-cu: exported ${state.cookies.length} cookie(s), ${state.origins.length} origin(s) with localStorage`
           + `${values.out ? ` → ${values.out}` : ""}`,
       );
     } finally {
@@ -63,18 +63,18 @@ export async function runBrowserStateCommand(argv: string[]): Promise<void> {
   try {
     state = JSON.parse(readFileSync(values.in, "utf8")) as BrowserStorageState;
   } catch (e) {
-    console.error(`computer-use: cannot read state file ${values.in}: ${(e as Error).message.split("\n")[0]}`);
+    console.error(`mirasim-cu: cannot read state file ${values.in}: ${(e as Error).message.split("\n")[0]}`);
     process.exit(1);
   }
   if (!Array.isArray(state?.cookies) || !Array.isArray(state?.origins)) {
-    console.error(`computer-use: ${values.in} is not a storage-state JSON (expected {cookies: [], origins: []})`);
+    console.error(`mirasim-cu: ${values.in} is not a storage-state JSON (expected {cookies: [], origins: []})`);
     process.exit(1);
   }
   const { browser, profileDir } = await acquireManagedBrowser();
   try {
     await importStorageState(browser, state);
     console.error(
-      `computer-use: imported ${state.cookies.length} cookie(s), ${state.origins.length} origin(s) into ${profileDir}`,
+      `mirasim-cu: imported ${state.cookies.length} cookie(s), ${state.origins.length} origin(s) into ${profileDir}`,
     );
   } finally {
     await browser.close().catch(() => {});
