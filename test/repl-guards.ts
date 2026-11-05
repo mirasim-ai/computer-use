@@ -15,6 +15,8 @@ import { createHarness } from "./harness.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { nearMissNote } from "../src/platform/tools/find-target.ts";
+import { createComputerUseTools } from "../src/platform/tools/index.ts";
+import type { OwnershipResource } from "../src/platform/types.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -207,6 +209,32 @@ async function main() {
     // string: `undefined` would make `const r = await w.click(x); r.note` throw AFTER the click.
     check("click answers with what it did, as a string rather than undefined",
       typeof said === "string", said === undefined ? "undefined" : `"${said.slice(0, 60)}"`);
+  }
+
+  // ── A handle bound to an APP survives the app opening a window ─────────────────────────
+  // TextEdit bound by bundle id, then File › New: the app-level claim becomes a window claim
+  // under the same app. That is the same target, not "a different target".
+  {
+    const st = stubTransport();
+    st.windowsGone = true;
+    const appDriver = new MacosDriver({ transport: st.transport, ...ONE_APP });
+    const claims: string[] = [];
+    const ownership = {
+      claim: async (group: string, rs: OwnershipResource[]) => { claims.push(`claim ${group} ${rs.map((r) => r.key).join(",")}`); },
+      release: async (group: string) => { claims.push(`release ${group}`); },
+      releaseAll: async () => {},
+    };
+    const tools = Object.fromEntries(createComputerUseTools([{ driver: appDriver }], { ownership }).map((t) => [t.name, t]));
+    const run = async (code: string) => firstText(await tools.computer_repl!.execute({ code, observation: "brief" }) as never);
+    await run("w = await computer.surface('49403'); try { await w.observe(); } catch {} return 1");
+    st.windowsGone = false;
+    await run("await w.observe(); return 1");
+    const acted = await run("await w.click('e2'); return 'clicked'");
+    check("an app-level handle keeps working once the app opens a window",
+      /Returned: clicked/.test(acted) && !/different target/.test(acted), acted.replace(/\n/g, " ⏎ ").slice(0, 300));
+    check("…and its lease moves from the app to the window",
+      claims.some((c) => c.startsWith("claim macos:window:49403:")) && claims.includes("release macos:app:49403"), claims.join(" | "));
+    await appDriver.close();
   }
 
   await driver.close();

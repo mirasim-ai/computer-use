@@ -39,6 +39,9 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
   let sandbox: Context | null = null;
   const ownership = opts.ownership ?? new ComputerUseOwnership();
   const leaseGroups = new WeakMap<SurfaceHandle, string>();
+  /** Every resource key of a handle's last claim, so a re-claim can tell a NARROWER claim on the
+   *  same target (an app that opened a window) from a different target. @see claim */
+  const leaseKeys = new WeakMap<SurfaceHandle, Set<string>>();
   let ownershipRefusal: string | null = null;
   let resetPending = false;
   let callFinished = Promise.resolve();
@@ -192,7 +195,17 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
     }
     const group = resources[0]?.key;
     if (!group) throw new Error("The driver did not identify a resource to claim.");
-    if (previous && previous !== group) {
+    // A handle that names an APP (macOS: a bundle id or a bare pid) claims the app while it has no
+    // window, then the window it opens (exclusive) under the same app (shared). Both claims carry
+    // the app's key, so the move is the same target and the lease moves with it; a claim that
+    // shares no key with the last one (the app quit and came back under a new pid) is another.
+    const moved = !!previous && previous !== group;
+    if (moved && !resources.some((r) => leaseKeys.get(h)?.has(r.key))) {
+      // The handle is spent: it must not be offered as "Still bound" in the same result.
+      handles.delete(h.id);
+      leaseGroups.delete(h);
+      leaseKeys.delete(h);
+      await ownership.release(previous);
       throw new Error("This handle now resolves to a different target. List surfaces and bind the intended one again.");
     }
     try { await ownership.claim(group, resources); }
@@ -200,7 +213,9 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
       if (e instanceof OwnershipBusyError) ownershipRefusal = e.message;
       throw e;
     }
+    if (moved) await ownership.release(previous);
     leaseGroups.set(h, group);
+    leaseKeys.set(h, new Set(resources.map((r) => r.key)));
     if (!previous) driver.invalidateObservation();
     await driver.prepareTarget();
   };
@@ -366,7 +381,8 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
    *  is recognised by identity (`owner`), never by shape: a script's own `{ id, title }` is not one. */
   const boundHandles = (ctx: object): string[] =>
     Object.entries(ctx).flatMap(([name, value]) =>
-      value && typeof value === "object" && owner.has(value as SurfaceHandle)
+      // A handle dropped from `handles` is gone or spent (bind, claim): not one to keep using.
+      value && typeof value === "object" && owner.has(value as SurfaceHandle) && handles.get((value as SurfaceHandle).id) === value
         ? [`${name} → ${(value as SurfaceHandle).id} «${(value as SurfaceHandle).title}»`]
         : []);
 
