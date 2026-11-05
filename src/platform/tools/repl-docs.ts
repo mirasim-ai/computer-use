@@ -11,7 +11,10 @@ import type { ComputerUseDriver } from "../driver.ts";
 import { fnName } from "./api.ts";
 
 export const REPL_DESCRIPTION =
-  "Run JavaScript in this session's PERSISTENT runtime to look at and act on the GUI — the one tool for both. "
+  // The first sentence names the surfaces in plain words: a client that finds tools by keyword
+  // (Claude Code's tool search for "browser") matches on this text, not on the tool's name.
+  "Run JavaScript in this session's PERSISTENT runtime to look at and act on the GUI — web pages in a browser, "
+  + "Electron apps and native macOS / Windows apps, whichever this server mounts — the one tool for both. "
   + "The code is an async function body: `await` every verb, `return` a value to get it back as JSON, and "
   + "top-level const/let/function declarations SURVIVE to later calls — keep handles and collected data in "
   + "them instead of re-reading. Surfaces (tabs / windows / apps) are HANDLES and EVERY verb lives on one — "
