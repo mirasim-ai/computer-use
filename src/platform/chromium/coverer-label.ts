@@ -55,6 +55,35 @@ export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target) => {
 }`;
 
 /**
+ * Is `el` an editor's input proxy that `hit` sits on by design? A code editor keeps the text
+ * entry it types through BEHIND its own rendered text (Monaco's `.inputarea` and
+ * `.native-edit-context` in VS Code: z-index -10) and moves it to the caret. The point a click
+ * aims at lands on that text, inside the same editor, and the editor puts the caret there and
+ * focuses the proxy: what a person's click does, not a cover. Only a negative z-index qualifies,
+ * and only a hit inside the proxy's own parent: anything else on top (a notification over the
+ * editor) is still a cover.
+ */
+export const EDITOR_PROXY_JS = String.raw`(el, hit) => {
+  const tag = el.tagName;
+  const entry = tag === 'TEXTAREA' || tag === 'INPUT' || el.isContentEditable || el.getAttribute('role') === 'textbox';
+  if (!entry || !hit || !el.parentElement || !el.parentElement.contains(hit)) return false;
+  return parseInt(el.ownerDocument.defaultView.getComputedStyle(el).zIndex, 10) < 0;
+}`;
+
+/** {@link EDITOR_PROXY_JS} for one element, probed at its click point now. */
+export async function isEditorProxy(loc: Locator): Promise<boolean> {
+  try {
+    return await loc.evaluate(pageFn(String.raw`(el) => {
+      const proxy = __EDITOR_PROXY__;
+      const r = el.getBoundingClientRect();
+      return proxy(el, el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    }`.replace("__EDITOR_PROXY__", EDITOR_PROXY_JS)) as any, undefined, { timeout: 2000 }) as boolean;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What covers this element's click point RIGHT NOW, or null when nothing does (or nothing of it
  * is in the viewport, a scrolling matter). Live, not from the snapshot: the page has had time to
  * change, and a stale culprit is worse than none. Same probe as `collect-viewport.ts` — the click
@@ -67,7 +96,7 @@ export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target) => {
 export async function coverOf(loc: Locator): Promise<{ who: string; pseudo: string | null } | null> {
   try {
     return await loc.evaluate(pageFn(String.raw`(el) => {
-      const label = __COVERER_LABEL__, nameOf = __NAME_OF__;
+      const label = __COVERER_LABEL__, nameOf = __NAME_OF__, proxy = __EDITOR_PROXY__;
       const doc = el.ownerDocument, win = doc.defaultView;
       const quads = (el.getClientRects && el.getClientRects().length)
         ? Array.from(el.getClientRects()) : [el.getBoundingClientRect()];
@@ -79,7 +108,7 @@ export async function coverOf(loc: Locator): Promise<{ who: string; pseudo: stri
       }
       if (px < 0) return null;   // nothing of it is in the viewport: a scrolling matter
       const hit = doc.elementFromPoint(px, py);
-      if (!hit || hit === el || el.contains(hit)) return null;
+      if (!hit || hit === el || el.contains(hit) || proxy(el, hit)) return null;
       if (!hit.contains(el)) return { who: label(hit, nameOf, el), pseudo: null };
       // The point reached an ancestor, not the target. Only a pseudo-element layer of that
       // ancestor makes it a cover; a target that lets clicks through is not covered.
@@ -92,7 +121,7 @@ export async function coverOf(loc: Locator): Promise<{ who: string; pseudo: stri
       const named = label(hit, nameOf, el);
       const tag = hit.tagName.toLowerCase() + (hit.classList.length ? '.' + hit.classList[0] : '');
       return { who: named === 'another element' ? tag : named, pseudo };
-    }`.replace("__COVERER_LABEL__", COVERER_LABEL_JS).replace("__NAME_OF__", NAME_JS)) as any,
+    }`.replace("__COVERER_LABEL__", COVERER_LABEL_JS).replace("__NAME_OF__", NAME_JS).replace("__EDITOR_PROXY__", EDITOR_PROXY_JS)) as any,
       undefined, { timeout: 2000 }) as { who: string; pseudo: string | null } | null;
   } catch {
     return null; // unreadable now — the caller's own failure is the honest answer

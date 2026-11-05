@@ -156,6 +156,22 @@ const FIXTURE_OVERLAY = page(`
   </div>
 </div>`);
 
+/** A code editor's shape (Monaco in VS Code): the text entry it types through sits BEHIND its
+ *  own rendered text (z-index -10) at the caret, and a mousedown on the text focuses it. With
+ *  `notified`, a notification toast covers that point, which IS a cover. */
+const EDITOR_FIXTURE = (notified: boolean) => page(`
+<div id="editor" style="position:relative; z-index:0; width:600px; height:300px; overflow:hidden">
+  <textarea id="proxy" aria-label="Editor content" style="position:absolute; top:20px; left:20px; width:1px; height:1px;
+    z-index:-10; color:transparent; background:transparent; border:none; resize:none; padding:0; margin:0; overflow:hidden"></textarea>
+  <div id="lines" style="position:absolute; inset:0; background:#fff; font:14px monospace">def greet(name):</div>
+</div>
+${notified ? `<div role="dialog" aria-label="Install the recommended extension?" style="position:fixed; left:0; top:0; width:200px; height:80px; background:#eee">
+  <button onclick="this.parentElement.remove()">Clear notification</button></div>` : ""}
+<script>
+  document.getElementById('lines').onmousedown = (e) => { e.preventDefault(); document.getElementById('proxy').focus(); };
+  document.getElementById('proxy').onfocus = () => { document.title = 'editing'; };
+</script>`, "editor");
+
 /** A page that DECLARES its dialog modal (role=dialog + aria-modal), the shape of a settings
  *  dialog: the background is covered on purpose and the work is inside the dialog. */
 const FIXTURE_ARIA_MODAL = page(`
@@ -403,6 +419,20 @@ async function main() {
     check("covered button not listed", !overlayText.includes('button "Buy now"'));
     check("a covered element cannot be found by name either — it is not in the list to search",
       (await h.api.find("Buy now")) === null);
+
+    // An editor's input proxy is under the editor's own text by design: listed and clickable,
+    // while a notification over that point still covers it.
+    const notifiedText = firstText(await h.act("open_url", { url: EDITOR_FIXTURE(true) }));
+    check("an editor's input proxy under a notification is covered, and the notification named",
+      !notifiedText.includes('textbox "Editor content"') && notifiedText.includes('button "Clear notification"'),
+      notifiedText.split("\n").find((l) => /covered|overlay/.test(l)));
+    const editorText = firstText(await h.act("open_url", { url: EDITOR_FIXTURE(false) }));
+    const proxyRef = editorText.match(/(e\d+): textbox "Editor content"/)?.[1];
+    check("an editor's input proxy under its own text is listed, not counted as covered",
+      !!proxyRef && !/controls covered by/.test(editorText), editorText.split("\n").find((l) => /textbox|covered/.test(l)));
+    const clickedEditor = await driver.perform("click", { ref: proxyRef ?? "e0" });
+    check("...and clicking it lands on the editor, which takes the focus",
+      clickedEditor.ok !== false && (await driver.readElements()).title === "editing", JSON.stringify(clickedEditor));
 
     // ── headings: a fixed point that moves with the content, not with the scroller ─
     await h.act("open_url", { url: FIXTURE_HEADINGS });

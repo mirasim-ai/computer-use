@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import type { ElementHandle, Locator, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
-import { coverOf } from "./coverer-label.ts";
+import { coverOf, isEditorProxy } from "./coverer-label.ts";
 
 /**
  * Refuse to act on a control the page has switched OFF, instead of letting Playwright's
@@ -84,6 +84,12 @@ export async function clickNamingCover(
     return { ok: true };
   } catch (e) {
     if (!undispatchedTimeout(e)) throw e;
+  }
+  // An editor's input proxy never passes Playwright's hit check: the editor's own text is on top
+  // of it by design (coverer-label.ts). A click at its point is the one a person makes there.
+  if (await isEditorProxy(loc)) {
+    await target.click({ ...opts, force: true, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
+    return { ok: true };
   }
   const early = await coveredBy(loc, ref, name);
   if (early) return { ok: false, journal: { covered: true }, note: early };

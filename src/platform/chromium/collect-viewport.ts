@@ -10,7 +10,7 @@
 import { BROWSER_ROLES, GROUP_CAP, GROUP_UP, NAME_JS, ROW_CAP, ROW_UP, STATE_CLASS_JS } from "./collect.ts";
 import { CHECKABLE_TARGET_JS } from "./checkable-target.ts";
 import { SCROLL_REGION_JS } from "./scroll-regions.ts";
-import { COVERER_LABEL_JS } from "./coverer-label.ts";
+import { COVERER_LABEL_JS, EDITOR_PROXY_JS } from "./coverer-label.ts";
 import { HEADINGS_JS } from "./headings.ts";
 import { PAGE_REFS_JS } from "./page-refs.ts";
 
@@ -49,6 +49,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
   const checkableTarget = __CHECKABLE_TARGET__;
   const scrollRegion = __SCROLL_REGION__;
   const covererLabel = __COVERER_LABEL__;
+  const editorProxy = __EDITOR_PROXY__;
   const headingsOf = __HEADINGS__;
   const NON_TEXT = new Set(['button', 'submit', 'reset', 'image', 'file', 'hidden', 'range', 'color']);
   const stateOf = (el) => {
@@ -237,6 +238,8 @@ export const VIEWPORT_JS = String.raw`(startK) => {
     let hit;
     try { hit = document.elementFromPoint(px, py); } catch (e) { return true; }
     if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return true;
+    // A code editor's own text over its input proxy is how the editor is built (see coverer-label.ts).
+    if (editorProxy(el, hit)) return true;
     const scroller = scrollerOf(el);
     if (scroller && scroller.contains(hit) && stickyWithin(hit, scroller)) return 'clipped';
     const label = covererLabel(hit, nameOf, el);
@@ -475,6 +478,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
   .replace("__CHECKABLE_TARGET__", CHECKABLE_TARGET_JS)
   .replace("__SCROLL_REGION__", SCROLL_REGION_JS)
   .replace("__COVERER_LABEL__", COVERER_LABEL_JS)
+  .replace("__EDITOR_PROXY__", EDITOR_PROXY_JS)
   .replace("__HEADINGS__", HEADINGS_JS)
   .replace(/__ROW_CAP__/g, String(ROW_CAP))
   .replace(/__ROW_UP__/g, String(ROW_UP))
