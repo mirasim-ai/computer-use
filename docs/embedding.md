@@ -400,6 +400,9 @@ Every driver connects lazily, so mounting one the run never touches costs nothin
   both for the app it is run from and opens the pane of a missing one. Before driving an app,
   the server asks the user through MCP elicitation; an answer of "always" is kept in
   `<home>/macos-approvals.json`, which `mirasim-cu approvals` lists and edits.
+  A host that declares elicitation but answers no question (a non-interactive run such as
+  `claude -p`) refuses every app nobody allowed ahead of time with
+  `mirasim-cu approvals add <bundle id>`; the refusal names that command.
   Under a host without elicitation, the apps listed in `COMPUTER_USE_MACOS_FALLBACK_APPS`
   (comma-separated bundle ids) may be driven — or any app when it is unset, since whoever
   started the server is then the operator.

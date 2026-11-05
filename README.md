@@ -60,9 +60,22 @@ claude mcp add mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mir
 
 - `macos` and `windows` drive native apps through their accessibility tree in the background.
   On macOS, grant Accessibility (and Screen Recording, for screenshots) to the app that runs
-  your agent; `mirasim-cu setup macos` checks both. The server asks before it drives an app.
+  your agent; `mirasim-cu setup macos` checks both.
 - `electron` drives any app started with `--remote-debugging-port=<port>`
   (`COMPUTER_USE_ELECTRON_CDP_URL`, default `http://127.0.0.1:9333`).
+
+**Which apps the agent may drive.** Before the agent first touches a native app, the server asks
+you through your agent's MCP client (MCP elicitation): allow it once, for the session, or always.
+What that looks like depends on the client:
+
+- A client that shows the question (Claude Code in a terminal, for one): you answer it there.
+- A non-interactive run (`claude -p`, CI) declines every question unseen, so an app nobody
+  allowed is refused. Allow it ahead of time with
+  `npx -y @mirasim/computer-use approvals add com.apple.TextEdit` (a macOS bundle id; on Windows
+  the executable's name, e.g. `WINWORD`). `approvals` lists them; `approvals remove` revokes one.
+- A client without elicitation support cannot ask, so the server drives **every** app the agent
+  names. On macOS, `-e COMPUTER_USE_MACOS_FALLBACK_APPS=com.apple.TextEdit,…` narrows that to
+  the listed apps.
 
 The macOS and Windows drivers use a small native helper that npm installs prebuilt for macOS
 arm64/x64 and Windows x64/arm64. Every setting, the state directory and the host protocol are
