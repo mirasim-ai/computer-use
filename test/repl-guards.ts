@@ -16,6 +16,7 @@ import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { nearMissNote } from "../src/platform/tools/find-target.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
+import { ElectronDriver } from "../src/platform/electron/driver.ts";
 import type { OwnershipResource } from "../src/platform/types.ts";
 
 let failures = 0;
@@ -234,6 +235,22 @@ async function main() {
       /Returned: clicked/.test(acted) && !/different target/.test(acted), acted.replace(/\n/g, " ⏎ ").slice(0, 300));
     check("…and its lease moves from the app to the window",
       claims.some((c) => c.startsWith("claim macos:window:49403:")) && claims.includes("release macos:app:49403"), claims.join(" | "));
+    await appDriver.close();
+  }
+
+  // ── Several platforms mounted: the Targets line names surfaces the way surface() takes them ─
+  {
+    const st = stubTransport();
+    st.extraWindow = "numbered";
+    const appDriver = new MacosDriver({ transport: st.transport, ...ONE_APP });
+    // Never reached: a call scoped to macOS lists only macOS surfaces.
+    const electron = new ElectronDriver({ cdpUrl: "http://127.0.0.1:9" });
+    const ownership = { claim: async () => {}, release: async () => {}, releaseAll: async () => {} };
+    const tools = Object.fromEntries(createComputerUseTools([{ driver: appDriver }, { driver: electron }], { ownership }).map((t) => [t.name, t]));
+    const seen = firstText(await tools.computer_repl!.execute({ code: "w = await computer.surface('macos/49403:62106'); await w.observe(); return 1", platform: "macos" }) as never);
+    const line = seen.split("\n").find((l) => l.startsWith("Targets:")) ?? "";
+    check("with several platforms mounted, the Targets line carries the platform prefix",
+      /\*macos\/49403:62106:/.test(line) && !/(^|\s)\*?49403:/.test(line.slice("Targets:".length)), line.slice(0, 160) || seen.split("\n")[0]);
     await appDriver.close();
   }
 

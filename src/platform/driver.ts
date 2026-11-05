@@ -42,6 +42,10 @@ export { STATE_CHANGING_ACTIONS } from "./driver-settle.ts";
 const TEXT_ENTRY_ROLES = new Set(["textbox", "searchbox"]);
 
 export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
+  /** Prepended to every surface id the observation's `Targets:` line names. computer_repl sets it
+   *  (`macos/`) when several platforms are mounted, because there a bare driver id such as
+   *  `9469:22613` names nothing and `computer.surface()` only resolves the prefixed one. */
+  surfaceIdPrefix = "";
   /** The host's optional observer, absent in standalone drivers and tests. */
   onPreview?: (target: PreviewTarget, at: number) => void;
   protected previewTarget(): Promise<PreviewTarget | null> { return Promise.resolve(null); }
@@ -196,7 +200,8 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
         + `NOTE: ${this.observesSinceAction} observations in a row without acting, and the actionable elements are not changing — `
         + "more looking will not reveal more. Act now (click / set_text / drag / scroll), or if the target truly is not on this screen, scroll or switch target.";
     }
-    const targets = await this.listTargets().catch(() => []);
+    const listed = await this.listTargets().catch(() => []);
+    const targets = this.surfaceIdPrefix ? listed.map((t) => ({ ...t, id: `${this.surfaceIdPrefix}${t.id}` })) : listed;
     const { body, obsKind, headLines, effectNote } = this.renderObservation(snap, targets, verdict, { ...opts, surfaceChanged });
 
     // `details` is the machine-readable half of the observation, so an auditor can check it

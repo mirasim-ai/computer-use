@@ -125,6 +125,8 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
     lastMiss: null,
   }));
   landed = slices[0]!;
+  // The observation names surfaces by the driver's own ids; under a prefix those name nothing.
+  if (prefixed) for (const sl of slices) sl.driver.surfaceIdPrefix = `${sl.id}/`;
   /** The first platform's API — the home of `log`, which touches no surface and so belongs to
    *  no platform, and the name set the "verbs are not top-level" rewording checks. */
   const raw = slices[0]!.api;
