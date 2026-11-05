@@ -165,7 +165,7 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
     landed = own.slice;
     lastBound = h;
     if (await own.slice.driver.isActiveTarget(own.inner)) {
-      await claim(h);
+      await claim(h, true);
       return;
     }
     ledger().charge("focus");
@@ -180,10 +180,12 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
         + "when that is known, a NOTE in this result or the one before it names which (it is said once, when the loss is seen). "
         + "Call computer.surfaces() and re-acquire what you need.");
     }
-    await claim(h);
+    await claim(h, false);
   };
 
-  const claim = async (h: SurfaceHandle): Promise<void> => {
+  /** `stayed`: the driver was already on this target, so what it last observed (the previous
+   *  call's closing observation) is of THIS surface. */
+  const claim = async (h: SurfaceHandle, stayed: boolean): Promise<void> => {
     const { slice, inner } = owner.get(h)!;
     const driver = slice.driver;
     let resources = await driver.ownershipResources();
@@ -218,7 +220,11 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
     if (moved) await ownership.release(previous);
     leaseGroups.set(h, group);
     leaseKeys.set(h, new Set(resources.map((r) => r.key)));
-    if (!previous) driver.invalidateObservation();
+    // A first claim on a surface the driver just switched to starts from nothing. One it was
+    // already on keeps the refs that surface handed out: a model that read them in the previous
+    // call's closing observation (`computer.surfaces()`, say) and then binds the handle acts on
+    // exactly those, and dispatch still checks each one against the live surface.
+    if (!previous && !stayed) driver.invalidateObservation();
     await driver.prepareTarget();
   };
 

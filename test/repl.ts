@@ -349,6 +349,35 @@ async function main() {
       line(after, /Returned/));
 
     await profile.driver.close();
+
+    // ── A ref from the closing observation works once the handle is bound ────────
+    // `computer.surfaces()` alone ends on an observation of the window the driver is on; binding
+    // that window in the next call must not throw away the refs that observation handed out.
+    // Over the Electron driver, which attaches to any Chromium (here a second throwaway Chrome
+    // holding one page, so there is exactly one window).
+    {
+      const solo = await spawnChrome({});
+      try {
+        await fetch(`${solo.cdpUrl}/json/new?${fixtures.base}/fields.html`, { method: "PUT" });
+        for (const t of await (await fetch(`${solo.cdpUrl}/json/list`)).json() as Array<{ id: string; type: string; url: string }>) {
+          if (t.type === "page" && t.url === "about:blank") await fetch(`${solo.cdpUrl}/json/close/${t.id}`);
+        }
+        const { ElectronDriver } = await import("../src/platform/electron/driver.ts");
+        const { createComputerUseTools } = await import("../src/platform/tools/index.ts");
+        const electron = new ElectronDriver({ cdpUrl: solo.cdpUrl });
+        const ownership = { claim: async () => {}, release: async () => {}, releaseAll: async () => {} };
+        const etool = Object.fromEntries(createComputerUseTools([{ driver: electron }], { ownership }).map((t) => [t.name, t.execute.bind(t)]));
+        const erun = async (code: string) => allText(await etool.computer_repl!({ code }) as Result);
+        const listed = await erun(`return (await computer.surfaces()).map(s => s.id);`);
+        const ref = listed.match(/(e\d+): textbox "Field A"/)?.[1];
+        const used = await erun(`const w = await computer.surface('w1'); await w.setText('${ref}', 'seen'); return await w.value('${ref}');`);
+        check("a ref read in the previous call's closing observation is accepted after binding that window",
+          !!ref && /Returned: "?seen"?$/m.test(used) && !/not among the refs/.test(used), `${ref} · ${line(used, /Returned|STOPPED/)}`);
+        await electron.close();
+      } finally {
+        solo.cleanup();
+      }
+    }
   } finally {
     fixtures.close();
     chrome.cleanup();
