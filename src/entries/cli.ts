@@ -25,7 +25,14 @@ interface Command {
 const COMMANDS: Record<string, Command> = {
   "capture-server": {
     summary: "host-owned native screenshot and preview service",
-    run: async () => {
+    run: async (rest) => {
+      if (wantsHelp(rest)) {
+        emitUsage(`Usage: mirasim-cu capture-server
+
+Runs the one ScreenCaptureKit helper a host shares among its computer-use runtimes (macOS).
+It takes no arguments: the host passes COMPUTER_USE_MACOS_CAPTURE_SOCKET, _TOKEN and _LEASE.
+See "Shared native capture" in docs/embedding.md.`, true);
+      }
       const { runCaptureServer } = await import("./commands/capture-server.ts");
       await runCaptureServer();
     },
@@ -33,7 +40,22 @@ const COMMANDS: Record<string, Command> = {
 
   mcp: {
     summary: "MCP stdio server — the runtime; atomic tools for Claude Code / Codex / any host",
-    run: async () => {
+    run: async (rest) => {
+      // Asked before anything loads: `mcp --help` must print this, not start a server.
+      if (wantsHelp(rest)) {
+        emitUsage(`Usage: mirasim-cu mcp
+
+Serves the computer_repl tools over MCP on stdin/stdout, for an agent to start:
+  claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
+
+It takes no arguments; the environment picks what it drives:
+  COMPUTER_USE_PLATFORMS          browser (default), macos, windows, electron; comma-separated
+  COMPUTER_USE_BROWSER=extension  the browser you are signed into, through the Mirasim extension
+  COMPUTER_USE_CDP_URL            drive this Chromium endpoint instead of a browser of its own
+  COMPUTER_USE_ELECTRON_CDP_URL   the Electron app's endpoint (default http://127.0.0.1:9333)
+
+Every variable is listed in docs/embedding.md.`, true);
+      }
       const { serveMcp } = await import("./mcp.ts");
       await serveMcp();
     },
