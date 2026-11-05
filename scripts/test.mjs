@@ -27,7 +27,7 @@ const GROUPS = {
   unit: [
     'blank-args', 'viewport-line', 'journal-drain', 'repl-guards',
     'macos-ui', 'macos-windows', 'macos-budgets', 'macos-targets', 'macos-elements', 'macos-marks',
-    'macos-window-match', 'macos-grants', 'macos-diagnostics', 'macos-mouse', 'macos-app-notes', 'macos-forms',
+    'macos-window-match', 'macos-grants', 'macos-diagnostics', 'macos-mouse', 'macos-app-notes', 'macos-forms', 'bridge-acquire',
   ],
   browser: [
     'smoke', 'scroll-behaviors', 'forms-fill', 'select-text', 'paste', 'repl', 'settle-controlled',

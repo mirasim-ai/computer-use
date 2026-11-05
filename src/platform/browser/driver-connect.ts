@@ -165,7 +165,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     if (this.cfg.extension && !this.cfg.cdpUrl) {
       const bridge = await acquireBridge(this.cfg.home);
       this.cdpUrl = bridge.cdpUrl;
-      if (!(await waitForExtension(this.cdpUrl, bridge.fresh ? 0 : 15_000))) throw new SurfaceUnreadableError(await this.extensionGoneMessage());
+      if (!(await waitForExtension(this.cdpUrl, bridge.fresh ? 0 : 15_000, this.cfg.home))) throw new SurfaceUnreadableError(await this.extensionGoneMessage());
     }
     const attempted = this.endpoints();
     let lastError: unknown;

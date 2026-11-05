@@ -93,7 +93,7 @@ export async function acquireBridge(home: string): Promise<{ cdpUrl: string; fre
     const state = await startBridge(home);
     fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
     fs.rmSync(lock, { force: true }); // recorded: a session waiting on the lock can adopt it now
-    await waitForExtension(state.cdpUrl, FIRST_CONNECT_WAIT_MS);
+    await waitForExtension(state.cdpUrl, FIRST_CONNECT_WAIT_MS, home);
     return { cdpUrl: state.cdpUrl, fresh: true };
   } finally {
     fs.rmSync(lock, { force: true });
@@ -119,13 +119,16 @@ export async function extensionHeldElsewhere(home: string): Promise<string | nul
 
 /** Wait up to `ms` for the extension to be on this bridge's line. The bridge's own handshake waits
  *  too, but then hangs the socket up without a word — asking first is what lets the session say
- *  WHY (see {@link extensionHeldElsewhere}). */
-export async function waitForExtension(cdpUrl: string, ms: number): Promise<boolean> {
+ *  WHY (see {@link extensionHeldElsewhere}). With `home`, the wait ends at once when another
+ *  program's bridge holds the extension: the native host sends it there first, so it would not
+ *  come here before the deadline, and the caller would answer the same refusal ~35 s later. */
+export async function waitForExtension(cdpUrl: string, ms: number, home?: string): Promise<boolean> {
   const deadline = Date.now() + ms;
   for (;;) {
     const { answering, connected } = await probe(cdpUrl);
     if (connected || !answering) return connected || !answering; // a dead bridge is the endpoint error's job
     if (Date.now() >= deadline) return false;
+    if (home && (await extensionHeldElsewhere(home))) return false;
     await new Promise((r) => setTimeout(r, 500));
   }
 }
