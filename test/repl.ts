@@ -102,6 +102,13 @@ async function main() {
     check("a top-level verb is gone, and the refusal says where verbs went",
       /click is not defined/.test(loose) && /verbs live on a surface handle/.test(loose) && /computer\.surface\(/.test(loose),
       line(loose, /is not defined/));
+    const byUrl = await run(`await computer.surface('localhost:9');`);
+    check("a URL given to computer.surface() is answered as a page to open, with the openUrl that opens it",
+      /no surface matches "localhost:9"/.test(byUrl) && /never by URL — and opens nothing/.test(byUrl)
+        && /w\.openUrl\("http:\/\/localhost:9"\)/.test(byUrl), line(byUrl, /opens nothing|no surface matches/));
+    const byName = await run(`await computer.surface('Gamma');`);
+    check("…while a missed title gets the listing alone", /no surface matches "Gamma"/.test(byName) && !/opens nothing/.test(byName),
+      line(byName, /no surface matches/));
     const typo = await run(`await clck('e1');`);
     check("…while a real typo is left alone", /clck is not defined/.test(typo) && !/verbs live on a surface handle/.test(typo),
       line(typo, /is not defined/));

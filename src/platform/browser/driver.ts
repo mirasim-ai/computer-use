@@ -26,6 +26,10 @@ const JOURNAL_DRAIN_MS = 5_000;
 /** A LISTING's budget for one tab's title — see {@link boundedTitle}. */
 const TITLE_BUDGET_MS = 1_500;
 
+/** A surface name that is really an address: a scheme, or a host (localhost, an IP, any name)
+ *  with a port — what a model passes when the task told it where the app runs. */
+const URLISH = /^(?:[a-z][a-z\d+.-]*:\/\/|(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-f:]+\])(?::\d+)?(?:[/?#]|$)|[\w.-]+:\d+(?:[/?#]|$))/i;
+
 /**
  * One tab's title, or "" (callers fall back to the url) — never a wait worth noticing.
  *
@@ -197,6 +201,19 @@ export class BrowserDriver extends BrowserDriverVerbs {
   /** A page's refs live in the document, so they die with it. */
   protected override staleRefCause(): string {
     return "it predates a navigation, a reload or a tab switch";
+  }
+
+  /**
+   * A URL handed to computer.surface() is a page the model meant to OPEN: binding never navigates,
+   * and a tab is named by id or title, so the bare listing left it to work out why it missed.
+   */
+  override explainMiss(query: string): string | null {
+    const q = query.trim();
+    if (!URLISH.test(q)) return null;
+    const url = JSON.stringify(/^[a-z][a-z\d+.-]*:\/\//i.test(q) ? q : `http://${q}`);
+    return "mirasim-cu: computer.surface() binds a tab that is already open, by its id or title — never by URL — "
+      + "and opens nothing. Bind a tab and go there: const w = await computer.surface('<id>'); "
+      + `await w.openUrl(${url}) — or await w.newTab(${url}) to leave that tab as it is.`;
   }
 
   override promptFragment(): string {
