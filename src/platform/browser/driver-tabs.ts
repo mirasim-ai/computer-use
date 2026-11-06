@@ -94,12 +94,21 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
       if (!this.attached) {
         if (this.mine.has(p)) { this.makeActive(p, ADOPTED_WHY); return; }
         // A stranger by object may still be ours by identity — ask Chrome before saying so.
+        // On a managed browser a tab that appears while we drive it (a popup, a target=_blank
+        // link, noopener or not) is this session's work: claimed, so it is told apart from the
+        // tabs an earlier session left there (TargetInfo.mine). Elsewhere a tab that appears may
+        // be the user's, and a claim would make it closable.
+        const adoptNew = () => {
+          if (this.managedProfileDir) this.claim(p);
+          this.makeActive(p, APPEARED_WHY);
+        };
         void this.recognise(p)
-          .then((known) => this.makeActive(p, known === "same" ? REIDENTIFIED_WHY : known === "ours" ? ADOPTED_WHY : APPEARED_WHY))
-          .catch(() => this.makeActive(p, APPEARED_WHY));
+          .then((known) => known ? this.makeActive(p, known === "same" ? REIDENTIFIED_WHY : ADOPTED_WHY) : adoptNew())
+          .catch(adoptNew);
         return;
       }
-      void this.ownsPage(p).then((own) => { if (own) this.makeActive(p, ADOPTED_WHY); }).catch(() => {});
+      // Attached: a page in OUR window is ours, and claimed as such.
+      void this.ownsPage(p).then((own) => { if (own) { this.claim(p); this.makeActive(p, ADOPTED_WHY); } }).catch(() => {});
     };
     if (p.url() !== "about:blank") { adopt(); return; }
     const onNav = (frame: Frame) => {

@@ -23,11 +23,19 @@ const FIRST_HEADER: HeaderChanges = { target: true, coverage: true, omissions: t
 export function targetsLine(targets: TargetInfo[]): string | null {
   if (targets.length <= 1) return null;
   // `own: false` is the user's tab: readable and actionable, but not this session's to close or
-  // reuse. Marked per surface, because a caveat lines away from the id gets skipped.
-  const line = targets.map((x) => `${x.active ? "*" : ""}${x.id}:${x.title.slice(0, 40)}${x.own === false ? "(user's)" : ""}`).join("  ");
-  return targets.some((x) => x.own === false)
-    ? `${line}\n  (user's) = a tab that was already open — work in it if the task is about it, but it is not yours to close`
-    : line;
+  // reuse. `mine: false` on one that IS closable is a tab an earlier session left in a shared
+  // browser: its title may well name the same app on another port or build. Marked per surface,
+  // because a caveat lines away from the id gets skipped.
+  const earlier = (x: TargetInfo) => x.own !== false && x.mine === false;
+  const line = targets.map((x) => `${x.active ? "*" : ""}${x.id}:${x.title.slice(0, 40)}`
+    + `${x.own === false ? "(user's)" : earlier(x) ? "(earlier)" : ""}`).join("  ");
+  const notes = [
+    ...(targets.some((x) => x.own === false)
+      ? ["  (user's) = a tab that was already open — work in it if the task is about it, but it is not yours to close"] : []),
+    ...(targets.some(earlier)
+      ? ["  (earlier) = left open by an earlier session — not your page; open yours with openUrl rather than reusing it"] : []),
+  ];
+  return [line, ...notes].join("\n");
 }
 
 /** What {@link ComputerUseDriverNarrate.frozenNote} needs to know about the round, read off the driver's

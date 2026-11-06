@@ -19,6 +19,7 @@ export type SurfaceHandle = Record<string, unknown> & {
   kind: string;
   title: string;
   own?: boolean;
+  mine?: boolean;
 };
 
 export type MountedTarget = TargetInfo & { slice: Slice; inner: string };

@@ -19,7 +19,7 @@ export const REPL_DESCRIPTION =
   + "top-level const/let/function declarations SURVIVE to later calls — keep handles and collected data in "
   + "them instead of re-reading. Surfaces (tabs / windows / apps) are HANDLES and EVERY verb lives on one — "
   + "there are no top-level verbs. Bind first: computer.surface('<id or title>') names one, computer.surface() alone "
-  + "takes the only surface when there is just one, computer.surfaces() lists them. Then w.observe() w.find(name) "
+  + "takes the only surface, or the one this session opened when other tabs are open too, computer.surfaces() lists them. Then w.observe() w.find(name) "
   + "w.click(t) w.setText(t, text) w.keys(chord, n) w.scroll({…}) w.wait({…}) w.text() w.page({…}) "
   + "w.screenshot({…}) and this platform's own verbs, each switching to that surface as needed; a ref read on "
   + "one surface is refused on another. Bind ONCE — keep the handle in a top-level variable and later calls "

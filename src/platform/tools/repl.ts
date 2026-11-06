@@ -232,10 +232,10 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
   const handleFor = (t: MountedTarget): SurfaceHandle => {
     const have = handles.get(t.id);
     // `own` is refreshed too: a tab dragged into the mirasim group becomes the session's mid-run.
-    if (have) { have.title = t.title; have.kind = t.kind; have.active = t.active; have.own = t.own; have.unloaded = t.unloaded; return have; }
+    if (have) { have.title = t.title; have.kind = t.kind; have.active = t.active; have.own = t.own; have.mine = t.mine; have.unloaded = t.unloaded; return have; }
     // `own` rides the handle so a script deciding what to close can tell its surfaces from the
     // user's without asking the driver again.
-    const h = { id: t.id, kind: t.kind, title: t.title, active: t.active, ...(t.own === undefined ? {} : { own: t.own }), ...(t.unloaded ? { unloaded: true } : {}) } as SurfaceHandle;
+    const h = { id: t.id, kind: t.kind, title: t.title, active: t.active, ...(t.own === undefined ? {} : { own: t.own }), ...(t.mine === undefined ? {} : { mine: t.mine }), ...(t.unloaded ? { unloaded: true } : {}) } as SurfaceHandle;
     owner.set(h, { slice: t.slice, inner: t.inner });
     const bound: Record<string, unknown> = {};
     for (const [name, fn] of Object.entries(t.slice.api)) {
@@ -282,16 +282,26 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
    *
    * Tried in order: the opaque `id`, the whole title, a piece of the title. The title carries the
    * human names (macOS: "TextEdit (com.apple.TextEdit) — Untitled"), hence ONE entry point and no
-   * per-platform app()/tab(). NO ARGUMENT is not "the active one": it binds only when there is
-   * exactly one surface, so a script never acts on whatever happens to be in front of the user.
+   * per-platform app()/tab(). NO ARGUMENT is not "the one in front of the user": it binds the only
+   * surface, else the one THIS runtime opened or claimed (TargetInfo.mine) — the one it is on when
+   * it has several. Tabs an earlier session left in a shared browser, and the user's, are never
+   * the default; with no surface of its own among several the call is refused.
    */
   const pick = (ts: MountedTarget[], want: unknown): MountedTarget => {
-    // This session's own surfaces first and marked, so they stand out among the user's tabs.
-    const lines = (rows: TargetInfo[]) => [...rows.filter((t) => t.own), ...rows.filter((t) => !t.own)]
-      .map((t) => `  ${t.id}  ${t.title}${t.own ? "  (yours — opened by this session)" : ""}`).join("\n");
+    // This session's own surfaces first and marked, so they stand out among the user's tabs and
+    // the ones an earlier session left behind.
+    const mark = (t: TargetInfo) => t.mine ? "  (yours — opened by this session)"
+      : t.own && t.mine === false ? "  (left open by an earlier session)" : "";
+    const rank = (t: TargetInfo) => (t.mine ? 0 : t.own ? 1 : 2);
+    const lines = (rows: TargetInfo[]) => [...rows].sort((a, b) => rank(a) - rank(b))
+      .map((t) => `  ${t.id}  ${t.title}${mark(t)}`).join("\n");
     if (!ts.length) throw new Error("this driver has no surface right now");
     if (want === undefined) {
       if (ts.length === 1) return ts[0]!;
+      const mine = ts.filter((t) => t.mine);
+      const here = mine.filter((t) => t.active);
+      if (here.length === 1) return here[0]!;
+      if (mine.length === 1) return mine[0]!;
       throw new Error(`${ts.length} surfaces are open — name one, computer.surface('<id or title>'):\n${lines(ts)}`);
     }
     const q = String(want).trim();
@@ -371,7 +381,7 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
     if (verbNames.has(m[1]!)) {
       return `${msg} — verbs live on a surface handle, not on the top level: `
         + `const w = await computer.surface('<id or title>'); await w.${m[1]}(…). `
-        + "computer.surface() with no argument binds the only surface when there is one; computer.surfaces() lists them.";
+        + "computer.surface() with no argument binds the only surface, or the one this session opened among several; computer.surfaces() lists them.";
     }
     // Any other undefined name is usually a handle the code expected to hold: nothing binds one
     // implicitly, and a restarted runtime has lost earlier bindings.

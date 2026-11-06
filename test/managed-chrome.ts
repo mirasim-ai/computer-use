@@ -269,6 +269,51 @@ async function main() {
       check("the note is not repeated", !/had been closed/.test(again.note ?? ""), again.note ?? "(no note)");
       await driver.close();
 
+      // AN EARLIER SESSION'S TABS ARE NOT THIS ONE'S — the managed browser outlives every session,
+      // so a new one finds the tabs the drivers above left open (`driver` is closed first: a driver still
+      // connected would take the popup below as its own active tab too) (the benchmark's 2–5 tabs per
+      // pair). `computer.surface()` must bind the tab THIS runtime opened instead of refusing,
+      // the listing must tell the leftovers apart, and a window this session's page opens is its
+      // own. A POPUP window (features given) is the open background mode does not keep in the
+      // tab (keep-in-tab.ts), the one an OAuth handshake makes.
+      {
+        const { createServer } = await import("node:http");
+        const srv = createServer((req, res) => {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end(req.url === "/b.html" ? "<title>Popup</title><h1>popup</h1>"
+            : `<title>Opener</title><button onclick="window.open('/b.html', 'pop', 'popup,width=400,height=300')">open popup</button>`);
+        });
+        await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+        const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+        const { createComputerUseTools } = await import("../src/platform/tools/index.ts");
+        const fresh = new BrowserDriver(undefined, "http://127.0.0.1:9");
+        const ownership = { claim: async () => {}, release: async () => {}, releaseAll: async () => {} };
+        const tool = Object.fromEntries(createComputerUseTools([{ driver: fresh }], { ownership }).map((t) => [t.name, t.execute.bind(t)]));
+        type R = { content: Array<{ type: string; text?: string }> };
+        const run = async (code: string) => ((await tool.computer_repl!({ code })) as R).content
+          .filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+        try {
+          const bound = await run(`const w = await computer.surface(); const all = await computer.surfaces();`
+            + ` return {mine: w.mine, active: w.active, earlier: all.filter((s) => s !== w && s.mine === false).length};`);
+          const got = JSON.parse(/Returned: (.*)/.exec(bound)?.[1] ?? "null") as { mine?: boolean; active?: boolean; earlier?: number } | null;
+          check("computer.surface() binds this session's own tab among an earlier session's",
+            got?.mine === true && got.active === true && (got.earlier ?? 0) >= 1, /Returned: .*|STOPPED.*/.exec(bound)?.[0] ?? bound.slice(0, 200));
+          check("…and the targets line marks the leftovers as an earlier session's", /\(earlier\)/.test(bound) && /left open by an earlier session/.test(bound),
+            bound.split("\n").find((l) => l.startsWith("Targets:")) ?? "(no targets line)");
+          const popped = await run(`await w.openUrl({url: '${base}/a.html'}); await w.click(await w.find('open popup'));`
+            + ` await w.wait({ms: 1500}); const p = (await computer.surfaces()).find((s) => s.title === 'Popup'); return p ? p.mine : 'no popup';`);
+          check("a popup this session's page opened is this session's, not an earlier one's", /Returned: true/.test(popped), /Returned: .*|STOPPED.*/.exec(popped)?.[0] ?? popped.slice(0, 200));
+        } finally {
+          await fresh.close();
+          // What this block opened goes, so the sessions below find the browser as they would have.
+          const port = readDevToolsPort(profile);
+          for (const t of (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as Array<{ id: string; url: string }>) {
+            if (t.url.startsWith(base)) await fetch(`http://127.0.0.1:${port}/json/close/${t.id}`);
+          }
+          srv.close();
+        }
+      }
+
       // COMPUTER_USE_TAB=reuse — an EXCLUSIVE browser's next session continues the most recent
       // working tab (a leased browser runs one errand after another; page state IS the
       // continuity). The default stays new-tab-per-session: on a shared browser the open

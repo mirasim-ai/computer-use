@@ -88,12 +88,14 @@ async function main() {
     check("computer.help() returns it on demand", /Rules that are enforced/.test(await run(`return computer.help();`)));
 
     // ── Verbs come from a bound surface, and only from one ───────────────────
-    // A throwaway Chrome already holds two about:blank tabs, so the no-argument form must say
-    // there is no "only surface" instead of picking the one in front. The single-surface form is
-    // exercised in test/macos-ui.ts.
-    const ambiguous = await run(`await computer.surface();`);
-    check("computer.surface() refuses while more than one surface is open, and lists them",
-      /surfaces are open — name one/.test(ambiguous) && /about:blank/.test(ambiguous), line(ambiguous, /surfaces are open/));
+    // A throwaway Chrome already holds two about:blank tabs that are not this session's, beside
+    // the one it opened for itself: the no-argument form binds THAT one, never one of the others.
+    // The refusal (several surfaces, none of them this session's) is pinned over Electron below;
+    // the single-surface form in test/macos-ui.ts.
+    const mineFirst = await run(`const w0 = await computer.surface(); const all = await computer.surfaces();`
+      + ` return {mine: w0.mine, active: w0.active, others: all.filter((s) => s !== w0).map((s) => s.mine)};`);
+    check("computer.surface() binds the tab this session opened while other tabs are open",
+      /Returned: \{"mine":true,"active":true,"others":\[false(,false)*\]\}/.test(mineFirst), line(mineFirst, /Returned|STOPPED/));
     const bound = await run(`w = (await computer.surfaces()).find(s => s.active) ?? (await computer.surfaces())[0]; return w.kind;`);
     check("a surface picked out of the listing is a working handle", /Returned: /.test(bound), line(bound, /Returned/));
     const loose = await run(`await click('e1');`);
@@ -373,6 +375,14 @@ async function main() {
         const used = await erun(`const w = await computer.surface('w1'); await w.setText('${ref}', 'seen'); return await w.value('${ref}');`);
         check("a ref read in the previous call's closing observation is accepted after binding that window",
           !!ref && /Returned: "?seen"?$/m.test(used) && !/not among the refs/.test(used), `${ref} · ${line(used, /Returned|STOPPED/)}`);
+        // A second window, and neither is this runtime's (an attached app has none of its own):
+        // the no-argument form has nothing to prefer, so it refuses and lists them.
+        await fetch(`${solo.cdpUrl}/json/new?${fixtures.base}/b.html`, { method: "PUT" });
+        // Playwright learns of the new target asynchronously.
+        for (let i = 0; i < 40 && !/Returned: 2/.test(await erun(`return (await computer.surfaces()).length;`)); i++) await new Promise((r) => setTimeout(r, 50));
+        const ambiguous = await erun(`await computer.surface();`);
+        check("computer.surface() refuses among several surfaces none of which is this session's, and lists them",
+          /2 surfaces are open — name one/.test(ambiguous) && /Fields/.test(ambiguous) && /Beta/.test(ambiguous), line(ambiguous, /surfaces are open|Returned/));
         await electron.close();
       } finally {
         solo.cleanup();

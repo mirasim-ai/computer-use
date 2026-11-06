@@ -119,6 +119,13 @@ export interface TargetInfo {
    * tab the person is working in. Absent means the distinction does not arise on that platform.
    */
   own?: boolean;
+  /**
+   * `true` = THIS runtime opened or claimed the surface (its session tab, a tab it opened, a named
+   * tab it adopted). Narrower than {@link own}: every tab of a managed browser is closable, but
+   * one an earlier session left open is not this one's work. `computer.surface()` with no
+   * argument binds by it. Absent where the distinction does not arise on that platform.
+   */
+  mine?: boolean;
   /** Chrome unloaded this tab's renderer. Bound operations restore it after ownership is held. */
   unloaded?: boolean;
 }

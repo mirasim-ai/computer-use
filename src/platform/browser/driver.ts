@@ -230,7 +230,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const targets: TargetInfo[] = await Promise.all(pages.map(async (p) => ({
       id: this.tabId(p), kind: "tab" as const,
       title: (await boundedTitle(p)) || p.url(), active: !this.unloadedSelection && p === this.active,
-      own: own.has(p),
+      own: own.has(p), mine: this.mine.has(p),
     })));
     // Preserve named-slot and attached-window visibility: only an unrestricted extension
     // connection can discover the user's other tabs, including unloaded ones.
