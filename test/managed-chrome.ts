@@ -303,6 +303,21 @@ async function main() {
       } finally {
         delete process.env.COMPUTER_USE_TAB;
       }
+
+      // The USER quits the browser the way they quit any app, with no session attached. A
+      // launch flag that hands its lifetime to the automation (--no-startup-window plus a
+      // debugging port) turns this into a windowless process only a force-quit ends.
+      const quitPids = await browserPids(profile);
+      check("one managed browser left to quit", quitPids.length === 1, JSON.stringify(quitPids));
+      if (quitPids.length === 1) {
+        await quitLikeTheUser(quitPids[0]!, readDevToolsPort(profile));
+        let left = quitPids;
+        for (let i = 0; i < 50 && left.length; i++) {
+          await sleep(200);
+          left = await browserPids(profile);
+        }
+        check("the user's quit ends the browser process", left.length === 0, JSON.stringify(left));
+      }
     } finally {
       if (previousProfile === undefined) delete process.env.COMPUTER_USE_PROFILE_DIR;
       else process.env.COMPUTER_USE_PROFILE_DIR = previousProfile;
@@ -319,6 +334,28 @@ async function main() {
 
   console.log(failures ? `\n${failures} failure(s)` : "\nall managed-chrome checks passed");
   process.exit(failures ? 1 : 0);
+}
+
+/**
+ * Quit as a person would. macOS: the same terminate request ⌘Q and Dock › Quit make, sent to
+ * this pid only (a bundle-id quit would reach the developer's own Chrome too). Elsewhere:
+ * closing the last window is quitting.
+ */
+async function quitLikeTheUser(pid: number, port: number | null) {
+  if (process.platform === "darwin") {
+    execFileSync("osascript", [
+      "-l", "JavaScript", "-e",
+      "ObjC.import('AppKit'); function run(argv) { $.NSRunningApplication.runningApplicationWithProcessIdentifier(Number(argv[0])).terminate; }",
+      String(pid),
+    ]);
+    return;
+  }
+  if (port === null) return;
+  const base = `http://127.0.0.1:${port}`;
+  const targets = (await (await fetch(`${base}/json/list`)).json()) as Array<{ id: string; type: string }>;
+  for (const t of targets.filter((t) => t.type === "page")) {
+    await fetch(`${base}/json/close/${t.id}`).catch(() => {});
+  }
 }
 
 main().catch((e) => {

@@ -227,7 +227,7 @@ async function sharedPages(ctx: BrowserContext): Promise<Page[]> {
 
 /**
  * Give a windowless browser its first page, without raising it. Only meaningful right after a
- * `--no-startup-window` launch; a no-op when a page already exists.
+ * `--silent-launch` launch; a no-op when a page already exists.
  */
 export async function ensureBackgroundTab(browser: Browser): Promise<void> {
   try {

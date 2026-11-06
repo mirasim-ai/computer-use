@@ -238,7 +238,12 @@ async function launchManaged(profileDir: string, cfg: BrowserConfig): Promise<{ 
     // ALWAYS start with no window, then open the first tab in the background
     // (ensureBackgroundTab): a normal launch makes Chrome the frontmost app, off-screen or not,
     // stealing the user's keyboard. A visible window still lands where Chrome puts it.
-    "--no-startup-window",
+    // 🔴 --silent-launch, NOT --no-startup-window: Chrome reads --no-startup-window plus a
+    // remote-debugging port as "an automation process owns my lifetime" and holds a keep-alive
+    // until CDP Browser.close. ⌘Q and Dock › Quit then close the windows but leave the process
+    // (and its Dock icon) running until it is force-quit. --silent-launch skips the startup
+    // window without that keep-alive, so the user's quit ends the browser.
+    "--silent-launch",
   ];
   // Detached with no pipes: an inherited stdio pipe would keep Node's event loop alive, and the
   // browser must be able to outlive the process that started it.
@@ -271,7 +276,7 @@ async function launchManaged(profileDir: string, cfg: BrowserConfig): Promise<{ 
     try { child.kill("SIGKILL"); } catch { /* already gone */ }
     throw new Error(msgChromeRefusedAttach());
   }
-  // --no-startup-window left nothing to drive: make the first tab, in the background.
+  // --silent-launch left nothing to drive: make the first tab, in the background.
   await ensureBackgroundTab(browser);
   // Launch-time only: an ADOPTED browser keeps its position (the user may have revealed it).
   if (offscreen) await parkWindowOffscreen(browser);
