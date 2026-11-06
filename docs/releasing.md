@@ -14,14 +14,14 @@ immutable, so a re-run skips whatever the registry already has.
 
 ## Authentication and provenance
 
-- **While the repository is private**, the workflow publishes with the `NPM_TOKEN` secret and
-  without provenance: npm accepts provenance from public repositories only.
-- **Once the repository is public**, every package is published with `--provenance`, and npm
-  trusted publishing (OIDC) can replace the token: configure it for this repository and
-  workflow on each of the five packages, then remove `NPM_TOKEN`.
+Every package publishes through npm trusted publishing (OIDC): each of the five names this
+repository and `publish.yml` as its trusted publisher on npmjs.com, so the workflow holds no npm
+token. This works while the repository is private. A trusted publisher added on npm starts out
+pending and is validated by the next publish through it.
 
-The workflow decides this per run from the repository's visibility; nothing needs to change in
-it when the repository goes public.
+Provenance is attached only once the repository is public (`--provenance`): npm accepts it from
+public repositories only. The workflow decides this per run from the repository's visibility;
+nothing needs to change in it when the repository goes public.
 
 ## Checking a release locally
 

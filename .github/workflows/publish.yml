@@ -7,9 +7,9 @@
 # dependencies at the same version (scripts/platform-packages.mjs) and goes out last, so no
 # published version ever names a helper the registry lacks.
 #
-# Publishing authenticates with NPM_TOKEN, or with npm trusted publishing (OIDC) once it is
-# configured for a package. Provenance is attached only while the repository is public: npm
-# accepts it from public repositories only, and trusted publishing has the same limit.
+# Publishing authenticates with npm trusted publishing (OIDC), configured for this repository and
+# workflow on each of the five packages; it works while the repository is private. Provenance is
+# attached only while the repository is public: npm accepts it from public repositories only.
 name: publish
 
 on:
