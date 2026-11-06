@@ -429,6 +429,8 @@ export function createReplTools(
           // Models copy this example into EVERY call, so it shows bind-once and a later call that
           // just uses `w` apart; otherwise calls keep re-binding an intact handle.
           + "`return` what you want back. Bind once — first call: `const w = await computer.surface();` — "
+          // A URL in the task reads as something to bind; models passed it to surface() and missed.
+          + "binding opens nothing (a browser page is opened with `await w.openUrl(url)` once bound), "
           + "then later calls use `w` directly: `for (const e of (await w.observe()).elements.filter(e => e.role === 'checkbox')) await w.click(e.ref);`",
       }),
       purpose: Type.Optional(Type.String({ maxLength: 500,
