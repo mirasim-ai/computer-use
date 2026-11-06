@@ -105,7 +105,7 @@ async function main() {
     const byUrl = await run(`await computer.surface('localhost:9');`);
     check("a URL given to computer.surface() is answered as a page to open, with the openUrl that opens it",
       /no surface matches "localhost:9"/.test(byUrl) && /never by URL — and opens nothing/.test(byUrl)
-        && /w\.openUrl\("http:\/\/localhost:9"\)/.test(byUrl), line(byUrl, /opens nothing|no surface matches/));
+        && /w\.openUrl\(\{url: "http:\/\/localhost:9"\}\)/.test(byUrl), line(byUrl, /opens nothing|no surface matches/));
     const byName = await run(`await computer.surface('Gamma');`);
     check("…while a missed title gets the listing alone", /no surface matches "Gamma"/.test(byName) && !/opens nothing/.test(byName),
       line(byName, /no surface matches/));

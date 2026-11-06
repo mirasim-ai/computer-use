@@ -213,7 +213,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const url = JSON.stringify(/^[a-z][a-z\d+.-]*:\/\//i.test(q) ? q : `http://${q}`);
     return "mirasim-cu: computer.surface() binds a tab that is already open, by its id or title — never by URL — "
       + "and opens nothing. Bind a tab and go there: const w = await computer.surface('<id>'); "
-      + `await w.openUrl(${url}) — or await w.newTab(${url}) to leave that tab as it is.`;
+      + `await w.openUrl({url: ${url}}) — or await w.newTab({url: ${url}}) to leave that tab as it is.`;
   }
 
   override promptFragment(): string {
