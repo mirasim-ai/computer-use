@@ -2,6 +2,13 @@
  * several resources together; a process death, not a clock timeout, makes an abandoned claim
  * reclaimable. A slow action must never lose its lock while it can still dispatch input.
  *
+ * The one clock is the OWNER's, between calls: a runtime idle for {@link IDLE_RELEASE_MS} lets
+ * go of its claims itself (tools/repl.ts). A host that never ends turns (Codex keeps each
+ * thread's MCP server alive after the thread is done) would otherwise leave a live, idle
+ * process holding a tab the next session needs. Nothing is in flight then, so nothing can be
+ * dispatched under a lost lock, and the owner's next call takes the target back unless someone
+ * else has it.
+ *
  * One store per machine user (`<sharedHome>/ownership/claims.sqlite`), whatever home a host
  * names: every runtime that can reach the same screen and browsers arbitrates in it, whether a
  * desktop app, a standalone MCP session or a second build of either started it. */
@@ -14,6 +21,10 @@ import { sharedHome } from "./home.ts";
 
 interface Claim { owner: string; pid: number; mode: string }
 
+/** How long a runtime with no call in progress keeps its claims. Longer than a model's pause to
+ *  edit code between two looks at a page; shorter than the gap before another session starts. */
+export const IDLE_RELEASE_MS = 2 * 60_000;
+
 /** Ownership policy: the local store below unless an embedder injects its own. */
 export interface OwnershipProvider {
   claim(group: string, resources: OwnershipResource[]): Promise<void>;
@@ -25,7 +36,8 @@ export interface OwnershipProvider {
 export class OwnershipBusyError extends Error {
   constructor(resource: string) {
     super(`Resource ${resource} is in use by another runtime. Nothing was dispatched. `
-      + "Use a different target, or wait for its owner to finish and release it; do not reset another session.");
+      + "Use a different target, or wait for its owner to finish and release it (an owner with no call in progress "
+      + `lets go within ${IDLE_RELEASE_MS / 60_000} minutes); do not reset another session.`);
     this.name = "OwnershipBusyError";
   }
 }

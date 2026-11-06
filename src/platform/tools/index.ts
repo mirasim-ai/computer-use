@@ -53,7 +53,7 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
  */
 export function createComputerUseTools(
   mounted: PlatformSlice | PlatformSlice[],
-  opts: { diagnostics?: boolean; docsDelivered?: boolean; ownership?: OwnershipProvider } = {},
+  opts: { diagnostics?: boolean; docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number } = {},
 ): ComputerUseToolSpec[] {
   const slices = Array.isArray(mounted) ? mounted : [mounted];
   for (const { driver } of slices) {
@@ -61,7 +61,7 @@ export function createComputerUseTools(
     // platform can actually feed the channel, so a driver without a source never advertises one.
     if (opts.diagnostics && driver.supportsDiagnostics) driver.enableDiagnostics();
   }
-  const [repl, reset] = createReplTools(slices, { docsDelivered: opts.docsDelivered, ownership: opts.ownership });
+  const [repl, reset] = createReplTools(slices, { docsDelivered: opts.docsDelivered, ownership: opts.ownership, idleReleaseMs: opts.idleReleaseMs });
   const chain = { p: Promise.resolve(), epoch: 0 };
   const resetRuntime = reset.execute.bind(reset);
   reset.execute = async params => { chain.epoch++; return resetRuntime(params); };

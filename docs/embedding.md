@@ -101,7 +101,10 @@ platform close what this session opened (the browser closes its own tabs unless
 `keep_browser_tabs`; nothing the user owns is closed), disconnects the drivers and releases this
 session's ownership claims. It is idempotent per `session_id` + `turn_id`, and a call that
 arrives while it runs is refused rather than started. A client that never sends it keeps
-`computer_repl`'s persistent behavior.
+`computer_repl`'s persistent behavior, except for the claims: a runtime with no call in progress
+for two minutes releases them itself, and its next call takes its target back unless another
+session has it by then. A client that keeps an idle server alive after its thread is done (Codex
+does) therefore does not hold a tab or window from the next session.
 
 **Supervising the browser bridge.** A host that runs the extension bridge itself
 (`mirasim-cu bridge --json`, then hands its endpoint to children in `COMPUTER_USE_CDP_URL`)

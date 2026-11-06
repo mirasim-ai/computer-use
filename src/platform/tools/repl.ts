@@ -22,7 +22,7 @@ import { MAX_ACTIONS, MAX_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObser
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
 import { apiReference, platformReference, REPL_DESCRIPTION, RESET_DESCRIPTION } from "./repl-docs.ts";
-import { ComputerUseOwnership, OwnershipBusyError, type OwnershipProvider } from "../ownership.ts";
+import { ComputerUseOwnership, IDLE_RELEASE_MS, OwnershipBusyError, type OwnershipProvider } from "../ownership.ts";
 import type { MountedTarget, PlatformSlice, Slice, SurfaceHandle } from "./repl-state.ts";
 
 export type { PlatformSlice } from "./repl-state.ts";
@@ -33,7 +33,10 @@ const READ_KINDS = new Set(["observe", "find", "text", "value", "page", "screens
  *  beside this one): a frozen screen after them is not "no effect". */
 const OFF_SURFACE_KINDS = new Set(["dialog", "close_tab"]);
 
-export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?: boolean; ownership?: OwnershipProvider } = {}): ComputerUseToolSpec[] {
+export function createReplTools(
+  mounted: PlatformSlice[],
+  opts: { docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number } = {},
+): ComputerUseToolSpec[] {
   if (!mounted.length) throw new Error("createReplTools needs at least one platform");
   // ── Session state ─────────────────────────────────────────────────────────
   let sandbox: Context | null = null;
@@ -46,6 +49,12 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
   let resetPending = false;
   let callFinished = Promise.resolve();
   let callRunning = false;
+  /** Armed when a call ends: an idle runtime lets go of its claims (@see IDLE_RELEASE_MS). */
+  let idleTimer: NodeJS.Timeout | null = null;
+  /** The idle release in progress — a call that starts meanwhile waits for it, so the release
+   *  cannot delete a claim that call has just taken. */
+  let idleReleasing: Promise<void> | null = null;
+  const idleReleaseMs = opts.idleReleaseMs ?? IDLE_RELEASE_MS;
   let requestedHelp: string | null = null;
   let lastBound: SurfaceHandle | null = null;
   /** Which slice the last bind landed on — the one the end-of-run observation reads. */
@@ -623,7 +632,23 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
   });
   // What was granted for one call alone (ComputerUseDriver.endCall) ends with it, however the call ends.
   const runCall = repl.execute.bind(repl);
+  const disarmIdle = () => { if (idleTimer) clearTimeout(idleTimer); idleTimer = null; };
+  /** Claims only: handles, bindings and refs stay, and the next bind claims its target again
+   *  (`claim` runs on every bind) or is refused because another runtime took it meanwhile. */
+  const releaseIdle = () => {
+    idleTimer = null;
+    if (callRunning) return;
+    idleReleasing = (async () => {
+      try {
+        // A pointer still held down must come up first; one that cannot keeps every claim.
+        for (const sl of slices) await sl.driver.releaseInputResources();
+        await ownership.releaseAll();
+      } catch { /* kept, as if no time had passed */ }
+    })().finally(() => { idleReleasing = null; });
+  };
   repl.execute = async (params) => {
+    disarmIdle();
+    if (idleReleasing) await idleReleasing;
     callRunning = true;
     let finish!: () => void;
     callFinished = new Promise<void>(resolve => { finish = resolve; });
@@ -642,7 +667,13 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
           sl.driver.consentPurpose = null;
           sl.driver.permissionRefusal = null;
         }
-      } finally { callRunning = false; finish(); }
+      } finally {
+        callRunning = false;
+        finish();
+        disarmIdle();
+        idleTimer = setTimeout(releaseIdle, idleReleaseMs);
+        idleTimer.unref?.();
+      }
     }
   };
 
@@ -654,6 +685,7 @@ export function createReplTools(mounted: PlatformSlice[], opts: { docsDelivered?
     parameters: Type.Object({}),
     async execute(params) {
       const draining = callFinished;
+      disarmIdle();
       if (callRunning) resetPending = true;
       else {
         for (const sl of slices) await sl.driver.releaseInputResources();

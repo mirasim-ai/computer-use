@@ -9,6 +9,7 @@
 import type { TSchema } from "typebox";
 import type { ComputerUseDriver } from "../driver.ts";
 import { fnName } from "./api.ts";
+import { IDLE_RELEASE_MS } from "../ownership.ts";
 
 export const REPL_DESCRIPTION =
   // The first sentence names the surfaces in plain words: a client that finds tools by keyword
@@ -150,7 +151,7 @@ function parts(driver: ComputerUseDriver) {
     "    wait() returns true/false; awaiting it alone does NOT stop on timeout. Use expect() for a required postcondition, or check the result: if (!await w.wait({...})) throw new Error('condition not met');",
     "    which is what a GUESS at the wording is worth — an unguarded guess that no page ever matches costs the full 16s.",
     "  w.focus() — select w as the target for this runtime; target selection is not an OS-activation guarantee (see platform interaction notes)",
-    "  w.release() — release this target and its input resources for other sessions. Claims span calls until release, reset, turn end or process exit. Observe again before acting after handoff; old refs are invalidated. Separate windows can still share app/account/document state; ownership does not isolate those or a human editor.",
+    `  w.release() — release this target and its input resources for other sessions. Claims span calls until release, reset, turn end, process exit or ${IDLE_RELEASE_MS / 60_000} minutes with no call (the next call takes the target back unless another session has it by then). Observe again before acting after handoff; old refs are invalidated. Separate windows can still share app/account/document state; ownership does not isolate those or a human editor.`,
     "  w.expect({text, control, url, value, equals, ms}) — verify exactly ONE condition; value takes a ref/find handle and equals:string. Read-only polling, default 3000 ms, maximum 16000 ms. Returns true when verified; otherwise throws before subsequent steps. It never repeats the preceding action. Use it to verify save/submit results, not screen-change verdicts.",
     "  w.setText(t, text, {ifValue:previousValue}) — optional precondition: refuse before writing if the field changed or cannot be read. This is a checked precondition, not an atomic transaction with a human or another app.",
     "Action journal evidence: [verified] confirms the stated value/condition; [dispatched] only confirms delivery; [blocked] means no dispatch; [uncertain] may already have acted. Never replay an uncertain send/submit/delete; inspect its actual result first.",
