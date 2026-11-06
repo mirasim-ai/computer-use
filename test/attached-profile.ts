@@ -13,6 +13,7 @@
  * managed-chrome.ts, since the behaviour under test only exists against a real CDP.
  */
 
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,9 @@ import { chromium } from "playwright-core";
 import {
   acquireManagedBrowser,
   browserPids,
+  findChrome,
   killByProfileDir,
+  pingDevTools,
   readDevToolsPort,
 } from "../src/platform/browser/acquire.ts";
 import { BrowserDriver } from "../src/platform/browser/driver.ts";
@@ -51,6 +54,41 @@ async function windowCount(cdpUrl: string): Promise<number> {
   }
 }
 
+/**
+ * Start "the user's browser" the way the user starts theirs: a plain Chrome on the profile, there
+ * before the agent shows up, which the attached acquire then ADOPTS.
+ *
+ * 🔴 Not by an attached acquire: that launch leaves the keychain flags out on purpose (the user's
+ * cookies are under the REAL key, acquire.ts), so on this throwaway profile Chrome went to the
+ * login keychain — from an agent's shell that is the system dialog "找不到用于储存“Chrome”的钥匙串"
+ * on the developer's screen on every run, whose default button resets their login keychain. A
+ * stand-in has no real cookies to keep, so it stays out of the keychain as the managed browser
+ * does. Port 0, not spawnChrome's fixed port: only then does Chrome write the DevToolsActivePort
+ * file the attached acquire finds it by.
+ */
+async function startUsersBrowser(profile: string): Promise<void> {
+  const exe = findChrome();
+  if (!exe) throw new Error("no Chrome to stand in for the user's browser");
+  const child = spawn(exe, [
+    `--user-data-dir=${profile}`,
+    "--remote-debugging-port=0",
+    "--no-first-run",
+    "--no-default-browser-check",
+    ...(process.platform === "darwin" ? ["--use-mock-keychain"]
+      : process.platform === "linux" ? ["--password-store=basic"]
+      : []),
+    "about:blank",
+  ], { stdio: "ignore", detached: true });
+  child.unref();
+  for (let i = 0; i < 75; i++) {
+    const port = readDevToolsPort(profile);
+    if (port !== null && (await pingDevTools(port))) return;
+    if (child.exitCode !== null) throw new Error(`the stand-in Chrome exited (code ${child.exitCode})`);
+    await sleep(200);
+  }
+  throw new Error("the stand-in Chrome never published a debugging port");
+}
+
 async function main() {
   const profile = mkdtempSync(join(tmpdir(), "computer-use-attached-"));
   const prevAttached = process.env.COMPUTER_USE_ATTACHED;
@@ -61,12 +99,11 @@ async function main() {
   process.env.COMPUTER_USE_WINDOW = "offscreen";
 
   try {
-    // "The user's browser": acquired in attached mode, so its first window stays where they
-    // could see it rather than being parked off-screen.
+    await startUsersBrowser(profile);
+    const port = readDevToolsPort(profile);
     const user = await acquireManagedBrowser(profile);
     check("attached acquire connects", user.browser.isConnected());
-    const port = readDevToolsPort(profile);
-    check("the browser published a port", port !== null, String(port));
+    check("attached acquire adopts the user's running browser", user.cdpUrl === `http://127.0.0.1:${port}`, user.cdpUrl);
 
     // The user is working in a tab of their own.
     const userCtx = user.browser.contexts()[0]!;
