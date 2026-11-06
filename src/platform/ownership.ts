@@ -12,8 +12,9 @@
  * One store per machine user (`<sharedHome>/ownership/claims.sqlite`), whatever home a host
  * names: every runtime that can reach the same screen and browsers arbitrates in it, whether a
  * desktop app, a standalone MCP session or a second build of either started it. */
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { OwnershipResource } from "./types.ts";
@@ -47,9 +48,36 @@ function alive(pid: number): boolean {
   catch (e) { return (e as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
 
+/**
+ * When the process now holding `pid` started, as an opaque string compared only for equality;
+ * "" when it cannot be read (Windows, or a process gone), which never proves anything. A pid
+ * alone is not an identity: the OS hands a dead owner's pid to a new process, and its claims
+ * would then look held forever. Linux reads `/proc` (clock ticks since boot); elsewhere `ps`,
+ * in a fixed locale and zone so two runtimes spell the same start alike.
+ */
+function processStart(pid: number): string {
+  if (process.platform === "win32") return "";
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      // Field 22, counted after the `(comm)` field, which may itself hold spaces and parens.
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? "";
+    } catch { /* fall through to ps */ }
+  }
+  try {
+    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
 export class ComputerUseOwnership implements OwnershipProvider {
   private readonly owner = randomUUID();
   private db: DatabaseSync | null = null;
+  private started: string | null = null;
 
   private async database(): Promise<DatabaseSync> {
     if (this.db) return this.db;
@@ -64,7 +92,16 @@ export class ComputerUseOwnership implements OwnershipProvider {
       + "resource TEXT NOT NULL, owner TEXT NOT NULL, group_id TEXT NOT NULL, pid INTEGER NOT NULL, "
       + "mode TEXT NOT NULL, PRIMARY KEY(resource, owner, group_id)); "
       + "CREATE TABLE IF NOT EXISTS executors (owner TEXT NOT NULL, runtime INTEGER NOT NULL, "
-      + "pid INTEGER NOT NULL, PRIMARY KEY(owner, pid))");
+      + "pid INTEGER NOT NULL, PRIMARY KEY(owner, pid)); "
+      // `runtimes`: when each owner's process started, so a pid the OS has since handed to
+      // another process does not keep a dead owner's claims alive. Owners written by a build
+      // without this table have no row and are judged by pid alone, as before.
+      + "CREATE TABLE IF NOT EXISTS runtimes (owner TEXT PRIMARY KEY, pid INTEGER NOT NULL, started TEXT NOT NULL)");
+    this.started ??= processStart(process.pid);
+    db.prepare("INSERT OR REPLACE INTO runtimes VALUES (?,?,?)").run(this.owner, process.pid, this.started);
+    for (const r of db.prepare("SELECT owner,pid FROM runtimes").all() as unknown as { owner: string; pid: number }[]) {
+      if (!alive(r.pid)) db.prepare("DELETE FROM runtimes WHERE owner=?").run(r.owner);
+    }
     const rows = db.prepare("SELECT owner,runtime,pid FROM executors").all() as unknown as { owner: string; runtime: number; pid: number }[];
     for (const r of rows) {
       if (!alive(r.runtime) && !alive(r.pid)) db.prepare("DELETE FROM executors WHERE owner=? AND pid=?").run(r.owner, r.pid);
@@ -75,9 +112,17 @@ export class ComputerUseOwnership implements OwnershipProvider {
 
   /** The runtime and every helper it registered have exited. */
   private gone(db: DatabaseSync, owner: string, pid: number): boolean {
-    if (alive(pid)) return false;
+    if (alive(pid) && !this.reused(db, owner, pid)) return false;
     const helpers = db.prepare("SELECT pid FROM executors WHERE owner=?").all(owner) as unknown as { pid: number }[];
     return !helpers.some((h) => alive(h.pid));
+  }
+
+  /** The owner's pid now names a process that started at another time than the owner did. */
+  private reused(db: DatabaseSync, owner: string, pid: number): boolean {
+    const row = db.prepare("SELECT started FROM runtimes WHERE owner=? AND pid=?").get(owner, pid) as { started: string } | undefined;
+    if (!row?.started) return false;
+    const now = processStart(pid);
+    return now !== "" && now !== row.started;
   }
 
   async claim(group: string, resources: OwnershipResource[]): Promise<void> {
@@ -91,6 +136,7 @@ export class ComputerUseOwnership implements OwnershipProvider {
           if (this.gone(db, row.owner, row.pid)) {
             db.prepare("DELETE FROM claims WHERE owner=?").run(row.owner);
             db.prepare("DELETE FROM executors WHERE owner=?").run(row.owner);
+            db.prepare("DELETE FROM runtimes WHERE owner=?").run(row.owner);
           } else if (resource.mode === "exclusive" || row.mode === "exclusive") {
             throw new OwnershipBusyError(resource.key);
           }
@@ -113,6 +159,7 @@ export class ComputerUseOwnership implements OwnershipProvider {
   async releaseAll(): Promise<void> {
     if (!this.db) return;
     this.db.prepare("DELETE FROM claims WHERE owner=?").run(this.owner);
+    this.db.prepare("DELETE FROM runtimes WHERE owner=?").run(this.owner);
     this.db.close();
     this.db = null;
   }

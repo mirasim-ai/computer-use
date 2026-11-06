@@ -8,7 +8,8 @@
  *     while a call runs;
  *   · its next call takes the target back when nobody else did, and is refused when another
  *     runtime took it meanwhile — the stale-MCP-server case: a host that keeps an idle server
- *     alive must not hold a window from the next session.
+ *     alive must not hold a window from the next session;
+ *   · a dead owner whose pid the OS has handed to another process is gone, not alive.
  */
 
 import { MacosDriver } from "../src/platform/macos/driver.ts";
@@ -16,6 +17,9 @@ import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ComputerUseOwnership, type OwnershipProvider } from "../src/platform/ownership.ts";
 import type { OwnershipResource } from "../src/platform/types.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -86,6 +90,33 @@ async function main() {
     check("…and A's next call is refused instead of acting under B", /in use by another runtime/.test(lost), lost.split("\n")[0]);
     await a.driver.close();
     await b.driver.close();
+  }
+
+  // ── A pid is not an identity ─────────────────────────────────────────────────────────
+  // The owner below is alive (it is this process), so to stand for a dead owner whose pid was
+  // reused, its recorded start is rewritten: the pid now names a process that started later.
+  {
+    const res = [{ key: "test:pid-reuse", mode: "exclusive" as const }];
+    const a = new ComputerUseOwnership();
+    await a.claim("g", res);
+    const b = new ComputerUseOwnership();
+    const refused = await b.claim("g", res).then(() => "taken", (e: Error) => e.name);
+    check("a live owner's claim is refused", refused === "OwnershipBusyError", refused);
+    if (process.platform === "win32") {
+      console.log("SKIP  pid reuse: Windows records no process start (judged by pid alone)");
+    } else {
+      const db = new DatabaseSync(join(homedir(), ".mirasim-computer-use", "ownership", "claims.sqlite"));
+      const rows = db.prepare("SELECT started FROM runtimes").all() as unknown as { started: string }[];
+      check("each owner records when its process started", rows.length >= 2 && rows.every((r) => r.started !== ""), JSON.stringify(rows));
+      // Every row is rewritten (owner ids are private), which is harmless for B: a runtime
+      // never consults its own row, only those of the owners it contends with.
+      db.prepare("UPDATE runtimes SET started='Thu Jan  1 00:00:00 1970'").run();
+      db.close();
+      const took = await b.claim("g", res).then(() => "taken", (e: Error) => e.name);
+      check("a claim whose pid now names a process started at another time is taken over", took === "taken", took);
+    }
+    await a.releaseAll();
+    await b.releaseAll();
   }
 
   console.log(failures ? `\n${failures} check(s) failed` : "\nall ownership checks passed");
