@@ -203,14 +203,17 @@ export class BrowserDriver extends BrowserDriverVerbs {
       // window, and every one left behind is litter in a borrowed browser. A VERB, deliberately
       // with no lifecycle behind it: most hosts announce no turn end, `extension/group.js` makes
       // the group DURABLE so the next session adopts what is in it, and a tab can be waiting for
-      // the person (a security-key prompt) when the turn ends. So the description tells the
-      // model to tidy up itself, by the policy its host states (Mirasim says it in call results).
+      // the person (a security-key prompt) when the turn ends. So nothing closes them, and the
+      // description has the model close them only when its host states a policy that asks for it
+      // (Mirasim says it in call results) or the user asks. By default they stay: a model that
+      // tidied up "once the job was done" closed its tab between turns of one task and had to
+      // reopen it for the next.
       { kind: "close_tab", schema: Type.Object({
         kind: Type.Literal("close_tab"),
         id: Type.Optional(Type.String({ description: "Tab id from computer.surfaces(); omit to close the one you are on" })),
-        all: Type.Optional(Type.Boolean({ description: "Close every tab this session opened or claimed — the tidy-up at the end of a job. Never the user's own, whatever else is set. Refused together with id." })),
+        all: Type.Optional(Type.Boolean({ description: "Close every tab this session opened or claimed — for a tidy-up the host's tab policy or the user asks for. Never the user's own, whatever else is set. Refused together with id." })),
         confirmed: Type.Optional(Type.Boolean({ description: "Only for a tab marked (user's): you ASKED the user in the conversation and they said yes. Never set it because closing would be convenient — the first refusal tells you to ask, and asking is the point." })),
-      }, { description: "Close a tab: the tabs you open outlive your turn and nothing closes them for you, so follow the tab policy the host states (if it states none, close your own once the job is done), and leave open a page that is waiting for the person (a sign-in, a security-key or 2FA prompt, a form for them to confirm). This session's own always; one of the user's (marked (user's) in the listing) only after you asked them in the conversation and they agreed — then pass confirmed: true." }) },
+      }, { description: "Close a tab: the tabs you open outlive your turn and nothing closes them for you. Leave them open unless the host states a tab policy that asks you to close them, or the user asks — the person may want to see the page, and a later turn may need it again. Never close a page that is waiting for the person (a sign-in, a security-key or 2FA prompt, a form for them to confirm). This session's own always; one of the user's (marked (user's) in the listing) only after you asked them in the conversation and they agreed — then pass confirmed: true." }) },
       // The one thing a virtualized list actually responds to. See the perform branch for the
       // measurement and for why the order (set, THEN navigate) is the whole contract.
       { kind: "viewport", schema: Type.Object({
