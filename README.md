@@ -46,6 +46,23 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
 
 or install the `mirasim-cu` command once with `npm install -g @mirasim/computer-use`.
 
+In Codex, add it to `~/.codex/config.toml`, and approve both tools: Codex asks before every
+MCP call by default, and when it is set never to ask (`approval_policy = "never"`) a tool
+without `approval_mode = "approve"` is refused outright — `computer_repl_reset` included,
+which is the call a stuck session reaches for:
+
+```toml
+[mcp_servers.mirasim-cu]
+command = "npx"
+args = ["-y", "@mirasim/computer-use", "mcp"]
+
+[mcp_servers.mirasim-cu.tools.computer_repl]
+approval_mode = "approve"
+
+[mcp_servers.mirasim-cu.tools.computer_repl_reset]
+approval_mode = "approve"
+```
+
 **Browser** works out of the box: computer-use drives a Chrome of its own (installed Google
 Chrome is required), keeping its profile under `~/.mirasim-computer-use` so logins carry over
 between sessions. To drive the browser you are signed into instead, install the
