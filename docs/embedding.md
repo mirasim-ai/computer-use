@@ -381,6 +381,13 @@ falls back to a managed browser: when the extension is not connected, the error 
 including when the Mirasim desktop app's bridge holds it (the extension serves one bridge at
 a time, and the desktop app's comes first).
 
+The bridge attaches Chrome's debugger only to tabs being driven: the agent's own (the tab group)
+and a tab of yours that a session has bound. Your other tabs are listed by `computer.surfaces()`
+but carry no debugger, so the page keeps your color scheme and its dialogs stay yours; binding
+one attaches it, and it is let go of when the session moves to another tab, goes idle (two
+minutes) or ends. While any tab is attached Chrome shows its "started debugging this browser"
+bar; launching Chrome with `--silent-debugger-extension-api` hides it.
+
 Chrome reaches the bridge through native messaging. `bridge --native-host` writes a manifest
 into every Chromium-family browser it finds (Chrome, Edge, Brave, Arc, Vivaldi, Opera, …) and
 repeats that while no extension is connected, so a browser installed later is covered;

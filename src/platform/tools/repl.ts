@@ -645,6 +645,9 @@ export function createReplTools(
         // A pointer still held down must come up first; one that cannot keeps every claim.
         for (const sl of slices) await sl.driver.releaseInputResources();
         await ownership.releaseAll();
+        // After the claims, never instead of them: a tab bound for the task goes back to its
+        // owner while nothing drives it, and the next bind takes it again.
+        for (const sl of slices) await sl.driver.releaseIdle().catch(() => {});
       } catch { /* kept, as if no time had passed */ }
     })().finally(() => { idleReleasing = null; });
   };

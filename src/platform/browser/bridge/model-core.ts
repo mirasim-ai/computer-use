@@ -89,6 +89,8 @@ export abstract class BridgeModelCore {
 
   onTabCreated(tab: BridgeTab, opener: { agent?: boolean } = {}): void {
     if (tab.id === undefined) return;
+    // The extension announces a tab again on later navigations; only the first time is a new tab.
+    const appeared = !this.knownTabs.has(tab.id);
     this.knownTabs.set(tab.id, tab);
     if (opener.agent) this.agentTabs.add(tab.id);
     // Announcing an unloaded renderer makes Playwright wait for its initialization and blocks
@@ -101,21 +103,51 @@ export abstract class BridgeModelCore {
       return;
     }
     for (const client of this.clients) {
-      if (client.autoAttach)
+      if (this.wants(client, tab.id))
         void this.attachAndAnnounce(client, tab.id).catch((e) => this.log("auto-attach failed:", e));
     }
+    if (appeared) void this.holdPopup(tab.id).catch((e) => this.log("opener lookup failed:", e));
+  }
+
+  /**
+   * A tab opened from a page a client drives (a popup, a `target=_blank` link) is part of what
+   * that client is doing, as on any other endpoint: it is held for the client and announced.
+   *
+   * The opener is CDP's `openerId`, which only the new tab's own debugger session reports
+   * (`chrome.debugger` refuses `Target.getTargetInfo` for another target), so the tab is attached
+   * to read it and let go of again when it is not a popup of a driven page. Not `chrome.tabs`'
+   * `openerTabId`: that is the tab strip's opener, and for a link followed in a background tab it
+   * names whichever tab was in front. Looked up only for a tab that just appeared while some
+   * client drives a page — no other tab can have been opened by one.
+   */
+  private async holdPopup(tabId: number): Promise<void> {
+    const drivers = [...this.clients].filter((client) => client.autoAttach && client.sessionByTabId.size > 0);
+    if (!drivers.length || this.attachments.has(tabId)) return;
+    const attachment = await this.ensureAttached(tabId);
+    const openerId = attachment.targetInfo.openerId;
+    const opener = typeof openerId === "string"
+      ? [...this.attachments.values()].find((a) => a.targetInfo.targetId === openerId)?.tabId : undefined;
+    const holders = opener === undefined ? [] : drivers.filter((client) => client.sessionByTabId.has(opener));
+    for (const client of holders) {
+      client.heldTabs.add(tabId);
+      this.announce(client, attachment);
+    }
+    if (!holders.length) this.releaseUnusedTab(tabId);
   }
 
   onTabRemoved(tabId: number): void {
     this.knownTabs.delete(tabId);
     this.agentTabs.delete(tabId);
+    for (const client of this.clients) client.heldTabs.delete(tabId);
     this.dropTab(tabId);
   }
 
   onTabReplaced(addedTabId: number, removedTabId: number): void {
     const own = this.agentTabs.has(removedTabId);
+    const holders = [...this.clients].filter((client) => client.heldTabs.has(removedTabId));
     this.onTabRemoved(removedTabId);
     if (own) this.agentTabs.add(addedTabId);
+    for (const client of holders) client.heldTabs.add(addedTabId);
     // The extension follows with the new tab's metadata. Never reuse the old renderer id.
   }
 
@@ -196,7 +228,7 @@ export abstract class BridgeModelCore {
    * not only ATTACHED tabs (a tab is detached once no client drives it, so that would answer
    * "no pages" with the whole group open — and `hasPageTarget` believes it).
    */
-  async listTargets(): Promise<Array<{ id: string; tabId: number; type: string; url: string; title: string; unloaded: boolean }>> {
+  async listTargets(client?: BridgeClient): Promise<Array<{ id: string; tabId: number; type: string; url: string; title: string; unloaded: boolean; held?: boolean }>> {
     await this.reconcileKnownTabs();
     let live: BridgeTab[] = [];
     try {
@@ -205,7 +237,7 @@ export abstract class BridgeModelCore {
       this.log("live tab query failed:", e);
     }
     const byId = new Map(live.filter((t) => t.id !== undefined).map((t) => [t.id!, t]));
-    const out: Array<{ id: string; tabId: number; type: string; url: string; title: string; unloaded: boolean }> = [];
+    const out: Array<{ id: string; tabId: number; type: string; url: string; title: string; unloaded: boolean; held?: boolean }> = [];
     for (const tabId of this.knownTabs.keys()) {
       const tab = byId.get(tabId);
       const info = this.attachments.get(tabId)?.targetInfo;
@@ -218,12 +250,36 @@ export abstract class BridgeModelCore {
         url: tab?.url ?? (typeof info?.url === "string" ? info.url : ""),
         title: tab?.title ?? (typeof info?.title === "string" ? info.title : ""),
         unloaded: tabIsUnloaded(tab ?? this.knownTabs.get(tabId)!),
+        // Asked by a client: whether it has this tab as a page. One it does not is listed only,
+        // and binding it is `Mirasim.restoreTab`.
+        ...(client ? { held: client.sessionByTabId.has(tabId) } : {}),
       });
     }
     return out;
   }
 
+  /**
+   * Hand back a tab this client bound, as if it had never asked: its page goes away for this
+   * client alone, and the debugger leaves the tab once no other client drives it. The agent's own
+   * tabs are not released this way — every client is handed those.
+   */
+  releaseClientTab(client: BridgeClient, tabId: number): void {
+    if (this.agentTabs.has(tabId)) return;
+    client.heldTabs.delete(tabId);
+    const attachment = this.attachments.get(tabId);
+    const alias = client.dropTab(tabId);
+    if (alias && attachment) client.send({ method: "Target.detachedFromTarget", params: { sessionId: alias, targetId: attachment.targetInfo.targetId } });
+    this.releaseUnusedTab(tabId);
+  }
+
   // ─── Internals ────────────────────────────────────────────────────────
+
+  /** Does auto-attach hand this client the tab? The agent's tabs (every client is told of
+   *  those) and the ones it asked for ({@link BridgeClient.heldTabs}) — never the rest of the
+   *  user's browsing, which stays listed and unattached until a client binds it. */
+  protected wants(client: BridgeClient, tabId: number): boolean {
+    return client.autoAttach && (this.agentTabs.has(tabId) || client.heldTabs.has(tabId));
+  }
 
   protected releaseUnusedTab(tabId: number): void {
     if (!this.attachments.has(tabId) || [...this.clients].some((client) =>

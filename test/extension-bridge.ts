@@ -8,6 +8,8 @@
  *  - tabs OUTSIDE the group ARE visible to bridge clients, and the group
  *    says whose each tab is: the driver lists the user's too, marked `own: false`,
  *    and refuses to close them;
+ *  - a user's tab is only LISTED until a session binds it: no debugger on it before, one while
+ *    it is driven, none again once the session moves on or goes idle;
  *  - `newCDPSession` works (virtual sessions) and window-management commands are
  *    answered with fakes, never forwarded to the user's real window;
  *  - two CDP clients share the one browser.
@@ -28,7 +30,7 @@ import { chromium } from "playwright-core";
 import { BridgeServer } from "../src/platform/browser/bridge/server.ts";
 import { MIRASIM_EXTENSION_ID, extensionDir, extensionIdFromKey } from "../src/platform/browser/bridge/extension-id.ts";
 import { createDriver } from "../src/platform/registry.ts";
-import { createHarness } from "./harness.ts";
+import { createHarness, firstText } from "./harness.ts";
 import { spawnChrome, sleep } from "./helpers.ts";
 import { RawCdp, evalInExtension, findLoadableChromium, servePages } from "./rig.ts";
 
@@ -54,6 +56,7 @@ async function main() {
     "/outside": "<title>outside</title><h1>USER TAB</h1><a id=pop href=/popup target=_blank>pop</a>",
     "/popup": "<title>user popup</title>",
     "/two": "<title>from client two</title>",
+    "/reading": "<title>user reading</title><h1>THE USER'S PAGE</h1>",
     "/upload": `<title>upload</title><input type=file id=f>
       <button id=pick onclick="document.getElementById('f').click()">Pick a file</button><div id=out>none</div>
       <script>document.getElementById('f').onchange=e=>{document.getElementById('out').textContent='got: '+e.target.files[0].name}</script>`,
@@ -67,7 +70,8 @@ async function main() {
 
   /** Everything the bridge said about itself — the stall probe is asserted against this. */
   const bridgeLog: string[] = [];
-  const chrome = await spawnChrome({ binary, extraArgs: [`--load-extension=${extensionDir()}`] });
+  // Dark, like a user's browser can be: a tab the agent binds must keep it (cdp-connection.ts).
+  const chrome = await spawnChrome({ binary, extraArgs: [`--load-extension=${extensionDir()}`, "--force-dark-mode"] });
   const server = new BridgeServer({
     // Keep the sink wired: a stall on the extension side is the one failure the client's
     // timeout cannot explain, and the stall probe below is asserted against it.
@@ -114,11 +118,14 @@ async function main() {
     // ── Standard CDP client via the HTTP façade ─────────────────────────
     browser1 = await chromium.connectOverCDP(server.cdpUrl());
     const ctx1 = browser1.contexts()[0]!;
-    const deadline = Date.now() + 5000;
-    while (!ctx1.pages().length && Date.now() < deadline) await sleep(100);
-    // Not a count: the client sees whatever the browser already had open (the rig's own
-    // about:blank, the connect page until it closes itself), so `=== 1` would flake.
-    check("the user's open tabs are visible to the client", ctx1.pages().length >= 1, `${ctx1.pages().length} pages`);
+    // Not a count: the browser has whatever it already had open (the rig's own about:blank, the
+    // connect page until it closes itself), so `=== 1` would flake.
+    const atConnectList = (await (await fetch(`${server.cdpUrl()}/json/list`)).json()) as Array<{ url: string }>;
+    check("the user's open tabs are listed", atConnectList.length >= 1, `${atConnectList.length} targets`);
+    await sleep(500);
+    // Listed, not attached: a debugger on a tab nobody drives turned it light (Playwright's media
+    // emulation) and answered its dialogs, and none of these is the agent's.
+    check("...and none of them is attached for the client", ctx1.pages().length === 0, `${ctx1.pages().length} pages`);
 
     // ── Drive a page end to end ─────────────────────────────────────────
     const page = await ctx1.newPage();
@@ -233,8 +240,11 @@ async function main() {
     const userPage = await probe.contexts()[0]!.newPage();
     await userPage.goto(OUTSIDE_URL);
     await sleep(1200);
+    const listedOutside = (await (await fetch(`${server.cdpUrl()}/json/list`)).json()) as Array<{ url: string }>;
+    check("a tab outside the group IS listed", listedOutside.some((t) => t.url === OUTSIDE_URL),
+      JSON.stringify(listedOutside.map((t) => t.url)));
     const seen = ctx1.pages().map((p) => p.url());
-    check("a tab outside the group IS visible to the client", seen.includes(OUTSIDE_URL), JSON.stringify(seen));
+    check("...but not handed to a client that never bound it", !seen.includes(OUTSIDE_URL), JSON.stringify(seen));
 
     // A link the USER opens from their own tab is theirs too. With a client attached the bridge
     // attaches the new tab the moment it is created, before any navigation could mark it, so it
@@ -314,6 +324,74 @@ async function main() {
 
     await scopeDriver.close();
     await probe.close();
+
+    // ── A user tab carries a debugger only while a session drives it ────
+    // The probe above is gone, so Chrome's own `attached` flag now speaks for the bridge alone
+    // (rawCdp holds the extension's worker, never a tab). ctx1 still drives the agent's page.
+    const READING_URL = pages.url("/reading");
+    const readingTab = await evalInExtension(rawCdp!,
+      `chrome.tabs.create({ url: ${JSON.stringify(READING_URL)}, active: false }).then((t) => t.id)`) as number;
+    const debuggerOn = async (tabId: number): Promise<boolean> => await evalInExtension(rawCdp!,
+      `chrome.debugger.getTargets().then((ts) => ts.some((t) => t.tabId === ${tabId} && t.attached))`) as boolean;
+    await sleep(1200);
+    check("a user's tab nobody bound has no debugger, with a client connected", !(await debuggerOn(readingTab)));
+    const agentDebugged = await evalInExtension(rawCdp!,
+      `chrome.debugger.getTargets().then((ts) => ts.some((t) => t.url === ${JSON.stringify(PAGE_URL)} && t.attached))`);
+    check("...while the agent's own page keeps one", agentDebugged === true);
+
+    const bindDriver = createDriver("browser", {
+      cdpUrl: server.cdpUrl(), browser: { cdpUrl: server.cdpUrl(), cdpStrict: true },
+      env: { ...process.env, COMPUTER_USE_CDP_URL: server.cdpUrl(), COMPUTER_USE_CDP_STRICT: "1" },
+    });
+    try {
+      const listing = await bindDriver.listTargets();
+      const reading = listing.find((t) => t.title === "user reading");
+      check("the unattached user tab is listed by its title, as the user's", !!reading && reading.own === false && !reading.unloaded,
+        JSON.stringify(listing.map((t) => `${t.id}:${t.title}:${t.own}`)));
+      check("listing it attached nothing", !(await debuggerOn(readingTab)));
+
+      // What the repl does on a bind: select, claim, then prepare — and only prepare attaches.
+      const bound = await bindDriver.focusTarget(reading!.id);
+      check("binding it is accepted", bound.ok === true, JSON.stringify(bound));
+      check("...and selecting it attaches nothing yet", !(await debuggerOn(readingTab)));
+      await bindDriver.prepareTarget();
+      check("preparing the bound tab attaches it", await debuggerOn(readingTab));
+      const read = firstText(await bindDriver.observeFullText());
+      check("...and reads THAT page", read.includes("THE USER'S PAGE"), read.slice(0, 120));
+      check("...with the id it was listed under", (await bindDriver.activeTarget()) === reading!.id);
+      const scheme = await bindDriver.perform("run_js", { code: `matchMedia("(prefers-color-scheme: dark)").matches` });
+      check("...and the bound tab keeps the user's dark color scheme", scheme.value === true, JSON.stringify(scheme));
+
+      // Idle: the tab goes back, and the next bind takes it again under the same id.
+      await bindDriver.releaseIdle();
+      await sleep(300);
+      check("going idle lets the user's tab go", !(await debuggerOn(readingTab)));
+      check("...and keeps it selected", (await bindDriver.activeTarget()) === reading!.id);
+      await bindDriver.prepareTarget();
+      const again = firstText(await bindDriver.observeFullText());
+      check("the next bind reads it again", again.includes("THE USER'S PAGE") && await debuggerOn(readingTab), again.slice(0, 120));
+
+      // Moving on: only the tab being driven keeps a debugger.
+      const fresh = await bindDriver.perform("new_tab", {});
+      check("new_tab moves the session to a tab of its own", fresh.ok === true, JSON.stringify(fresh));
+      await sleep(300);
+      check("moving on lets the user's tab go", !(await debuggerOn(readingTab)));
+      const relisted = await bindDriver.listTargets();
+      check("...and lists it again under the same id", relisted.some((t) => t.id === reading!.id && t.own === false),
+        JSON.stringify(relisted.map((t) => `${t.id}:${t.own}`)));
+
+      // close_tab reaches a listed tab with no page the same way: refused, then closed on the user's word.
+      const refusedListed = await bindDriver.perform("close_tab", { id: reading!.id });
+      check("close_tab refuses an unattached user tab too", refusedListed.ok === false && /user's own tab/.test(refusedListed.note ?? ""),
+        JSON.stringify(refusedListed));
+      const closedListed = await bindDriver.perform("close_tab", { id: reading!.id, confirmed: true });
+      await sleep(300);
+      const readingGone = await evalInExtension(rawCdp!, `chrome.tabs.get(${readingTab}).then((t) => t.id, () => null)`);
+      check("...and closes it once confirmed, without attaching", closedListed.ok === true && readingGone === null,
+        `${JSON.stringify(closedListed)}; tab ${readingGone}`);
+    } finally {
+      await bindDriver.close().catch(() => {});
+    }
 
     // ── Second CDP client shares the same browser ───────────────────────
     browser2 = await chromium.connectOverCDP(server.cdpUrl());
@@ -485,8 +563,8 @@ async function main() {
     check("a browser-scoped command is answered with nothing attached", coldCookies === "", coldCookies);
     rawCold.close();
 
-    // Connecting works cold: playwright sends `Target.setAutoAttach` first, which attaches every
-    // known tab before any browser-scoped command is sent.
+    // Connecting works cold: playwright sends `Target.setAutoAttach` first, which attaches the
+    // agent's tabs (none here) and its root `Target.getTargetInfo` is answered by the virtual root.
     const cold = await chromium.connectOverCDP(server.cdpUrl());
     check("a client can connect while nothing is attached", cold.contexts().length > 0, `${cold.contexts().length} contexts`);
     await cold.close();

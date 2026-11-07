@@ -14,10 +14,10 @@ import { BridgeClient, FAKE_WINDOW, tabIsUnloaded, type BridgeTab, type TabAttac
 import { BridgeModelCore } from "./model-core.ts";
 import { hostname } from "node:os";
 
-type RestoredTab = { targetId: string; viewport?: { width: number; height: number } };
+type RestoredTab = { targetId: string; reloaded: boolean; viewport?: { width: number; height: number } };
 
 export abstract class BridgeModelCommands extends BridgeModelCore {
-  private readonly restoringTabs = new Map<string, Promise<RestoredTab>>();
+  private readonly restoringTabs = new Map<string, Promise<{ attachment: TabAttachment; result: RestoredTab }>>();
   // ─── Client → model commands ──────────────────────────────────────────
 
   /**
@@ -30,12 +30,30 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
     const p = (params ?? {}) as Record<string, unknown>;
     switch (method) {
       case "Mirasim.tabs":
-        return { tabs: await this.listTargets(), browserSession: this.browserSession };
+        return { tabs: await this.listTargets(client), browserSession: this.browserSession };
       case "Mirasim.tabTarget": {
         return { targetId: await this.tabTarget(Number(p.tabId), String(p.browserSession ?? "")) };
       }
-      case "Mirasim.restoreTab":
-        return await this.restoreTab(Number(p.tabId), String(p.targetId ?? ""), String(p.browserSession ?? ""));
+      case "Mirasim.restoreTab": {
+        const { attachment, result } = await this.restoreTab(Number(p.tabId), String(p.targetId ?? ""), String(p.browserSession ?? ""));
+        // To the client that bound it, and only that one: another client asks for itself.
+        client.heldTabs.add(attachment.tabId);
+        this.announce(client, attachment);
+        return result;
+      }
+      case "Mirasim.releaseTab": {
+        this.assertBrowserSession(String(p.browserSession ?? ""));
+        this.releaseClientTab(client, Number(p.tabId));
+        return {};
+      }
+      case "Mirasim.closeTab": {
+        // A listed tab no client attached: closing it is `chrome.tabs.remove`, no debugger needed.
+        this.assertBrowserSession(String(p.browserSession ?? ""));
+        const tabId = Number(p.tabId);
+        if (!this.knownTabs.has(tabId)) throw new Error(`Tab ${tabId} was closed; list tabs again.`);
+        await this.sendToExtension("chrome.tabs.remove", [tabId]);
+        return {};
+      }
       case "Browser.getVersion":
         return { protocolVersion: "1.3", product: "Chrome/mirasim-bridge", userAgent: "mirasim-bridge/1.0" };
       case "Browser.setDownloadBehavior":
@@ -149,14 +167,17 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
   }
 
   /**
-   * Attach every known tab and announce each to this client; new tabs follow. Reconciles against
-   * LIVE tabs first: a tab closed while nothing was watching it can leave a ghost in `knownTabs`,
-   * and a ghost hands the client a page whose renderer is gone, where `evaluate` never returns.
+   * Attach the tabs this client is handed ({@link wants}: the agent's, and any it asked for) and
+   * announce each; new ones follow. The user's other tabs are listed (`Mirasim.tabs`), never
+   * attached: a debugger on a tab nobody drives turned it light (Playwright's media emulation)
+   * and answered its dialogs. Reconciles against LIVE tabs first: a tab closed while nothing was
+   * watching it can leave a ghost in `knownTabs`, and a ghost hands the client a page whose
+   * renderer is gone, where `evaluate` never returns.
    */
   private async enableAutoAttach(client: BridgeClient): Promise<void> {
     client.autoAttach = true;
     await this.reconcileKnownTabs();
-    const tabIds = [...this.knownTabs].filter(([, tab]) => !tabIsUnloaded(tab)).map(([id]) => id);
+    const tabIds = [...this.knownTabs].filter(([id, tab]) => !tabIsUnloaded(tab) && this.wants(client, id)).map(([id]) => id);
     await Promise.all(tabIds.map((tabId) => this.attachAndAnnounce(client, tabId).catch((e) => this.log("attach failed:", e))));
   }
 
@@ -184,7 +205,7 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
           this.dropTab(tabId);
           void this.sendToExtension("bridge.releaseTab", [tabId]).catch((e) => this.log("release unloaded tab failed:", e));
         } else if (wasUnloaded && !tabIsUnloaded(tab)) {
-          for (const client of this.clients) if (client.autoAttach)
+          for (const client of this.clients) if (this.wants(client, tabId))
             void this.attachAndAnnounce(client, tabId).catch((e) => this.log("restored tab attach failed:", e));
         }
       }
@@ -192,7 +213,7 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
   }
 
   /** This browser-side identity query does not attach or wake an unloaded renderer. */
-  private assertBrowserSession(expected: string): void {
+  protected assertBrowserSession(expected: string): void {
     if (!expected || !this.browserSession) throw new Error("Reload the Mirasim extension before restoring tabs: this connection has no browser-session identity.");
     if (expected !== this.browserSession) throw new Error("The browser restarted; list tabs and bind the intended target again.");
   }
@@ -213,21 +234,25 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
     return target.id;
   }
 
-  /** Restore only a caller-selected tab, in the background, after it has claimed the target. */
-  private restoreTab(tabId: number, expectedTargetId: string, browserSession: string): Promise<RestoredTab> {
+  /**
+   * Attach a caller-selected tab after it has claimed the target, reloading it in the background
+   * first when Chrome had unloaded it. The caller announces it to the client that asked.
+   */
+  private restoreTab(tabId: number, expectedTargetId: string, browserSession: string): Promise<{ attachment: TabAttachment; result: RestoredTab }> {
     this.assertBrowserSession(browserSession);
     const key = `${browserSession}:${tabId}`;
     const existing = this.restoringTabs.get(key);
-    if (existing) return existing.then((result) => {
-      if (result.targetId !== expectedTargetId) throw new Error("Tab identity changed; list and bind it again before acting.");
-      return result;
+    if (existing) return existing.then((restored) => {
+      if (restored.result.targetId !== expectedTargetId) throw new Error("Tab identity changed; list and bind it again before acting.");
+      return restored;
     });
     const restore = (async () => {
       if (!expectedTargetId) throw new Error("Restoring a tab requires its claimed target identity.");
       if (await this.tabTarget(tabId, browserSession) !== expectedTargetId) throw new Error(`Tab ${tabId} changed identity before restoration; no reload was sent.`);
       const tab = this.knownTabs.get(tabId);
       if (!tab) throw new Error(`Tab ${tabId} was closed; list tabs again.`);
-      if (tabIsUnloaded(tab)) {
+      const reloaded = tabIsUnloaded(tab);
+      if (reloaded) {
         try { await this.sendToExtension("chrome.tabs.reload", [tabId]); }
         catch (e) {
           const reason = e instanceof Error ? e.message : String(e);
@@ -245,14 +270,13 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
       }
       const attachment = await this.ensureAttached(tabId);
       if (attachment.targetInfo.targetId !== expectedTargetId) throw new Error(`Tab ${tabId} changed identity while restoring; list and bind it again before acting.`);
-      for (const client of this.clients) if (client.autoAttach) this.announce(client, attachment);
       // Chrome 155 can restore a background renderer with a zero-size viewport. Offer an
       // observed size from the same window/split, never wake another tab to measure it.
       const peers = [...this.knownTabs.values()].filter((t) => t.windowId === tab.windowId
         && t.splitViewId === tab.splitViewId && (t.width ?? 0) > 0 && (t.height ?? 0) > 0);
       const sized = peers.find((t) => t.id === tabId) ?? peers.find((t) => t.active) ?? peers[0];
-      return { targetId: attachment.targetInfo.targetId,
-        ...(sized ? { viewport: { width: sized.width!, height: sized.height! } } : {}) };
+      return { attachment, result: { targetId: attachment.targetInfo.targetId, reloaded,
+        ...(sized ? { viewport: { width: sized.width!, height: sized.height! } } : {}) } };
     })();
     this.restoringTabs.set(key, restore);
     void restore.finally(() => this.restoringTabs.delete(key)).catch(() => {});
@@ -321,22 +345,27 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
   /** Browser-level command with no session (Storage.* & co): chrome.debugger
    *  needs a target, and any attached tab answers browser-scoped questions. */
   private async sendBrowserCommand(method: string, params: unknown): Promise<unknown> {
-    const attached = this.attachments.values().next().value as TabAttachment | undefined;
-    // Between tasks nothing may be attached while the group still has tabs, and any of them can
-    // carry a browser-scoped question: attach one rather than refuse.
-    const tabId = attached?.tabId ?? [...this.knownTabs].find(([, tab]) => !tabIsUnloaded(tab))?.[0];
-    if (tabId === undefined && method === "Target.getTargetInfo") {
-      // Playwright asks about the root after auto-attach. An entirely unloaded browser
-      // still has this virtual root and must remain connectable so it can create a page.
+    if (method === "Target.getTargetInfo" && !(params as { targetId?: unknown } | undefined)?.targetId) {
+      // Playwright asks about the root after auto-attach, and only waits for the answer. The
+      // virtual root answers it, so connecting attaches nothing beyond what auto-attach handed
+      // over, and a browser with every tab unloaded or unattached stays connectable.
       return { targetInfo: { targetId: "mirasim-browser", type: "browser", title: "", url: "", attached: true } };
     }
+    const attached = this.attachments.values().next().value as TabAttachment | undefined;
+    // Between tasks nothing may be attached while the group still has tabs, and any of them can
+    // carry a browser-scoped question: attach one for the question, then let it go again.
+    const tabId = attached?.tabId ?? [...this.knownTabs].find(([, tab]) => !tabIsUnloaded(tab))?.[0];
     if (tabId === undefined) throw new Error(`No tab to forward browser-level command: ${method}`);
     if (!attached) await this.ensureAttached(tabId);
-    return await this.sendToExtension("chrome.debugger.sendCommand", [
-      { tabId },
-      method,
-      ...(params === undefined ? [] : [params]),
-    ]);
+    try {
+      return await this.sendToExtension("chrome.debugger.sendCommand", [
+        { tabId },
+        method,
+        ...(params === undefined ? [] : [params]),
+      ]);
+    } finally {
+      if (!attached) this.releaseUnusedTab(tabId);
+    }
   }
 
 }

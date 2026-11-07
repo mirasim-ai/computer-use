@@ -196,3 +196,11 @@ export const BROWSER_SWITCHED_NOTE =
 export const SURFACE_REIDENTIFIED_NOTE =
   "the connection to this browser dropped and came back, so this surface was re-identified — the "
   + "page below is the one it is on now, and refs from before are dead; re-observe before acting";
+
+/** close_tab on the user's own tab without their say: the refusal names the ONE way through, asking
+ *  them. Nothing enforces `confirmed`; it makes the honest path obvious at the moment it is needed. */
+export function userTabCloseRefusal(id: string): string {
+  return `${id} is the user's own tab, not this session's. Ask them in the conversation `
+    + "whether to close it — say which page — and call close_tab again with confirmed: true if they agree. "
+    + "Reading it and acting in it needs no permission; only closing does";
+}

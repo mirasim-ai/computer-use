@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { type Page } from "playwright-core";
 import { type ActResult } from "../types.ts";
-import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE } from "./messages.ts";
+import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE, userTabCloseRefusal } from "./messages.ts";
 import { endpointFileFor, keepInBackground } from "./acquire.ts";
 import { isFrontmost, returnFocusIfTaken } from "./focus-guard.ts";
 import { BrowserDriverConnect } from "./driver-connect.ts";
@@ -21,6 +21,12 @@ import { performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
 import { performRunJs } from "../chromium/run-js.ts";
 import { withPageCapture } from "../chromium/shot.ts";
 export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
+  /** close_tab on an id the session holds no page for: a subclass that lists such tabs answers
+   *  for them; null is "no such tab". */
+  protected async closeDormantTab(_id: string, _confirmed: boolean): Promise<ActResult | null> {
+    return null;
+  }
+
   /** The managed browser's pid, resolved lazily by {@link browserPid}; null = unavailable. */
   private pid: number | null | undefined;
   /** One CDP session per page for window-state upkeep (ensureComposited) and the viewport verb. */
@@ -305,14 +311,11 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
           // Two refusals: the listing carries the user's tabs too, so for those "no tab with id X"
           // would be a lie — what is wrong is whose tab it is.
           const visible = (await this.visiblePages()).find((p) => this.tabId(p) === id);
-          if (!visible) return { ok: false, note: `no tab with id ${id} — call computer.surfaces() for current ids` };
-          // The user's own page: the refusal names the ONE way through, asking them. Nothing
-          // enforces `confirmed`; it makes the honest path obvious at the moment it is needed.
-          if (!a.confirmed) {
-            return { ok: false, note: `${id} is the user's own tab, not this session's. Ask them in the conversation `
-              + "whether to close it — say which page — and call close_tab again with confirmed: true if they agree. "
-              + "Reading it and acting in it needs no permission; only closing does" };
+          if (!visible) {
+            const dormant = await this.closeDormantTab(id, a.confirmed === true);
+            return dormant ?? { ok: false, note: `no tab with id ${id} — call computer.surfaces() for current ids` };
           }
+          if (!a.confirmed) return { ok: false, note: userTabCloseRefusal(id) };
           target = visible;
           theirs = true;
         }

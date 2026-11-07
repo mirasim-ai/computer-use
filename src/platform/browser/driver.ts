@@ -8,7 +8,7 @@
 import { Type } from "typebox";
 import type { Page } from "playwright-core";
 import { type ActResult, type HeaderChanges, type OwnershipResource, type Snapshot, type TargetInfo, SurfaceUnreadableError, text, type ToolResult, type VerbSpec, type Verdict } from "../types.ts";
-import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE } from "./messages.ts";
+import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE, userTabCloseRefusal } from "./messages.ts";
 import { PASTE_VERB, SELECT_OPTION_VERB } from "../chromium/actions-value.ts";
 import { SELECT_TEXT_VERB } from "../chromium/select-text.ts";
 import { DIALOG_VERB, DRAG_VERB, UPLOAD_VERB } from "../chromium/actions.ts";
@@ -17,7 +17,7 @@ import { BrowserDriverVerbs } from "./driver-verbs.ts";
 import { previewPage } from "../chromium/preview.ts";
 import { withPageCapture } from "../chromium/shot.ts";
 import { DOWNLOAD_VERB } from "./downloads.ts";
-import { bridgeRequest, bridgeTabs, restoreBridgeTab } from "./bridge-tabs.ts";
+import { bridgeRequest, bridgeTabs, closeBridgeTab, releaseBridgeTab, restoreBridgeTab } from "./bridge-tabs.ts";
 
 /** How long `close()` waits for the journal's queued line (one evidence shot's worth: the shot
  *  itself is capped at 4s, and a whole run's exit must not hang on an observer channel). */
@@ -55,26 +55,42 @@ async function boundedTitle(page: { title(): Promise<string>; url(): string }): 
   }
 }
 
+/** A bridge tab this session holds no page for, named by Chrome's tab id and the browser session
+ *  that id belongs to — stable across binding and releasing it, so a handle outlives both. */
+const DORMANT_ID = /^tab:(\d+):(.*)$/;
+
+type DormantTab = { id: string; tabId: number; targetId: string; browserSession: string };
+
 export class BrowserDriver extends BrowserDriverVerbs {
-  private unloadedSelection: { id: string; tabId: number; targetId: string; browserSession: string } | null = null;
+  /**
+   * A user's tab on the extension bridge, selected but not yet attached: the bridge attaches only
+   * the agent's tabs and those a session binds (bridge/model-core.ts `wants`), so binding one of the
+   * rest selects it here, and {@link prepareTarget} attaches it once ownership is held.
+   */
+  private dormantSelection: DormantTab | null = null;
+  /** The user's tabs this session attached by binding them, to be let go of when it moves on
+   *  ({@link focusTarget}) or goes idle ({@link releaseIdle}). */
+  private borrowed = new Map<Page, DormantTab>();
 
   override async activeTarget(): Promise<string | null> {
-    return this.unloadedSelection?.id ?? super.activeTarget();
+    return this.dormantSelection?.id ?? super.activeTarget();
   }
 
   override async ownershipResources(): Promise<OwnershipResource[]> {
-    if (this.unloadedSelection) return [{ key: `chromium:${this.unloadedSelection.targetId}`, mode: "exclusive" }];
+    if (this.dormantSelection) return [{ key: `chromium:${this.dormantSelection.targetId}`, mode: "exclusive" }];
     return super.ownershipResources();
   }
 
   override async prepareTarget(): Promise<void> {
-    const selected = this.unloadedSelection;
+    const selected = this.dormantSelection;
     if (!selected) return;
-    const { page, viewport } = await restoreBridgeTab(this.browser!, selected.tabId, selected.targetId, selected.browserSession);
+    const { page, reloaded, viewport } = await restoreBridgeTab(this.browser!, selected.tabId, selected.targetId, selected.browserSession);
     this.tabIds.set(page, selected.id);
+    this.borrowed.set(page, selected);
     this.active = page;
-    this.unloadedSelection = null;
+    this.dormantSelection = null;
     this.resetObservationState();
+    if (!reloaded) return;
     const size = await page.evaluate("({ width: innerWidth, height: innerHeight })") as { width: number; height: number };
     if (size.width <= 0 || size.height <= 0) {
       // Reuse the viewport verb and its disconnect cleanup; no activation or native input.
@@ -86,16 +102,41 @@ export class BrowserDriver extends BrowserDriverVerbs {
     this.appendNote("Chrome had unloaded this tab; restored the same tab in the background. Read its current state before continuing.");
   }
 
+  /** Let go of a bound user tab: the bridge detaches once no other client drives it. Never fatal —
+   *  a tab that closed meanwhile, or a bridge that is gone, has nothing left to hold. */
+  private async releaseBorrowed(page: Page): Promise<void> {
+    const tab = this.borrowed.get(page);
+    if (!tab) return;
+    this.borrowed.delete(page);
+    if (page.isClosed() || !this.browser?.isConnected()) return;
+    await releaseBridgeTab(this.browser, tab.tabId, tab.browserSession).catch(() => {});
+  }
+
+  /**
+   * Idle: the user's tab this session was on goes back to the bridge, and stays selected — the
+   * next bind attaches it again under the same id ({@link prepareTarget}), so nothing the model
+   * holds goes stale but its refs.
+   */
+  override async releaseIdle(): Promise<void> {
+    const active = this.active;
+    const selected = active ? this.borrowed.get(active) : undefined;
+    for (const page of [...this.borrowed.keys()]) await this.releaseBorrowed(page);
+    if (!selected) return;
+    this.active = undefined;
+    this.dormantSelection = selected;
+    this.resetObservationState();
+  }
+
   protected override page(): Page {
-    if (this.unloadedSelection) throw new SurfaceUnreadableError(`Tab ${this.unloadedSelection.id} has not been restored; no other page was observed or operated.`);
+    if (this.dormantSelection) throw new SurfaceUnreadableError(`Tab ${this.dormantSelection.id} has not been restored; no other page was observed or operated.`);
     return super.page();
   }
 
   protected override adoptWhenReal(page: Page): void {
-    if (!this.unloadedSelection) super.adoptWhenReal(page);
+    if (!this.dormantSelection) super.adoptWhenReal(page);
   }
   protected override previewTarget() {
-    if (this.unloadedSelection) return Promise.resolve(null);
+    if (this.dormantSelection) return Promise.resolve(null);
     if (!this.browser?.isConnected() || !this.active || this.active.isClosed()) return Promise.resolve(null);
     return previewPage(this.active, this.cdpUrl, "browser");
   }
@@ -187,7 +228,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
    *  `active` is unset in every mode, and only a connected session can be said to hold none. */
   private async noTabNote(): Promise<string | null> {
     if (this.closedItsLastTab) return NO_TAB_OPEN_NOTE;
-    if (this.unloadedSelection) return null;
+    if (this.dormantSelection) return null;
     await this.ensure();
     return this.active ? null : NO_TAB_YET_NOTE;
   }
@@ -235,8 +276,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
     await this.ensure();
     // Refresh metadata before reading Page objects: reconciliation may retire a renderer
     // Chrome just discarded, and no title read should revive it as a side effect.
-    const { unloaded, browserSession } = !this.tab && !this.attached && !this.managedProfileDir
-      ? await bridgeTabs(this.browser!) : { unloaded: [], browserSession: null };
+    const { dormant, browserSession } = !this.tab && !this.attached && !this.managedProfileDir
+      ? await bridgeTabs(this.browser!) : { dormant: [], browserSession: null };
     // The listing carries the bridge's nonce for free: a session holding no tab learns of a
     // browser change here, not only one whose bound tab vanished (driver-connect.ts).
     this.noteBridgeSession(browserSession);
@@ -246,23 +287,27 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const pages = await this.visiblePages();
     const targets: TargetInfo[] = await Promise.all(pages.map(async (p) => ({
       id: this.tabId(p), kind: "tab" as const,
-      title: (await boundedTitle(p)) || p.url(), active: !this.unloadedSelection && p === this.active,
+      title: (await boundedTitle(p)) || p.url(), active: !this.dormantSelection && p === this.active,
       own: own.has(p), mine: this.mine.has(p),
     })));
     // Preserve named-slot and attached-window visibility: only an unrestricted extension
-    // connection can discover the user's other tabs, including unloaded ones.
-    for (const tab of unloaded) {
-      const id = `unloaded:${tab.tabId}:${tab.browserSession}`;
-      targets.push({ id, kind: "tab", title: `${tab.title || tab.url} [unloaded — use this handle to restore in background]`,
-        active: this.unloadedSelection?.id === id, own: false, unloaded: true });
+    // connection can discover the user's other tabs — the ones it holds no page for, unloaded or not.
+    for (const tab of dormant) {
+      const id = `tab:${tab.tabId}:${tab.browserSession}`;
+      const title = tab.title || tab.url;
+      targets.push({ id, kind: "tab", title: tab.unloaded ? `${title} [unloaded — use this handle to restore in background]` : title,
+        active: this.dormantSelection?.id === id, own: false, ...(tab.unloaded ? { unloaded: true } : {}) });
     }
     return targets;
   }
 
   protected override noteBridgeSession(session: string | null): boolean {
     const switched = super.noteBridgeSession(session);
-    // An unloaded tab was selected by the previous browser's tab id; it names nothing now.
-    if (switched) this.unloadedSelection = null;
+    // A dormant tab was selected, or bound, by the previous browser's tab id; it names nothing now.
+    if (switched) {
+      this.dormantSelection = null;
+      this.borrowed.clear();
+    }
     return switched;
   }
 
@@ -276,21 +321,29 @@ export class BrowserDriver extends BrowserDriverVerbs {
 
   async focusTarget(id: string): Promise<ActResult> {
     await this.ensure();
-    const unloaded = /^unloaded:(\d+):(.*)$/.exec(id);
-    if (unloaded && !this.tab && !this.attached && !this.managedProfileDir && this.browser!.version() === "mirasim-bridge") {
-      const tabId = Number(unloaded[1]);
-      const browserSession = unloaded[2]!;
-      const { targetId } = await bridgeRequest<{ targetId: string }>(this.browser!, "Mirasim.tabTarget", { tabId, browserSession });
-      this.unloadedSelection = { id, tabId, targetId, browserSession };
-      this.closedItsLastTab = false; // holds a target again — see the visible-tab branch below
-      return { ok: true, note: "Selected unloaded tab; restoration follows target ownership." };
-    }
+    const res = await this.selectTarget(id);
+    await this.releaseLeftBehind();
+    return res;
+  }
+
+  /** Every verb can move the session off a bound user tab (new_tab, close_tab, a popup adopted). */
+  override async perform(kind: string, a: Record<string, any>): Promise<ActResult> {
+    try { return await super.perform(kind, a); }
+    finally { await this.releaseLeftBehind(); }
+  }
+
+  /** Only the tab being driven stays attached: a user's tab this session moved away from goes back. */
+  private async releaseLeftBehind(): Promise<void> {
+    for (const page of [...this.borrowed.keys()]) if (page !== this.active) await this.releaseBorrowed(page);
+  }
+
+  private async selectTarget(id: string): Promise<ActResult> {
     let res: ActResult = { ok: false, note: `no target with id ${id}; call computer.surfaces() for current ids` };
     // Visible, not own: switching INTO the user's tab is the point of seeing it. What stays
     // refused is closing it — see the close_tab branch.
     for (const p of await this.visiblePages()) {
       if (p.isClosed() || this.tabId(p) !== id) continue;
-      this.unloadedSelection = null;
+      this.dormantSelection = null;
       this.active = p;
       // Binding a tab ends the dormancy close_tab left behind; left set, `page()` would refuse
       // every read and act on the tab just bound (new_tab included).
@@ -300,13 +353,38 @@ export class BrowserDriver extends BrowserDriverVerbs {
       res = { ok: true };
       break;
     }
+    // A listed tab with no page here: selected now, attached by prepareTarget once ownership is held.
+    const dormant = res.ok ? null : DORMANT_ID.exec(id);
+    if (dormant && !this.tab && !this.attached && !this.managedProfileDir && this.browser!.version() === "mirasim-bridge") {
+      const tabId = Number(dormant[1]);
+      const browserSession = dormant[2]!;
+      const { targetId } = await bridgeRequest<{ targetId: string }>(this.browser!, "Mirasim.tabTarget", { tabId, browserSession });
+      this.dormantSelection = { id, tabId, targetId, browserSession };
+      this.active = undefined;
+      this.closedItsLastTab = false; // holds a target again — see the visible-tab branch above
+      return { ok: true };
+    }
     // Journaled: a tab switch changes what every later line's url and shot MEAN.
     this.journal?.publishAction("focus", { target: id }, null, res);
     return res;
   }
 
+  /** close_tab on a listed tab this session holds no page for: the same refusal as for any user
+   *  tab, and once confirmed, closed through the bridge without attaching to it. */
+  protected override async closeDormantTab(id: string, confirmed: boolean): Promise<ActResult | null> {
+    const dormant = DORMANT_ID.exec(id);
+    if (!dormant || !this.browser || this.browser.version() !== "mirasim-bridge") return null;
+    if (!confirmed) return { ok: false, note: userTabCloseRefusal(id) };
+    if (this.dormantSelection?.id === id) this.dormantSelection = null;
+    try { await closeBridgeTab(this.browser, Number(dormant[1]), dormant[2]!); }
+    catch (e) { return { ok: false, note: `could not close tab ${id}: ${e instanceof Error ? e.message : String(e)}` }; }
+    return { ok: true, note: `closed tab ${id} — the user's own, closed on the agreement you reported; the target is unchanged` };
+  }
+
   async close(): Promise<void> {
-    this.unloadedSelection = null;
+    // Disconnecting releases every tab this client held, borrowed ones included (bridge removeClient).
+    this.dormantSelection = null;
+    this.borrowed.clear();
     await this.downloads.close();
     // The journal's pending line screenshots through the page handle we are about to drop, so
     // it lands FIRST (bounded, never fatal: journal.drain).

@@ -79,6 +79,9 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
   /** A handoff invalidates observations: another caller may edit before we return. */
   invalidateObservation(): void { this.resetObservationState(); }
   async releaseInputResources(): Promise<void> {}
+  /** The runtime went idle (its claims are being released): let go of what only a running task
+   *  needs. The next bind must work as before, re-acquiring whatever this gave up. */
+  async releaseIdle(): Promise<void> {}
 
   // ── Declared variance (subclass overrides) ──────────────────────────────────
 
