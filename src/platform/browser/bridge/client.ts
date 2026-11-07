@@ -63,14 +63,17 @@ export class BridgeClient {
   readonly id: number;
   autoAttach = false;
   /**
-   * The tabs this client ASKED for beyond the agent's own (the model's `agentTabs`): a user tab it
-   * bound (`Mirasim.restoreTab`) and a tab one of its pages opened. Auto-attach covers only these
-   * and the agent's tabs, so a tab nobody is driving keeps no debugger: Playwright pins media
-   * features on every page it attaches to, and its dialog handlers answer that page's prompts.
-   * Survives a debugger detach (a cross-process navigation re-attaches the same tab); a closed tab
-   * or {@link BridgeModel.releaseClientTab} ends it.
+   * Beyond the agent's own tabs (the model's `agentTabs`), auto-attach hands a client only these
+   * two sets, so a tab nobody is driving keeps no debugger: Playwright pins media features on every
+   * page it attaches to, and its dialog handlers answer that page's prompts. Both survive a
+   * debugger detach (a cross-process navigation re-attaches the same tab); a closed tab ends them.
+   *
+   * `heldTabs`: the user's tabs it BORROWED — one it bound (`Mirasim.restoreTab`) and the popups
+   * those open. Let go of as soon as the client is on another tab (`Mirasim.holdOnly`).
    */
   readonly heldTabs = new Set<number>();
+  /** Popups of the agent's own pages (or of theirs): the agent's for as long as the client lasts. */
+  readonly keptTabs = new Set<number>();
   /** tabId → this client's alias for the tab's root debugger session. */
   readonly sessionByTabId = new Map<number, string>();
   readonly tabBySessionId = new Map<string, number>();

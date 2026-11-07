@@ -41,10 +41,13 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
         this.announce(client, attachment);
         return result;
       }
-      case "Mirasim.releaseTab": {
-        this.assertBrowserSession(String(p.browserSession ?? ""));
-        this.releaseClientTab(client, Number(p.tabId));
-        return {};
+      case "Mirasim.holdOnly": {
+        // The client is on this target now (none: on no page of the user's). Answers whether it is
+        // a borrowed tab of the user's, and which, so the driver can name it stably and re-bind it.
+        const keep = typeof p.targetId === "string" && p.targetId ? this.tabIdForTarget(p.targetId) : undefined;
+        this.holdOnly(client, keep);
+        if (keep === undefined || !client.heldTabs.has(keep)) return { held: false };
+        return { held: true, tabId: keep, browserSession: this.browserSession };
       }
       case "Mirasim.closeTab": {
         // A listed tab no client attached: closing it is `chrome.tabs.remove`, no debugger needed.

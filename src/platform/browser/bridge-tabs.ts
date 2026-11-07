@@ -62,10 +62,12 @@ export async function restoreBridgeTab(browser: Browser, tabId: number, targetId
   throw new Error(`Restored tab ${tabId} did not become readable; no action was sent to a replacement page.`);
 }
 
-/** Let go of a tab {@link restoreBridgeTab} bound: its page closes for this client, and the bridge
- *  detaches the debugger once no other client drives it. */
-export async function releaseBridgeTab(browser: Browser, tabId: number, browserSession: string): Promise<void> {
-  await bridgeRequest(browser, "Mirasim.releaseTab", { tabId, browserSession });
+/**
+ * Tell the bridge which tab this client is on (none: `undefined`); it lets go of every other tab of
+ * the user's that the client borrowed. Answers whether this one is such a borrowed tab, and which.
+ */
+export async function holdOnlyBridgeTab(browser: Browser, targetId: string | undefined): Promise<{ held: boolean; tabId?: number; browserSession?: string }> {
+  return await bridgeRequest(browser, "Mirasim.holdOnly", targetId ? { targetId } : {});
 }
 
 /** Close a listed tab this client holds no page for, without attaching to it first. */

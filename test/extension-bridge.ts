@@ -56,7 +56,8 @@ async function main() {
     "/outside": "<title>outside</title><h1>USER TAB</h1><a id=pop href=/popup target=_blank>pop</a>",
     "/popup": "<title>user popup</title>",
     "/two": "<title>from client two</title>",
-    "/reading": "<title>user reading</title><h1>THE USER'S PAGE</h1>",
+    "/reading": "<title>user reading</title><h1>THE USER'S PAGE</h1><button onclick=\"window.open('/reading-pop', '_blank', 'popup,width=480,height=360')\">open pop</button>",
+    "/reading-pop": "<title>reading pop</title><h1>POP OF THE USER'S PAGE</h1>",
     "/upload": `<title>upload</title><input type=file id=f>
       <button id=pick onclick="document.getElementById('f').click()">Pick a file</button><div id=out>none</div>
       <script>document.getElementById('f').onchange=e=>{document.getElementById('out').textContent='got: '+e.target.files[0].name}</script>`,
@@ -328,6 +329,16 @@ async function main() {
     // ── A user tab carries a debugger only while a session drives it ────
     // The probe above is gone, so Chrome's own `attached` flag now speaks for the bridge alone
     // (rawCdp holds the extension's worker, never a tab). ctx1 still drives the agent's page.
+    // Every debugger attach is recorded from here on, so "never attached" can be asserted, not
+    // only "not attached right now".
+    await evalInExtension(rawCdp!, `(() => {
+      globalThis.__attached = [];
+      if (!globalThis.__origAttach) globalThis.__origAttach = chrome.debugger.attach;
+      chrome.debugger.attach = (target, ...rest) => { globalThis.__attached.push(target.tabId); return globalThis.__origAttach.call(chrome.debugger, target, ...rest); };
+      return "recording";
+    })()`);
+    const everAttached = async (tabId: number): Promise<boolean> =>
+      await evalInExtension(rawCdp!, `globalThis.__attached.includes(${tabId})`) as boolean;
     const READING_URL = pages.url("/reading");
     const readingTab = await evalInExtension(rawCdp!,
       `chrome.tabs.create({ url: ${JSON.stringify(READING_URL)}, active: false }).then((t) => t.id)`) as number;
@@ -338,6 +349,7 @@ async function main() {
     const agentDebugged = await evalInExtension(rawCdp!,
       `chrome.debugger.getTargets().then((ts) => ts.some((t) => t.url === ${JSON.stringify(PAGE_URL)} && t.attached))`);
     check("...while the agent's own page keeps one", agentDebugged === true);
+    check("...and a tab the user opens while the agent drives a page is never attached, not even to see who opened it", !(await everAttached(readingTab)));
 
     const bindDriver = createDriver("browser", {
       cdpUrl: server.cdpUrl(), browser: { cdpUrl: server.cdpUrl(), cdpStrict: true },
@@ -371,14 +383,52 @@ async function main() {
       const again = firstText(await bindDriver.observeFullText());
       check("the next bind reads it again", again.includes("THE USER'S PAGE") && await debuggerOn(readingTab), again.slice(0, 120));
 
+      // A popup of the bound tab is borrowed with it: taken over, and let go of the same way. A
+      // popup WINDOW, the one kind the driver leaves alone (keep-in-tab.ts: an OAuth handshake).
+      const elements = firstText(await bindDriver.observeElements());
+      const popRef = elements.split("\n").find((l) => /"open pop"/.test(l))?.match(/^e\d+/)?.[0];
+      const popped = await bindDriver.perform("click", { ref: popRef });
+      check("the bound tab opens a popup window", popped.ok === true, JSON.stringify(popped).slice(0, 160));
+      await sleep(1000);
+      const onPopup = await bindDriver.perform("run_js", { code: "document.title" });
+      const popTab = await evalInExtension(rawCdp!, `chrome.tabs.query({}).then((ts) => ts.find((t) => t.title === "reading pop")?.id ?? null)`) as number | null;
+      check("...which the session takes over", onPopup.value === "reading pop" && popTab !== null && await debuggerOn(popTab),
+        `${JSON.stringify(onPopup)}; tab ${popTab}`);
+      check("...letting go of the tab it came from", !(await debuggerOn(readingTab)));
+      const popId = await bindDriver.activeTarget();
+      check("...and naming it by its tab, like any user tab", popId === `tab:${popTab}:${reading!.id.split(":").slice(2).join(":")}`, String(popId));
+
       // Moving on: only the tab being driven keeps a debugger.
       const fresh = await bindDriver.perform("new_tab", {});
       check("new_tab moves the session to a tab of its own", fresh.ok === true, JSON.stringify(fresh));
       await sleep(300);
       check("moving on lets the user's tab go", !(await debuggerOn(readingTab)));
+      check("...and its popup", popTab !== null && !(await debuggerOn(popTab)));
       const relisted = await bindDriver.listTargets();
       check("...and lists it again under the same id", relisted.some((t) => t.id === reading!.id && t.own === false),
         JSON.stringify(relisted.map((t) => `${t.id}:${t.own}`)));
+      check("...the popup too, so its handle binds it again", relisted.some((t) => t.id === popId && t.own === false));
+
+      // A renderer swap detaches the debugger with `target_closed`; the extension re-attaches the
+      // same tab and Playwright hands over a NEW page for it (relay.js `_maybeScheduleReattach`).
+      // Driven the way the relay drives it, since this Chromium keeps the debugger across a
+      // cross-site navigation. Moving on must still let the tab go: the bridge keeps it by id.
+      check("binding the popup again is accepted", (await bindDriver.focusTarget(popId!)).ok === true);
+      await bindDriver.prepareTarget();
+      const model = (server as unknown as { model: { onDebuggerDetach(s: { tabId: number }): void; onTabCreated(t: unknown): void } }).model;
+      model.onDebuggerDetach({ tabId: popTab! });
+      await sleep(200);
+      model.onTabCreated(await evalInExtension(rawCdp!, `chrome.tabs.get(${popTab})`));
+      await sleep(1000);
+      const reminted = await bindDriver.perform("run_js", { code: "document.title" });
+      check("after a detach and re-attach the session is on the same tab, under a new page",
+        reminted.value === "reading pop" && (await bindDriver.activeTarget()) === popId, `${JSON.stringify(reminted)}; ${await bindDriver.activeTarget()}`);
+      const back = await bindDriver.perform("new_tab", {});
+      await sleep(300);
+      check("...and moving on still lets that tab go", back.ok === true && !(await debuggerOn(popTab!)));
+      // A popup is a window of its own, where Chrome would put the next `chrome.tabs.create` — and
+      // a popup window holds no tab group (the group checks at the end).
+      await evalInExtension(rawCdp!, `chrome.tabs.remove(${popTab}).then(() => true)`);
 
       // close_tab reaches a listed tab with no page the same way: refused, then closed on the user's word.
       const refusedListed = await bindDriver.perform("close_tab", { id: reading!.id });

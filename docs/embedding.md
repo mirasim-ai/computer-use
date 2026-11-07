@@ -382,11 +382,13 @@ including when the Mirasim desktop app's bridge holds it (the extension serves o
 a time, and the desktop app's comes first).
 
 The bridge attaches Chrome's debugger only to tabs being driven: the agent's own (the tab group)
-and a tab of yours that a session has bound. Your other tabs are listed by `computer.surfaces()`
-but carry no debugger, so the page keeps your color scheme and its dialogs stay yours; binding
-one attaches it, and it is let go of when the session moves to another tab, goes idle (two
-minutes) or ends. While any tab is attached Chrome shows its "started debugging this browser"
-bar; launching Chrome with `--silent-debugger-extension-api` hides it.
+and a tab of yours that a session has bound, each with the windows its pages open. Your other
+tabs are listed by `computer.surfaces()` but carry no debugger, so the page keeps your color
+scheme and its dialogs stay yours — a tab you open while the agent works is not touched either.
+Binding one attaches it; it is let go of, with any window it opened, when the session moves to
+another tab, goes idle (two minutes) or ends. While any tab is attached Chrome shows its
+"started debugging this browser" bar; launching Chrome with `--silent-debugger-extension-api`
+hides it.
 
 Chrome reaches the bridge through native messaging. `bridge --native-host` writes a manifest
 into every Chromium-family browser it finds (Chrome, Edge, Brave, Arc, Vivaldi, Opera, …) and
