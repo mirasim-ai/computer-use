@@ -263,6 +263,13 @@ export class BrowserDriver extends BrowserDriverVerbs {
     return this.active ? null : NO_TAB_YET_NOTE;
   }
 
+  override async heldNothing(): Promise<"closed" | "not-yet" | null> {
+    if (this.closedItsLastTab) return "closed";
+    if (this.dormantSelection) return null;
+    await this.ensure();
+    return this.active ? null : "not-yet";
+  }
+
   private noTabObservation(note: string, prefix?: string): ToolResult {
     // A one-shot fact rides this too (a browser change behind the bridge leaves the session here).
     const pending = this.takePendingNote();

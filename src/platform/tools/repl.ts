@@ -237,6 +237,59 @@ export function createReplTools(
     await driver.prepareTarget();
   };
 
+  /** The verbs that can start a surface from nothing (browser: a fresh tab). */
+  const OPENERS = new Set(["openUrl", "newTab"]);
+
+  /** True when `h` names no surface the session still has and its platform opens one from nothing:
+   *  the handle's tab was closed by this session, or it is the stand-in from {@link emptyHandle}. */
+  const opensFromNothing = async (h: SurfaceHandle): Promise<boolean> => {
+    const { slice, inner } = owner.get(h)!;
+    if (!(await slice.driver.heldNothing())) return false;
+    if (!inner) return true;
+    return !(await slice.driver.listTargets()).some((t) => t.id === inner);
+  };
+
+  /** After an opener started a fresh surface for `h`: point the handle at it (new id, title, lease),
+   *  so the script keeps using the handle it holds and "Still bound" names the new tab. */
+  const adopt = async (h: SurfaceHandle): Promise<void> => {
+    const own = owner.get(h)!;
+    const now = (await own.slice.driver.listTargets()).find((t) => t.active);
+    if (!now) throw new Error("the tab was opened, but none is active afterwards — computer.surfaces() lists what is open");
+    const previous = leaseGroups.get(h);
+    if (previous) await ownership.release(previous);
+    leaseGroups.delete(h);
+    leaseKeys.delete(h);
+    for (const [ref, id] of refOwner) if (id === h.id) refOwner.delete(ref);
+    if (handles.get(h.id) === h) handles.delete(h.id);
+    const id = prefixed ? `${own.slice.id}/${now.id}` : now.id;
+    Object.assign(h, { id, kind: now.kind, title: now.title, active: true, own: now.own, mine: now.mine });
+    owner.set(h, { slice: own.slice, inner: now.id });
+    handles.set(id, h);
+    landed = own.slice;
+    lastBound = h;
+    // `stayed`: the opener's own observation is of this tab, so its refs stay good.
+    await claim(h, true);
+  };
+
+  /** What computer.surface() with no argument hands back when the session holds no surface of its
+   *  own and its platform can open one: a stand-in whose openUrl / newTab opens it ({@link adopt}).
+   *  Null when the session has a surface of its own, or nothing can be opened from nothing. */
+  const emptyHandle = async (): Promise<SurfaceHandle | null> => {
+    const ts = await allTargets();
+    if (ts.some((t) => t.mine)) return null;
+    for (const slice of scoped ? [scoped] : slices) {
+      const why = await slice.driver.heldNothing();
+      // "not-yet" beside tabs the session could bind (the user's, on the extension bridge) keeps
+      // the old answer: bind one of them by name, or the refusal lists them.
+      if (why === "closed" || (why === "not-yet" && !ts.length)) {
+        return handleFor({ id: prefixed ? `${slice.id}/new` : "new", kind: "tab",
+          title: "no tab open — openUrl({url}) or newTab({url}) on this handle opens one", active: false,
+          own: true, mine: true, slice, inner: "" });
+      }
+    }
+    return null;
+  };
+
   /** The handle for a target: cached by id so `===` holds across calls, title refreshed. */
   const handleFor = (t: MountedTarget): SurfaceHandle => {
     const have = handles.get(t.id);
@@ -252,6 +305,20 @@ export function createReplTools(
       bound[name] = async (...a: unknown[]) => {
         acting = h;
         try {
+          // A session that closed its last tab (or holds none yet) opens a fresh one with openUrl /
+          // newTab — on the handle it already has, or on the one computer.surface() hands back
+          // then. Binding first would refuse: the handle's tab is gone and there is nothing to bind.
+          if (OPENERS.has(name) && await opensFromNothing(h)) {
+            // The pre-action lease check wants a group; a tab not opened yet has nothing to claim,
+            // so the stand-in holds an empty one until adopt() claims the tab it opened.
+            if (!leaseGroups.has(h)) leaseGroups.set(h, `opening:${h.id}`);
+            const out = await (fn as (...x: unknown[]) => Promise<unknown>)(...a);
+            await adopt(h);
+            return out;
+          }
+          if (!owner.get(h)!.inner) {
+            throw new Error(`${h.id} holds no tab yet — openUrl({url}) or newTab({url}) on it opens one; nothing else can act until then`);
+          }
           try {
             await bind(h);
           } catch (e) {
@@ -261,6 +328,9 @@ export function createReplTools(
             if (name === "wait" && e instanceof SurfaceGone) {
               return `${h.id} is gone — closed or replaced, so there is nothing left on it to wait for. `
                 + "computer.surfaces() lists what remains";
+            }
+            if (e instanceof SurfaceGone && await owner.get(h)!.slice.driver.heldNothing()) {
+              throw new SurfaceGone(`${e.message} This session holds no tab now: openUrl({url}) or newTab({url}) on this handle opens a fresh one.`);
             }
             throw e;
           }
@@ -372,7 +442,7 @@ export function createReplTools(
       ledger().push("targets", "", true, `${ts.length} surfaces`);
       return ts.map(handleFor);
     },
-    surface: async (want?: unknown) => handleFor(await resolve(want)),
+    surface: async (want?: unknown) => (want === undefined ? await emptyHandle() : null) ?? handleFor(await resolve(want)),
     // Touches no surface, which is why it is the one member that never belonged on a handle.
     log: raw.log,
     help: () => requestedHelp = slices.map((sl) => apiReference(sl.driver)).join("\n\n"),

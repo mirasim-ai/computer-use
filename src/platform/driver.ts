@@ -282,6 +282,16 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     return null;
   }
 
+  /**
+   * Whether this session holds no surface at all, on a platform that can open one from nothing
+   * (the browser's open_url / new_tab): "closed" when it closed its own last one, "not-yet" when
+   * it has opened or bound none. Null everywhere else, and whenever a surface is held. The repl
+   * uses it to let openUrl / newTab start a fresh surface on a handle whose own is gone.
+   */
+  async heldNothing(): Promise<"closed" | "not-yet" | null> {
+    return null;
+  }
+
   /** Milliseconds this driver has spent waiting on the USER (a consent prompt). A run's time cap
    *  measures the surface, not a person deciding, so computer_repl subtracts it (tools/repl.ts). */
   waitedOnUserMs = 0;
