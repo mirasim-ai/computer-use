@@ -81,6 +81,9 @@ export class RelayConnection {
     this.ontabattached = undefined;
     /** @type {((tabId: number) => void) | undefined} */
     this.ontabdetached = undefined;
+    /** A tab the bridge created (`Target.createTarget`): the agent's by definition.
+     *  @type {((tabId: number) => void) | undefined} */
+    this.ontabcreatedforagent = undefined;
 
     this._lastInbound = Date.now();
     this._inflightCommands = 0;
@@ -333,6 +336,8 @@ export class RelayConnection {
       return {};
     }
     const result = await invokeChromeMethod(message.method, args);
+    // Said before the reply leaves: the bridge attaches the tab only once it has the reply.
+    if (message.method === "chrome.tabs.create" && result?.id !== undefined) this.ontabcreatedforagent?.(result.id);
     return result ?? {};
   }
 

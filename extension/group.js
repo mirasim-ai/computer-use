@@ -70,6 +70,12 @@ export class MirasimTabGroup {
      * (the only record of ownership), and with no current window throw "No current window".
      */
     this._userTabIds = new Set();
+    /**
+     * Tabs the BRIDGE created (relay.js `ontabcreatedforagent`): the agent's, whatever the race
+     * below decided. A new tab's first `onUpdated` can arrive before the bridge has attached it,
+     * and `_onTabUpdated` would then file it as the user's and keep it out of the group.
+     */
+    this._agentCreatedTabIds = new Set();
     this._onTabCreatedListener = this._onTabCreated.bind(this);
     this._onTabUpdatedListener = this._onTabUpdated.bind(this);
     this._onTabRemovedListener = this._onTabRemoved.bind(this);
@@ -81,6 +87,10 @@ export class MirasimTabGroup {
     this._connection.onclose = () => this._onConnectionClose();
     this._connection.ontabattached = (tabId) => this._onTabAttached(tabId);
     this._connection.ontabdetached = (tabId) => this._onTabDetached(tabId);
+    this._connection.ontabcreatedforagent = (tabId) => {
+      this._agentCreatedTabIds.add(tabId);
+      this._userTabIds.delete(tabId);
+    };
     chrome.tabs.onCreated.addListener(this._onTabCreatedListener);
     chrome.tabs.onUpdated.addListener(this._onTabUpdatedListener);
     chrome.tabs.onRemoved.addListener(this._onTabRemovedListener);
@@ -148,7 +158,7 @@ export class MirasimTabGroup {
     // Any tab, not just the group's: a tab opened after connect becomes a surface on its first
     // navigation. Group membership decides OWNERSHIP, not reachability.
     else if (!isNonDebuggableUrl(tab.url)) {
-      if (!this._groupTabIds.has(tabId)) this._userTabIds.add(tabId);
+      if (!this._groupTabIds.has(tabId) && !this._agentCreatedTabIds.has(tabId)) this._userTabIds.add(tabId);
       this._connection.attachTab(tab);
     }
   }
@@ -173,6 +183,7 @@ export class MirasimTabGroup {
   _onTabRemoved(tabId) {
     this._groupTabIds.delete(tabId);
     this._userTabIds.delete(tabId);
+    this._agentCreatedTabIds.delete(tabId);
   }
 
   /** Newer Chrome versions replace the tab id when discarding its renderer. */
