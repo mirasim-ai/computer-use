@@ -47,10 +47,18 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
       this.closedItsLastTab = false;
     }
     else if (this.closedItsLastTab) return { ok: false, note: NO_TAB_OPEN_NOTE };
+    const waking = this.wokeAfterSelfClose;
     await this.ensure();
     // Holding no tab yet (the extension bridge opens none up front): the two verbs that
     // open one open it here — and new_tab's tab IS this one, or a second would sit blank beside it.
     let openedTab: string | null = null;
+    // Waking after the session closed its last tab, ensure() has just opened a blank tab of the
+    // session's own: new_tab takes THAT one, as above, rather than leave it blank beside another.
+    if (kind === "new_tab" && waking && !this.wokeAfterSelfClose && this.active && (!this.active.url() || this.active.url() === "about:blank")) {
+      openedTab = this.tabId(this.active);
+      if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
+      kind = "open_url";
+    }
     if (!this.active) {
       if (kind !== "open_url" && kind !== "new_tab") return { ok: false, note: NO_TAB_YET_NOTE };
       this.active = await newBackgroundPage(this.context);
