@@ -387,6 +387,16 @@ async function main() {
     const paneOrPage = await driver.perform("scroll", { to: "bottom" });
     check("page plus a pane: a bare scroll refuses and writes each choice as the ref that picks it",
       !paneOrPage.ok && (paneOrPage.note ?? "").includes("ref:'window' (the page itself)") && !!logRef && (paneOrPage.note ?? "").includes(`ref:'${logRef}' Build log`), paneOrPage.note);
+    // A find() handle names the container as well as its ref string does.
+    const logHandle = await h.api.find("Build log", { role: "region" });
+    let byHandle = "";
+    try { byHandle = await h.api.scroll({ to: "bottom", ref: logHandle }) as string; } catch (e) { byHandle = (e as Error).message; }
+    check("scroll takes a find() handle as its ref, and scrolls that container",
+      /«Build log»/.test(byHandle) && /scrolled to the bottom/.test(byHandle), byHandle);
+    let nullRef = "";
+    try { await h.api.scroll({ to: "bottom", ref: null }); } catch (e) { nullRef = (e as Error).message; }
+    check("…and a find() that matched nothing (null) is refused as such, not scrolled as a bare scroll",
+      /the target is null/.test(nullRef), nullRef);
 
     // ── Lazy list: growth warning ─────────────────────────────────────────────
     await h.act("open_url", { url: FIXTURE_LAZY });

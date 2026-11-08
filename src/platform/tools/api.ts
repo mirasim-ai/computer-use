@@ -340,8 +340,13 @@ export function createComputerUseApi(
         await driver.readElements().catch(() => {});
         return note;
       }
-      if (typeof opts.ref === "string") hooks.onTarget?.(opts.ref);
-      return acted("scroll", { ...opts }, String(opts.ref ?? opts.direction ?? opts.to ?? ""));
+      // `ref` names the container the way any target does: a ref string ('window' for the page),
+      // or a find() handle, resolved like a click's — null says the find matched nothing. A
+      // handle passed through unresolved was dropped as not a string, and the scroll ran bare.
+      let ref = opts.ref;
+      if (ref !== undefined && typeof ref !== "string") ref = (await resolve(ref)).ref;
+      else if (typeof ref === "string") hooks.onTarget?.(ref);
+      return acted("scroll", { ...opts, ...(ref === undefined ? {} : { ref }) }, String(ref ?? opts.direction ?? opts.to ?? ""));
     },
     wait: waitVerb(driver, ledger),
     expect: expectVerb(driver, ledger, async (target) => {

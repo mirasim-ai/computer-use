@@ -133,7 +133,7 @@ function parts(driver: ComputerUseDriver) {
     "  w.scroll({direction?: up|down|left|right, count?: screens (default 1), to?: top|bottom, ref?})   w.wait({} | {ms} | {text} | {text_gone} | {control} | {control_gone} | {url} | {url_gone} | {loaded}) → ok",
     "    count covers that many screens in ONE call — the note says how far it actually got, which is less once the end is reached;",
     "    count and to: are refused together, since to: already goes as far as the surface scrolls.",
-    "    Browser/Electron list scrollable regions with refs. With several regions, pass ref:<region or a control inside it>; a bare scroll refuses and lists the choices. ref:'window' explicitly scrolls the page. Reaching an edge never switches to another region.",
+    "    Browser/Electron list scrollable regions with refs. With several regions, pass ref:<region or a control inside it — a ref or a find() handle>; a bare scroll refuses and lists the choices. ref:'window' explicitly scrolls the page. Reaching an edge never switches to another region.",
     ...(driver.scrollsInto ? ["    w.scroll({into: t}) instead brings ONE control (a ref or a find() handle) to the middle of the viewport and says whether anything still covers it. It takes a covered control's ref too — the way out from under a sticky header or a bottom strip that a screen of scrolling overshoots."] : []),
     "    a wait polls until the condition holds or it times out, and says which: {text…} searches the readable text,",
     "    {control…} the CONTROLS by name (\"until the Stop button is gone\" — the honest way to wait out a long answer),",
