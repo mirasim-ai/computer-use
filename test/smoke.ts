@@ -96,6 +96,8 @@ async function main() {
     const quick = await driver.perform("run_js", { code: "new Promise(() => {})", ms: 1000 });
     check("ms sets how long run_js waits, and the timeout says longer code can pass it",
       !quick.ok && /no result within 1s/.test(quick.note ?? "") && /pass ms \(up to 45s\)/.test(quick.note ?? ""), quick.note);
+    check("…and that a promise waiting on a permission is not helped by a longer wait, with the way to check a copy",
+      /can wait forever/.test(quick.note ?? "") && /navigator\.clipboard\.writeText with a recorder/.test(quick.note ?? ""), quick.note);
     const slow = await driver.perform("run_js", { code: "new Promise((r) => setTimeout(() => r('late'), 10500))", ms: 15000 });
     check("…and code meant to run past the 10s default finishes with its value", slow.ok && slow.value === "late", slow.note);
     const cut = await driver.perform("run_js", { code: "new Promise(() => {})", ms: 20000, budgetMs: 1200 });

@@ -89,10 +89,13 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
     }
     if (result === timedOut) {
       return { ok: false, note: `run_js gave no result within ${limit / 1000}s — `
-        + "the code may still be running in the page; observe to see its effect"
+        + "the code may still be running in the page; observe to see its effect. "
         + (limit < asked
-          ? ". That was all this call had left of its 60s — run it first thing in a fresh call"
-          : limit < RUN_JS_MAX_MS ? `. Code meant to run longer can pass ms (up to ${RUN_JS_MAX_MS / 1000}s)` : "") };
+          ? `That was all this call had left of its 60s — run it first thing in a fresh call. `
+          : limit < RUN_JS_MAX_MS ? `Code meant to run longer can pass ms (up to ${RUN_JS_MAX_MS / 1000}s). ` : "")
+        + "A promise waiting on a permission or a user gesture (navigator.clipboard.readText, Notification.requestPermission, "
+        + "geolocation) can wait forever in a tab nobody is looking at, however long ms is — to check what a button "
+        + "copied, replace navigator.clipboard.writeText with a recorder before the click and read what it was handed" };
     }
     const json = result === undefined ? "undefined" : JSON.stringify(result) ?? String(result);
     return { ok: true, value: result, note: `result: ${clipResult(json, RESULT_PREVIEW_CHARS)}` };
