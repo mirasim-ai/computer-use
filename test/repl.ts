@@ -278,6 +278,8 @@ async function main() {
     check("a stop's Still bound line names the tab by the title it has now, not the one it was bound with",
       /Still bound: .*w → \S+ «Alpha renamed»/.test(renamed), line(renamed, /Still bound|STOPPED/));
     await run(`await w.runJs({ code: "document.title = 'Alpha'" });`);
+    const waited = await run(`return await w.runJs({ code: "new Promise((r) => setTimeout(() => r(7), 1500))", ms: 3000 });`);
+    check("runJs({code, ms}) reaches the page with its wait", /Returned: 7/.test(waited), line(waited, /Returned|STOPPED/));
 
     // ── Handles: two tabs, one run ────────────────────────────────────────────
     const opened = await run(`

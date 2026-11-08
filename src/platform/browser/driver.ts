@@ -12,7 +12,7 @@ import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE, userTabCloseRefusal } from "./messag
 import { PASTE_VERB, SELECT_OPTION_VERB } from "../chromium/actions-value.ts";
 import { SELECT_TEXT_VERB } from "../chromium/select-text.ts";
 import { DIALOG_VERB, DRAG_VERB, UPLOAD_VERB } from "../chromium/actions.ts";
-import { RUN_JS_CODE_DESC } from "../chromium/run-js.ts";
+import { RUN_JS_CODE_DESC, RUN_JS_MAX_MS, RUN_JS_MIN_MS, RUN_JS_MS_DESC } from "../chromium/run-js.ts";
 import { BrowserDriverVerbs } from "./driver-verbs.ts";
 import { previewPage } from "../chromium/preview.ts";
 import { withPageCapture } from "../chromium/shot.ts";
@@ -228,6 +228,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
       { kind: "run_js", readOnly: true, schema: Type.Object({
         kind: Type.Literal("run_js"),
         code: Type.String({ description: RUN_JS_CODE_DESC }),
+        ms: Type.Optional(Type.Integer({ minimum: RUN_JS_MIN_MS, maximum: RUN_JS_MAX_MS, description: RUN_JS_MS_DESC })),
       }, { description: "Ask the PAGE something no observation carries — read its data in bulk, its stored state, or an API it exposes. This is a stranger's site holding the user's logged-in session: read and compute here, act through the interaction verbs." }) },
       DRAG_VERB, // press-drag-release; schema lives beside its implementation in actions.ts
       DIALOG_VERB, // arms the answer for the next JS dialog; put the action in the same call's `then`

@@ -37,6 +37,9 @@ export interface RunLedger {
    *  written, how many read back verified, and the last non-write verb. Handed to the driver
    *  before the next observation, so a frozen screen after a verified write is not blamed on it. */
   round?: WriteRound;
+  /** What is left of the call's wall-clock budget, in ms — for a verb that WAITS by its own
+   *  clock (run_js), which the cap checked before each verb cannot interrupt. */
+  remainingMs?(): number;
 }
 
 export interface WriteRound { fields: number; verified: number; ended: string | null }

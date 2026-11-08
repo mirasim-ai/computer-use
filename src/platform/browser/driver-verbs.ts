@@ -222,7 +222,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         // No navPending, no focus net, no journal beyond the note: it is a read channel. A caller
         // that CHANGES the page with it owes that in its report (the schema says so; nothing here
         // can enforce it).
-        return await performRunJs(() => page, a.code);
+        return await performRunJs(() => page, a.code, a.ms, a.budgetMs);
       case "back": {
         // `commit`, not `domcontentloaded`: a bfcache restore produces NO new document, so the
         // load events never fire and the wait could only time out. Rendering is the settle/change

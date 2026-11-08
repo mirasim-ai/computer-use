@@ -8,7 +8,7 @@
 import { Type } from "typebox";
 
 
-import { RUN_JS_CODE_DESC } from "../chromium/run-js.ts";
+import { RUN_JS_CODE_DESC, RUN_JS_MAX_MS, RUN_JS_MIN_MS, RUN_JS_MS_DESC } from "../chromium/run-js.ts";
 import { type VerbSpec } from "../types.ts";
 
 /**
@@ -53,5 +53,6 @@ export const RUN_JS_VERB: VerbSpec = {
     kind: Type.Literal("run_js"),
     code: Type.String({ description: `${RUN_JS_CODE_DESC} This is YOUR OWN app under development, so the console is `
       + "an ordinary part of debugging it — including the command bridges it exposes." }),
+    ms: Type.Optional(Type.Integer({ minimum: RUN_JS_MIN_MS, maximum: RUN_JS_MAX_MS, description: RUN_JS_MS_DESC })),
   }),
 };

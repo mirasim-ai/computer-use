@@ -578,6 +578,7 @@ export function createReplTools(
           journal.push({ i: journal.length + 1, kind, target, ok, note, ...(outcome ? { outcome } : {}), ...(ms !== undefined ? { ms } : {}) });
         },
         attach(part) { images.push(part); },
+        remainingMs: () => MAX_MS - (Date.now() - started - (waited() - waitedBefore)),
       };
       const fresh = !sandbox;
       sandbox ??= freshSandbox();

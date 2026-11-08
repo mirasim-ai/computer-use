@@ -271,7 +271,7 @@ export class ElectronDriver extends ChromiumPageDriver {
       }
       return await performUploadToRef(paths, ref, async () => input, () => this.missing(ref, name));
     }
-    if (kind === "run_js") return await performRunJs(() => this.page(), a.code);
+    if (kind === "run_js") return await performRunJs(() => this.page(), a.code, a.ms, a.budgetMs);
     // No focus net and no journal: see the header. The universal verbs are the base class's.
     return (await this.dispatchPage(kind, a)) ?? { ok: false, note: `unknown action kind ${kind}` };
   }

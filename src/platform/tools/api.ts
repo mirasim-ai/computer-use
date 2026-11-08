@@ -85,6 +85,13 @@ export function createComputerUseApi(
       ledger().push(kind, target, false, invalid, false, "blocked");
       throw new Error(invalid);
     }
+    // run_js waits by its own clock, and the time cap is only checked before a verb: a wait that
+    // outlasts what the call has left would hold the call past its budget (and the host's timeout).
+    // The driver gets what is left (after the schema check: it is not the script's to pass).
+    if (kind === "run_js") {
+      const left = ledger().remainingMs?.();
+      if (left !== undefined) args = { ...args, budgetMs: Math.floor(left) };
+    }
     // Reads wearing a verb's name (`menu` without a path, `run_js`) are not actions for the
     // repeat-action escalation nor the frozen verdict: a read does not change the screen, so
     // judging it by whether the screen changed can only accuse it.

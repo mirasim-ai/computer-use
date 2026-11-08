@@ -91,6 +91,19 @@ async function main() {
     check("a run_js read does not end on the re-observe advice", !afterJs.includes("that was a look"),
       afterJs.split("\n").filter((l) => l.startsWith("NOTE")).join(" | ") || "(no NOTE)");
 
+    // run_js waits 10s for a value unless the code says how long it is meant to run.
+    const driver = profile.driver;
+    const quick = await driver.perform("run_js", { code: "new Promise(() => {})", ms: 1000 });
+    check("ms sets how long run_js waits, and the timeout says longer code can pass it",
+      !quick.ok && /no result within 1s/.test(quick.note ?? "") && /pass ms \(up to 45s\)/.test(quick.note ?? ""), quick.note);
+    const slow = await driver.perform("run_js", { code: "new Promise((r) => setTimeout(() => r('late'), 10500))", ms: 15000 });
+    check("…and code meant to run past the 10s default finishes with its value", slow.ok && slow.value === "late", slow.note);
+    const cut = await driver.perform("run_js", { code: "new Promise(() => {})", ms: 20000, budgetMs: 1200 });
+    check("the wait never outlasts what the call has left, and says so",
+      !cut.ok && /no result within 1\.2s/.test(cut.note ?? "") && /fresh call/.test(cut.note ?? ""), cut.note);
+    const tooLong = firstText(await h.act("run_js", { code: "1", ms: 60000 }));
+    check("ms past 45s is refused by the schema, not quietly cut", /ms/.test(tooLong) && /45000|maximum|<=/.test(tooLong), tooLong.split("\n")[0]);
+
     const staleText = firstText(await h.act("click", { ref: "e9999" }));
     check("stale ref rejected in the platform's own terms", staleText.includes("not among the refs currently in play") && staleText.includes("a navigation, a reload or a tab switch"), staleText.split("\n")[0]);
 
