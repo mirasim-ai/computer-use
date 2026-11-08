@@ -26,6 +26,19 @@ const firstText = (r: { content: Array<{ type: string; text?: string }> }) =>
 const page = (body: string, title = "scroll fixture") =>
   `data:text/html,${encodeURIComponent(`<!doctype html><title>${title}</title>${body}`)}`;
 
+/** The page scrolls AND holds a named pane that scrolls on its own: a bare scroll cannot tell
+ * which one is meant, so it refuses and names each as the argument that picks it. */
+const FIXTURE_PAGE_PLUS_PANE = page(`
+<style>
+  body { margin: 0; }
+  #log { height: 220px; overflow-y: auto; border: 1px solid #999; margin: 8px; }
+  li { height: 30px; list-style: none; }
+</style>
+<section id="log" aria-label="Build log"><ul>
+  ${Array.from({ length: 40 }, (_, i) => `<li>Log line ${i}</li>`).join("")}
+</ul></section>
+<ul>${Array.from({ length: 80 }, (_, i) => `<li><a href="#p${i}">Page row ${i}</a></li>`).join("")}</ul>`);
+
 /** Three columns: left/right are inner scroll containers (body does not scroll).
  * Control density must not choose between the two scroll regions. */
 const FIXTURE_COLUMNS = page(`
@@ -367,6 +380,13 @@ async function main() {
     // to:'top' obeys the same pick, so a jump does not send some side area to its top.
     const jumpTop = await driver.perform("scroll", { to: "top", ref: "window" });
     check("to:'top' jumps the document too", jumpTop.journal?.container === "window", JSON.stringify(jumpTop.journal));
+
+    // ── The page and a pane both scroll: the refusal names each as its argument ──
+    const paneText = firstText(await h.act("open_url", { url: FIXTURE_PAGE_PLUS_PANE }));
+    const logRef = paneText.match(/(e\d+): region "Build log"/)?.[1];
+    const paneOrPage = await driver.perform("scroll", { to: "bottom" });
+    check("page plus a pane: a bare scroll refuses and writes each choice as the ref that picks it",
+      !paneOrPage.ok && (paneOrPage.note ?? "").includes("ref:'window' (the page itself)") && !!logRef && (paneOrPage.note ?? "").includes(`ref:'${logRef}' Build log`), paneOrPage.note);
 
     // ── Lazy list: growth warning ─────────────────────────────────────────────
     await h.act("open_url", { url: FIXTURE_LAZY });

@@ -144,8 +144,12 @@ export async function performScroll(
     return fail(`scroll probe failed: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`);
   }
   if (probe.kind === "ambiguous") {
-    const choices = (probe.candidates ?? []).map(c => `${c.ref ?? '(observe for a ref)'}: ${c.name}${c.position ? ` (${c.position})` : ''}`).join('; ');
-    return fail(`multiple scrollable regions — nothing scrolled. Pass scroll({ref:'…', ...}) using a region or a control inside it: ${choices}`);
+    // Each choice is written as the argument that picks it: «window: page» read as a label, and
+    // a caller who wanted the page did not guess that ref:'window' says so.
+    const choices = (probe.candidates ?? []).map((c) => c.ref === "window"
+      ? "ref:'window' (the page itself)"
+      : `${c.ref ? `ref:'${c.ref}'` : "(observe for its ref)"} ${c.name}${c.position ? ` (${c.position})` : ""}`).join("; ");
+    return fail(`multiple scrollable regions — nothing scrolled. Pass scroll({ref, ...}) with one of them, or a control inside it: ${choices}`);
   }
   if (probe.kind === "none") {
     if (probe.reason === "modal") return fail("an open modal dialog blocks scrolling the background — choose a scrollable region inside the dialog; nothing scrolled");
