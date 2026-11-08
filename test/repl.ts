@@ -274,6 +274,10 @@ async function main() {
     const fields = await run(`return (await w.observe()).elements.map(e => e.name + '=' + e.state);`);
     check("concurrent computer_repl calls do not cross fields", /Field A=[^"]*filled:alpha/.test(fields) && /Field B=[^"]*filled:bravo/.test(fields), line(fields, /Returned/));
     await run(`await w.openUrl({ url: '${fixtures.base}/a.html' });`);
+    const renamed = await run(`await w.runJs({ code: "document.title = 'Alpha renamed'" }); throw new Error('stop on purpose');`);
+    check("a stop's Still bound line names the tab by the title it has now, not the one it was bound with",
+      /Still bound: .*w → \S+ «Alpha renamed»/.test(renamed), line(renamed, /Still bound|STOPPED/));
+    await run(`await w.runJs({ code: "document.title = 'Alpha'" });`);
 
     // ── Handles: two tabs, one run ────────────────────────────────────────────
     const opened = await run(`

@@ -623,6 +623,12 @@ export function createReplTools(
       }
       // After a stop the next call tends to re-bind; name the handles that still hold.
       if (failure) {
+        // A handle's title is the one it had when bound; the page has usually moved on since
+        // (a click, a navigation), and the line would name the tab by a title it no longer has.
+        for (const t of await allTargets().catch((): MountedTarget[] => [])) {
+          const h = handles.get(t.id);
+          if (h) h.title = t.title;
+        }
         const held = boundHandles(sandbox);
         if (held.length) lines.push(`Still bound: ${held.join(", ")} — use ${held.length === 1 ? "it" : "them"} directly in the next call.`);
       }
