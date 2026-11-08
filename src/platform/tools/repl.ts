@@ -467,13 +467,15 @@ export function createReplTools(
     return `${msg} — `
       + (fresh
         ? "this call started a FRESH runtime, so nothing declared in an earlier call survives (the server was restarted, or its host reaped it while idle). "
-        : "no call on this runtime declared it at the top level, and nothing is predefined but computer. ")
+        : "no call on this runtime declared it at the top level, and nothing is predefined but computer, URL and URLSearchParams. ")
       + "If it is a surface handle, bind it: const w = await computer.surface('<id or title>').";
   };
 
   // `createContext` starts from a bare V8 global: no require / process / fetch / setTimeout, and
-  // no top-level verbs (every verb is reached through a surface handle).
-  const freshSandbox = () => createContext({ computer, console: undefined });
+  // no top-level verbs (every verb is reached through a surface handle). URL and URLSearchParams
+  // are not V8's, and scripts reach for them to check a page's address (`new URL(u).search`):
+  // they only parse strings, so they are handed in.
+  const freshSandbox = () => createContext({ computer, console: undefined, URL, URLSearchParams });
   /** Top-level names in the runtime that hold a surface handle, as `name → id «title»`. A handle
    *  is recognised by identity (`owner`), never by shape: a script's own `{ id, title }` is not one. */
   const boundHandles = (ctx: object): string[] =>

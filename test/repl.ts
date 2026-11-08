@@ -343,6 +343,8 @@ async function main() {
     check("the step cap stops a runaway loop", /Run STOPPED/.test(capped) && /step cap reached/.test(capped), line(capped, /^Run/));
     const sealed = await run(`return [typeof require, typeof process, typeof fetch, typeof setTimeout, typeof console].join(',');`);
     check("no Node reaches the runtime", /Returned: undefined,undefined,undefined,undefined,undefined/.test(sealed), line(sealed, /Returned/));
+    const parsed = await run(`const u = new URL('http://localhost:5173/board?q=rel&sort=title'); return [u.pathname, u.searchParams.get('sort'), new URLSearchParams('a=1&b=2').get('b')].join(',');`);
+    check("URL and URLSearchParams are there to check a page's address", /Returned: "?\/board,title,2"?/.test(parsed), line(parsed, /Returned|STOPPED/));
     const broken = await run(`this is not javascript`);
     check("a syntax error is an answer", /Run STOPPED/.test(broken) && /SyntaxError/.test(broken), line(broken, /^Run/));
 

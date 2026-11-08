@@ -181,7 +181,7 @@ function parts(driver: ComputerUseDriver) {
     "  · a ref read on surface A is refused on surface B — act on it through A's handle",
     "  · a handle whose surface is gone throws: re-acquire with computer.surfaces()",
     "  · 100 actions and 60 s per call; reads, find(), waits, verification and computer.log() also spend this budget",
-    "  · nothing outside this API exists: no require, import, fetch, process, timers, console",
+    "  · nothing outside this API exists but URL and URLSearchParams: no require, import, fetch, process, timers, console",
     "",
     "Persistence: top-level const/let/var/function/class declarations live until computer_repl_reset. Keep a",
     "handle in one and reuse it; collect results in a variable across calls; return only what you need.",
