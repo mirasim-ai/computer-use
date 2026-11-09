@@ -398,8 +398,17 @@ refused, until you resume), lists the refused requests, and sets:
   its cookies are left out of what the agent reads; and wiping every cookie is refused while any
   limit is set.
 
+The toolbar icon shows where a tab stands: in colour on a tab the agent may use (in the group, or
+one it opened), greyed out everywhere else. Its badge adds ✓ while the agent holds the tab, × on
+a blocked site and II while the agent is paused.
+
 A refused call says why, and when the agent asks for a tab it cannot see, the miss tells it to
 ask you to hand the tab over.
+
+A tab the agent opens (`newTab`, or a session's first tab) must appear on the bridge
+within 5 seconds. When it does not, the call fails, the tab is closed again, and no other tab is
+taken in its place: the agent never ends up holding, or later closing, a tab of yours it did not
+open.
 
 Among the tabs it may use, the bridge attaches Chrome's debugger only to tabs being driven: the
 agent's own and a tab of yours that a session has bound, each with the windows its pages open.
