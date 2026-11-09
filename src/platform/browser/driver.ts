@@ -198,7 +198,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
       { kind: "new_tab", schema: Type.Object({
         kind: Type.Literal("new_tab"),
         url: Type.Optional(Type.String({ description: "URL to open in it; omit for a blank tab" })),
-      }, { description: "Open a NEW tab of this session's own and make it the target — the current tab keeps its state, and both are listed as targets afterwards." }) },
+      }, { description: "Open a NEW tab of this session's own and make it the target — the current tab keeps its state, and both are listed as targets afterwards. It answers with a note naming the new tab's id, not a handle; the handle it was called on stays on its own tab, so bind the new one with computer.surface('<that id>')." }) },
       // The counterpart of new_tab: in extension mode the session's tabs sit in the USER'S
       // window, and every one left behind is litter in a borrowed browser. A VERB, deliberately
       // with no lifecycle behind it: most hosts announce no turn end, `extension/group.js` makes

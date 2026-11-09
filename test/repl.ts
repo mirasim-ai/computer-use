@@ -290,6 +290,11 @@ async function main() {
     check("a click whose navigation is still loading when it returns is a click that landed, not a raw Playwright timeout",
       /Returned: "?paid"?/.test(paid) && !/Call log|locator\.click/.test(paid) && /still loading/.test(paid), line(paid, /click|Returned|STOPPED/));
     await run(`await w.openUrl({ url: '${fixtures.base}/a.html' });`);
+    const opened2 = await run(`const before = w.id; const said = await w.newTab({ url: '${fixtures.base}/b.html' }); const id = said.match(/new tab (\\S+) is now/)[1]; const t = await computer.surface(id); return { said, stays: w.id === before, bound: t.title };`);
+    check("newTab says it answers with a note, that the handle stays on its tab, and how to bind the new one",
+      /handle it was called on stays on its own tab/.test(opened2) && /computer\.surface\('t\d+'\) binds the new one/.test(opened2) && /"stays":true/.test(opened2) && /"bound":"Beta"/.test(opened2),
+      line(opened2, /Returned|STOPPED/));
+    await run(`await t.closeTab(); await w.focus();`);
     const waited = await run(`return await w.runJs({ code: "new Promise((r) => setTimeout(() => r(7), 1500))", ms: 3000 });`);
     check("runJs({code, ms}) reaches the page with its wait", /Returned: 7/.test(waited), line(waited, /Returned|STOPPED/));
 

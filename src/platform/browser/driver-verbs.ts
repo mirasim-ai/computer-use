@@ -20,6 +20,16 @@ import { detectInterference, overlaySensitive } from "./overlay-guard.ts";
 import { performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
 import { performRunJs } from "../chromium/run-js.ts";
 import { withPageCapture } from "../chromium/shot.ts";
+
+/**
+ * What new_tab says when the session already had a tab. Scripts wrote `const tab = await
+ * w.newTab(...)` and then `tab.expect(...)` ("tab.expect is not a function", twice in the v3
+ * benchmark), and the handle they called it on stays on ITS tab: say both, and how to bind the new one.
+ */
+const secondTabNote = (id: string) =>
+  `new tab ${id} is now the target — newTab answers with this note, not a handle, and the handle it was called on `
+  + `stays on its own tab: const t = await computer.surface('${id}') binds the new one`;
+
 export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
   /** close_tab on an id the session holds no page for: a subclass that lists such tabs answers
    *  for them; null is "no such tab". */
@@ -262,11 +272,11 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
             await tab.goto(a.url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
           } catch (e) {
             const v = navVerdict(e);
-            return { ...v, note: `new tab ${id} is now the target; ${v.note ?? "its navigation did not finish"}` };
+            return { ...v, note: `${secondTabNote(id)}; ${v.note ?? "its navigation did not finish"}` };
           }
-          return { ok: true, note: `new tab ${id} is now the target; ${landedNote("opened", a.url, tab.url())}` };
+          return { ok: true, note: `${secondTabNote(id)}; ${landedNote("opened", a.url, tab.url())}` };
         }
-        return { ok: true, note: `new tab ${id} is now the target` };
+        return { ok: true, note: secondTabNote(id) };
       }
       case "viewport": {
         // A virtualized list mounts what fits the USER'S real window (x.com's feed: 3 posts per
