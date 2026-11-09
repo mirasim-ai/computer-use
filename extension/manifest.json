@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mirasim",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "default_locale": "en",
   "description": "Connect your browser to Mirasim or the open-source Mirasim Computer Use so your agent can complete web tasks you authorize.",
   "permissions": [
