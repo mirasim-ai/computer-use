@@ -77,12 +77,17 @@ if (!await w.wait({url: "/tasks"})) throw new Error("did not return to the list"
 await w.click(await w.find("New task", {role: "button"}));   // next stage, same call
 ```
 
-Branch on what the page shows only for a **known detour with no side effect**:
+Branch on what the page shows only for a **known detour with no side effect**. `find(name,
+{why: true})` answers a miss with its `reason` instead of `null`, so the code can tell an
+overlay (`covered`) from a control that is not there yet (`absent`) and take the right way out:
 
 ```js
-let menu = await w.find("Menu", {role: "button"});
-if (!menu) { await w.keys("Escape"); await w.wait({}); menu = await w.find("Menu", {role: "button"}); }
-if (!menu) throw new Error("Menu missing or covered");
+let m = await w.find("Menu", {role: "button", why: true});
+if (m.reason === "covered") { await w.keys("Escape"); await w.wait({}); }   // m.by names the cover
+else if (m.reason === "absent") await w.wait({control: "Menu"});
+if (!m.ref) m = await w.find("Menu", {role: "button", why: true});
+if (!m.ref) throw new Error(m.note);                 // the journal's own words
+await w.click(m);
 const toggle = await w.find("Light mode", {role: "button"}) ?? await w.find("Dark mode", {role: "button"});
 await w.wait({control_gone: "Loading tasks"});       // a load needs no branch: returns at once when idle
 ```
@@ -97,6 +102,8 @@ Where code must not choose:
 - **An unexpected sign-in page.** The session was lost: maybe the change you just made broke it,
   maybe that is the bug you are looking for. Stop and look; signing in from code hides it. The
   one exception: the task or the user gave the account and said a sign-in may come up again.
+- **What `why` cannot settle.** `filtered` and `text` mean your query is wrong, not the page;
+  on macOS and Windows a covered control reads as `absent`. Fix the query or look.
 - **An option that is not there.** When a select lacks the option you expected, read the
   options and report it; do not quietly pick another — in a QA task that is the finding.
 
