@@ -1,6 +1,6 @@
 ---
 name: mirasim-computer-use
-description: Read before operating a browser tab, macOS/Windows app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
+description: Read before operating a browser tab, macOS/Windows app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
 ---
 
 # Mirasim Computer Use
@@ -62,6 +62,43 @@ In extension mode the user decides what you may reach (the extension's panel). T
   own tab. Bind the new one: `const t2 = await computer.surface("<id from the note>")`.
 - If `newTab` fails saying the tab never appeared, nothing else was taken in its place: try once
   more, then list surfaces. Do not act on whichever tab happens to be active instead.
+
+## Going on in one call
+
+Most extra round trips are a call that only returns a check, followed by a call that does the
+next stage. When the check only decides whether the plan continues, assert it and keep going
+in the same code — a failed check stops the run with its reason, which is what you would have
+read:
+
+```js
+await w.click(await w.find("Save", {role: "button"}));
+await w.expect({text: "Saved"});                     // throws, with the reason, if not
+if (!await w.wait({url: "/tasks"})) throw new Error("did not return to the list");
+await w.click(await w.find("New task", {role: "button"}));   // next stage, same call
+```
+
+Branch on what the page shows only for a **known detour with no side effect**:
+
+```js
+let menu = await w.find("Menu", {role: "button"});
+if (!menu) { await w.keys("Escape"); await w.wait({}); menu = await w.find("Menu", {role: "button"}); }
+if (!menu) throw new Error("Menu missing or covered");
+const toggle = await w.find("Light mode", {role: "button"}) ?? await w.find("Dark mode", {role: "button"});
+await w.wait({control_gone: "Loading tasks"});       // a load needs no branch: returns at once when idle
+```
+
+Where code must not choose:
+
+- **Confirms, deletes, submits, sends, payments.** No branch leads into one, and no `try/catch`
+  steps past one that failed or came back `[uncertain]`: stop, read the result, then decide.
+- **A confirm dialog.** `dialog({answer: "accept"})` armed before the click accepts text you
+  never read. Click without arming — the confirm is dismissed and the journal quotes it — read
+  it, and only if it says what you meant to do, arm accept and click again.
+- **An unexpected sign-in page.** The session was lost: maybe the change you just made broke it,
+  maybe that is the bug you are looking for. Stop and look; signing in from code hides it. The
+  one exception: the task or the user gave the account and said a sign-in may come up again.
+- **An option that is not there.** When a select lacks the option you expected, read the
+  options and report it; do not quietly pick another — in a QA task that is the finding.
 
 ## Tabs afterwards
 
