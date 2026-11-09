@@ -11,6 +11,8 @@
  *              (`platform/browser/bridge/native-host.ts`), or take the record back with
  *              `--remove`. `bridge --native-host` does the same on every start; this is the
  *              explicit way in, and the way out.
+ *   skill      copy the agent skill this package ships into Claude Code's and Codex's skill
+ *              folders (`setup-skill.ts`), or take it back with `--remove`.
  *
  * The command stays rather than folding into `browser`: each platform that needs a bootstrap
  * arrives as one more kind here.
@@ -27,6 +29,7 @@ function usage(asked: boolean): never {
   emitUsage(`Usage: mirasim-cu setup browser
        mirasim-cu setup macos [--no-open] [--json]
        mirasim-cu setup extension [--remove] [--socket P] [--json] [options]
+       mirasim-cu setup skill [--remove] [--dir D]... [--json]
 
   browser    check for a driveable Chrome; a miss names the fix (never auto-installs)
   macos      check Accessibility + Screen Recording for the app that launched this; a miss
@@ -35,6 +38,9 @@ function usage(asked: boolean): never {
              native-messaging manifest into every Chromium-family browser found
              (--remove takes this computer-use's record back; the last one out
              removes the manifests)
+  skill      copy the agent skill (mirasim-computer-use) into ~/.claude/skills (Claude Code)
+             and ~/.agents/skills (Codex), for each agent set up here; run it again after an
+             upgrade (--dir D: that skills folder instead, repeatable; --remove takes it back)
 
   --socket P         the socket \`bridge\` listens on (default <COMPUTER_USE_HOME>/bridge.sock)
   --json             print the result as JSON
@@ -86,6 +92,30 @@ export async function runSetupCommand(argv: string[]): Promise<void> {
     console.log(`  manifests: ${result.manifests.join(", ") || "(none — no Chromium-family browser folder found)"}`);
     console.log(`  recorded:  ${result.owners.join(", ")}`);
     console.log("Run `mirasim-cu bridge --native-host` to let the extension connect.");
+    return;
+  }
+  if (kind === "skill") {
+    if (wantsHelp(argv.slice(1))) usage(true);
+    const { values } = parseArgs({
+      args: argv.slice(1),
+      options: {
+        remove: { type: "boolean", default: false },
+        dir: { type: "string", multiple: true },
+        json: { type: "boolean", default: false },
+      },
+    });
+    const { defaultSkillDirs, setupSkill } = await import("./setup-skill.ts");
+    const dirs = values.dir?.length ? values.dir : defaultSkillDirs();
+    const result = setupSkill(dirs, { remove: values.remove });
+    if (values.json) {
+      console.log(JSON.stringify(result));
+      return;
+    }
+    if (!result.length) {
+      console.error("no Claude Code (~/.claude) or Codex (~/.codex) setup found; name a skills folder with --dir");
+      process.exit(1);
+    }
+    for (const t of result) console.log(`${t.result.padEnd(9)} ${t.dir}${t.note ? ` — ${t.note}` : ""}`);
     return;
   }
   usage(wantsHelp(argv));

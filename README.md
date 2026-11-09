@@ -82,6 +82,18 @@ bridge at a time, and the Mirasim desktop app's comes first: while browser contr
 extension mode says so at once and does not connect.
 Details in [docs/embedding.md](docs/embedding.md#your-own-browser-extension).
 
+**Agent skill.** The package ships a skill for the agent, `mirasim-computer-use`: the mistakes
+agents make most with these tools (which browser, a tab it cannot see, the arguments of the tab
+verbs, what to do with tabs afterwards, recovering a stuck session). Copy it into Claude Code's
+(`~/.claude/skills`) and Codex's (`~/.agents/skills`) skill folders with
+
+```sh
+npx -y @mirasim/computer-use setup skill
+```
+
+and run it again after an upgrade; `--remove` takes it back. The Mirasim desktop app installs its
+own copy.
+
 **Native apps** are opt-in with `COMPUTER_USE_PLATFORMS` (comma-separated, default `browser`):
 
 ```sh
@@ -119,6 +131,7 @@ mirasim-cu browser open          # summon the managed browser for the user
 mirasim-cu setup browser         # dependency bootstrap: verify a driveable Chrome exists
 mirasim-cu setup macos           # check Accessibility + Screen Recording; open a missing pane
 mirasim-cu approvals             # apps answered "always allow"; add / remove <app>
+mirasim-cu setup skill           # copy the agent skill into Claude Code's and Codex's skill folders
 ```
 
 To drive computer-use from another program — the spawn environment, the host protocol, the
