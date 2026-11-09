@@ -190,6 +190,11 @@ export class MirasimTabGroup {
     return this._connection.attachedTabs.has(tabId);
   }
 
+  /** A tab the agent opened, or a popup of one in scope: the agent's even outside a group. */
+  isAgentTab(tabId) {
+    return this._agentCreatedTabIds.has(tabId) || this._inheritedTabIds.has(tabId);
+  }
+
   get bridgeInfo() {
     return this._connection.bridgeInfo;
   }

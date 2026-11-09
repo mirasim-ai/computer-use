@@ -8,9 +8,13 @@
  *    the panel (panel.html), where the user can take a tab back. One click never takes a tab
  *    away from the agent mid-task.
  *
- * Badges: ✓ the agent holds this tab; × a site rule blocks it; II the agent is paused; "new"
- * until the panel has been opened once (0.1.3 changed what the agent may reach by default).
- * Chrome resets tab-specific action state on navigation, so every tab update re-applies it.
+ * The icon says whether the agent may use the tab at all, as Playwriter's does: in colour on a
+ * tab handed over (in the mirasim group, or one the agent opened), greyed out everywhere else —
+ * so a tab in the group reads differently from one outside it even while the agent is idle.
+ * Badges add what the colour cannot: ✓ the agent holds this tab right now; × a site rule blocks
+ * it; II the agent is paused; "new" until the panel has been opened once (0.1.3 changed what
+ * the agent may reach by default). Chrome resets tab-specific action state on navigation, so
+ * every tab update re-applies it.
  */
 
 import { PANEL_SEEN_KEY } from "./access.js";
@@ -27,6 +31,37 @@ const BADGES = {
 };
 
 const t = (key) => chrome.i18n.getMessage(key) || key;
+
+const ICON_SIZES = [16, 32];
+/** The toolbar icon greyed out, drawn once from the shipped PNGs: no second set of files to keep
+ *  in step with the brand mark (mirasim scripts/make-app-icons.mjs writes only the colour one). */
+let greyIcon = null;
+async function greyedIcon() {
+  greyIcon ??= (async () => {
+    const out = {};
+    for (const size of ICON_SIZES) {
+      const blob = await (await fetch(chrome.runtime.getURL(`icons/icon-${size}.png`))).blob();
+      const bitmap = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(size, size);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(bitmap, 0, 0, size, size);
+      const img = ctx.getImageData(0, 0, size, size);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const grey = Math.round(0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2]);
+        d[i] = d[i + 1] = d[i + 2] = grey;
+        d[i + 3] = Math.round(d[i + 3] * 0.55);
+      }
+      out[size] = img;
+    }
+    return out;
+  })().catch((e) => {
+    greyIcon = null;
+    throw e;
+  });
+  return await greyIcon;
+}
+const COLOUR_ICON = Object.fromEntries(ICON_SIZES.map((size) => [size, `icons/icon-${size}.png`]));
 
 export class Toolbar {
   /**
@@ -91,6 +126,7 @@ export class Toolbar {
       && (await chrome.tabGroups.get(tab.groupId).catch(() => null))?.title === GROUP_TITLE;
     return {
       connected: !!group,
+      agents: !!group?.isAgentTab(tab.id),
       restricted: isNonDebuggableUrl(tab.url) || isNonDebuggableUrl(tab.pendingUrl),
       siteVerdict: this._policy.siteVerdict(tab.url) ?? this._policy.siteVerdict(tab.pendingUrl),
       handedOver,
@@ -102,20 +138,28 @@ export class Toolbar {
   async _apply(tab) {
     if (tab.id === undefined) return;
     const s = await this.stateOf(tab);
-    const joinable = !s.handedOver && !s.restricted && !s.siteVerdict;
+    const joinable = !s.handedOver && !s.agents && !s.restricted && !s.siteVerdict;
+    const reachable = (s.handedOver || s.agents || s.using) && !s.restricted && !s.siteVerdict;
     let badge = BADGES.none;
     let tip;
     if (s.using) (badge = BADGES.using), (tip = t("tipUsing"));
     else if (s.siteVerdict) (badge = BADGES.blocked), (tip = t("tipBlocked"));
     else if (s.restricted) tip = t("tipRestricted");
-    else if (s.handedOver) tip = t("tipHandedOver");
+    else if (s.handedOver || s.agents) tip = t("tipHandedOver");
     else tip = t("tipJoin");
     if (this._policy.paused) badge = BADGES.paused;
     else if (badge === BADGES.none && !this._seen) badge = BADGES.fresh;
     const prefix = this._policy.paused ? t("tipPausedPrefix") : !s.connected ? t("tipOfflinePrefix") : "";
     const tabId = tab.id;
+    let icon;
+    try {
+      icon = reachable ? { path: COLOUR_ICON } : { imageData: await greyedIcon() };
+    } catch (e) {
+      debugLog("grey icon failed:", e);
+    }
     try {
       await Promise.all([
+        icon ? chrome.action.setIcon({ tabId, ...icon }) : Promise.resolve(),
         chrome.action.setPopup({ tabId, popup: joinable ? "" : PANEL }),
         chrome.action.setBadgeText({ tabId, text: badge.text }),
         chrome.action.setBadgeBackgroundColor({ tabId, color: badge.color }),

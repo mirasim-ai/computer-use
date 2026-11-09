@@ -111,8 +111,20 @@ async function main() {
     check("...and opens the panel on one the agent holds", (await popupOf(agentTabId)).endsWith("/panel.html"));
     check("the badge marks the tab the agent holds", (await badgeOf(agentTabId)) === "✓", await badgeOf(agentTabId));
 
+    // chrome.action has no getter for a tab's icon: record what the toolbar sets.
+    await ext(`(() => {
+      globalThis.__icons = {};
+      const orig = chrome.action.setIcon.bind(chrome.action);
+      chrome.action.setIcon = (d) => { globalThis.__icons[d.tabId] = d.path ? "colour" : "grey"; return orig(d); };
+      return true;
+    })()`);
+    const iconOf = (tabId: number) => ext(`globalThis.__icons[${tabId}] ?? "unset"`) as Promise<string>;
+    await ext(`chrome.tabs.reload(${userId}).then(() => true)`);
+    await sleep(800);
+    check("a tab outside the group shows the icon greyed out", (await iconOf(userId)) === "grey", await iconOf(userId));
     await intoGroup(userId);
     await sleep(800);
+    check("...and in colour once handed over, with the agent idle on it", (await iconOf(userId)) === "colour", await iconOf(userId));
     urls = (await listed()).map((t) => t.url);
     check("handed over (into the group), the user's tab is listed", urls.includes(url("/user")), JSON.stringify(urls));
     check("...and its click opens the panel now", (await popupOf(userId)).endsWith("/panel.html"));
@@ -125,6 +137,7 @@ async function main() {
     await ext(`chrome.tabs.ungroup(${userId}).then(() => true)`);
     await sleep(800);
     check("dragged out of the group, the tab is detached", !(await debuggerOn(userId)));
+    check("...and its icon is greyed out again", (await iconOf(userId)) === "grey", await iconOf(userId));
     urls = (await listed()).map((t) => t.url);
     check("...and no longer listed", !urls.includes(url("/user")), JSON.stringify(urls));
     bridgeCdp.close();
