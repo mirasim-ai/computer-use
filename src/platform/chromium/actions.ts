@@ -83,12 +83,20 @@ export async function clickNamingCover(
     await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
     return { ok: true };
   } catch (e) {
+    const after = afterDispatch(e, COVER_CHECK_AFTER_MS);
+    if (after) return after;
     if (!undispatchedTimeout(e)) throw e;
   }
   // An editor's input proxy never passes Playwright's hit check: the editor's own text is on top
   // of it by design (coverer-label.ts). A click at its point is the one a person makes there.
   if (await isEditorProxy(loc)) {
-    await target.click({ ...opts, force: true, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
+    try {
+      await target.click({ ...opts, force: true, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
+    } catch (e) {
+      const after = afterDispatch(e, CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS);
+      if (after) return after;
+      throw e;
+    }
     return { ok: true };
   }
   const early = await coveredBy(loc, ref, name);
@@ -97,10 +105,38 @@ export async function clickNamingCover(
     await target.click({ ...opts, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
     return { ok: true };
   } catch (e) {
+    const after = afterDispatch(e, CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS);
+    if (after) return after;
     const late = await coveredBy(loc, ref, name);
     if (!late) throw e;
     return { ok: false, journal: { covered: true }, note: late };
   }
+}
+
+/**
+ * A Playwright timeout that came AFTER the click was dispatched, said in this tool's terms.
+ *
+ * Playwright's own message is its call log, which the model read verbatim ("Timeout 2000ms
+ * exceeded. Call log: …") and took for a failed click. Two cases:
+ *  · "click action done", then waiting for scheduled navigations: the click LANDED and started a
+ *    navigation that was still loading (a form posting to a slow server). That is a click that
+ *    worked — the next read is what waits for the page.
+ *  · dispatched but never confirmed done: it may have landed, so it is not retried, and says so.
+ * Null for a timeout before dispatch, which the caller handles (cover check, second attempt).
+ */
+function afterDispatch(e: unknown, ms: number): ActResult | null {
+  const err = e as { name?: string; message?: string } | null;
+  if (err?.name !== "TimeoutError") return null;
+  const msg = String(err.message ?? "");
+  if (/click action done/.test(msg)) {
+    return { ok: true, note: "clicked — it started a navigation that was still loading when the click returned; "
+      + "wait({loaded}) or wait({text}) for the next page before reading it" };
+  }
+  if (/performing \w+ action/.test(msg)) {
+    throw new Error(`the click was sent but not confirmed within ${ms / 1000}s — it may have landed; `
+      + "observe before clicking again");
+  }
+  return null;
 }
 
 /** A Playwright timeout whose call log never reached the dispatch step ("performing click action"). */

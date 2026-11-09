@@ -50,13 +50,21 @@ function render() {
 }
 render();
 </script>`;
+/** A checkout whose Pay button submits to a server slow to answer: the click lands at once, the
+ *  navigation it starts is still loading when the click returns. */
+const PAGE_PAY = `<!doctype html><title>Checkout</title><form action="/paid" method="post"><button type="submit">Pay $10.00</button></form>`;
+const PAGE_PAID = `<!doctype html><title>Paid</title><h1>Payment received</h1>`;
 /** Two named fields — the shape that shows what two interleaved callers do to one caret. */
 const PAGE_FIELDS = `<!doctype html><title>Fields</title><input aria-label="Field A"><br><input aria-label="Field B">`;
 
 function serve(): Promise<{ base: string; close: () => void }> {
   const srv = createServer((req, res) => {
+    if (req.url === "/paid") {
+      setTimeout(() => { res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end(PAGE_PAID); }, 3500);
+      return;
+    }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(req.url === "/b.html" ? PAGE_B : req.url === "/churn.html" ? PAGE_CHURN : req.url === "/fields.html" ? PAGE_FIELDS : PAGE_A);
+    res.end(req.url === "/pay.html" ? PAGE_PAY : req.url === "/b.html" ? PAGE_B : req.url === "/churn.html" ? PAGE_CHURN : req.url === "/fields.html" ? PAGE_FIELDS : PAGE_A);
   });
   return new Promise((resolve) => srv.listen(0, "127.0.0.1", () => {
     const { port } = srv.address() as { port: number };
@@ -278,6 +286,10 @@ async function main() {
     check("a stop's Still bound line names the tab by the title it has now, not the one it was bound with",
       /Still bound: .*w → \S+ «Alpha renamed»/.test(renamed), line(renamed, /Still bound|STOPPED/));
     await run(`await w.runJs({ code: "document.title = 'Alpha'" });`);
+    const paid = await run(`await w.openUrl({ url: '${fixtures.base}/pay.html' }); await w.click(await w.find('Pay $10.00')); await w.wait({ text: 'Payment received', ms: 8000 }); return 'paid';`);
+    check("a click whose navigation is still loading when it returns is a click that landed, not a raw Playwright timeout",
+      /Returned: "?paid"?/.test(paid) && !/Call log|locator\.click/.test(paid) && /still loading/.test(paid), line(paid, /click|Returned|STOPPED/));
+    await run(`await w.openUrl({ url: '${fixtures.base}/a.html' });`);
     const waited = await run(`return await w.runJs({ code: "new Promise((r) => setTimeout(() => r(7), 1500))", ms: 3000 });`);
     check("runJs({code, ms}) reaches the page with its wait", /Returned: 7/.test(waited), line(waited, /Returned|STOPPED/));
 
