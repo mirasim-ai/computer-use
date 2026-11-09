@@ -9,6 +9,13 @@ published version ever names a helper the registry lacks. The tag must match `pa
 or the workflow stops before publishing anything. A version with a prerelease part (`0.1.0-rc.1`) is
 published to the `next` dist-tag, all five packages alike; a plain version goes to `latest`.
 
+Before bumping the version, read what the release changes against the three texts that describe
+it to people and agents, and update the ones it makes wrong: this README and docs/embedding.md,
+the agent skill (`skills/mirasim-computer-use/SKILL.md`), and the Chinese user guide for Mirasim
+users (chapter 19, "Computer Use", of the guide at mirasim.ai/guide, kept in the website's
+repository). A change to the extension's panel, its toolbar icon or the tab verbs reaches all
+three.
+
 Running the workflow by hand is a dry run unless `dry_run` is unticked. npm versions are
 immutable, so a re-run skips whatever the registry already has.
 
