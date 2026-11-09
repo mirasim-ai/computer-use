@@ -174,6 +174,7 @@ export abstract class ChromiumPageDriver extends ChromiumPageWaits {
           ref: it.ref, role: it.role, name: it.name || "", state: it.val || "",
           rect: { x: it.left + ox, y: it.top + oy, w: it.width, h: it.height },
           ...(it.by ? { coveredBy: it.by as string } : {}),
+          ...(it.byRef ? { coveredByRef: it.byRef as string } : {}),
         });
       }
       // Group labels are frame-local (a container cannot span frames): no offset fixing.

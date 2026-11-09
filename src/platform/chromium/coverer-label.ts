@@ -9,15 +9,18 @@ import { NAME_JS, pageFn } from "./collect.ts";
  * strip's innermost div or hashed iframe id names nothing at all. Where it sits tells the caller
  * which way out exists: a header pinned at the top is scrolled past, a strip along the bottom is
  * dismissed or scrolled away from. `target` (optional) is the covered element: a layer holding it
- * is the page it lives in, not a cover (a body pinned for scroll lock).
+ * is the page it lives in, not a cover (a body pinned for scroll lock). `out` (optional) receives
+ * the node the label names as `out.node`, so a caller can tell whether that cover is itself a
+ * listed control without judging the cover a second way.
  */
-export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target) => {
+export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target, out) => {
+  const named = (node, label) => { if (out) out.node = node; return label; };
   const clean = (s) => (s || '').trim().replace(/\s+/g, ' ').slice(0, 80);
   const layer = hit.closest('[role="tooltip"], [role="dialog"], [role="alertdialog"], [role="menu"], dialog, [popover]');
   if (layer) {
     const role = layer.getAttribute('role') || (layer.tagName === 'DIALOG' ? 'dialog' : 'popover');
     const name = clean(nameOf(layer));
-    return role + (name ? ' "' + name + '"' : '');
+    return named(layer, role + (name ? ' "' + name + '"' : ''));
   }
   const doc = hit.ownerDocument, win = doc.defaultView;
   let pinned = null;
@@ -32,7 +35,7 @@ export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target) => {
   if (control && (!pinned || control.contains(pinned))) {
     const role = control.getAttribute('role') || (control.tagName === 'A' ? 'link' : control.tagName.toLowerCase());
     const name = clean(nameOf(control));
-    return role + (name ? ' "' + name + '"' : '');
+    return named(control, role + (name ? ' "' + name + '"' : ''));
   }
   if (pinned) {
     // By the viewport third its middle sits in: a sub-nav stacked under the main header is
@@ -47,11 +50,11 @@ export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target) => {
     const id = pinned.id && !/[0-9a-f]{8}|\d{4}/i.test(pinned.id) ? '#' + pinned.id : '';
     const who = clean(pinned.getAttribute('aria-label'))
       || (['header', 'nav', 'footer', 'aside'].includes(tag) ? tag + (id ? ' ' + id : '') : id);
-    return kind + where + (who ? ' (' + who + ')' : '');
+    return named(pinned, kind + where + (who ? ' (' + who + ')' : ''));
   }
   const labelled = hit.closest('[aria-label]');
-  if (labelled) return 'element "' + nameOf(labelled).slice(0, 80) + '"';
-  return hit.id ? 'element #' + hit.id : 'another element';
+  if (labelled) return named(labelled, 'element "' + nameOf(labelled).slice(0, 80) + '"');
+  return named(hit, hit.id ? 'element #' + hit.id : 'another element');
 }`;
 
 /**

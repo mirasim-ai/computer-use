@@ -197,6 +197,9 @@ export interface Element {
    * element-change signature, like `row`.
    */
   coveredBy?: string;
+  /** The ref of that cover, when the cover is itself a listed control (a floating button). Absent
+   *  for a layer that is not one (a backdrop, a sticky bar). Out of the signature like `coveredBy`. */
+  coveredByRef?: string;
 }
 
 /** Presentation changes only; these never enter the action-effect signature. */

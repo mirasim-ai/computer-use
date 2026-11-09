@@ -171,6 +171,9 @@ export const VIEWPORT_JS = String.raw`(startK) => {
   // Their elements, index-aligned: mintRefs needs the node, and a covered item still earns a
   // number (it is reported).
   const coveredHits = [];
+  // And the node each one's cover label names, index-aligned again: when that node is itself a
+  // listed control, the covered item carries its ref (byRef) — find(…, {why}) hands it on.
+  const coverNodes = [];
   // Occlusion is sampled where Playwright would click: the center of the FIRST client quad in
   // the viewport (a bbox center mis-drops wrapped inline links), shrunk to the box every
   // clipping ancestor leaves visible — elementFromPoint ignores scroll-container clipping. A hit
@@ -219,6 +222,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
   // but scrolled out of its own container — listed with the off-screen elements instead.
   // A false leaves what covers it in lastCoverer: each covered item names its OWN cover.
   let lastCoverer = '';
+  const lastCover = { node: null };
   const clickable = (el) => {
     if (el.getRootNode && el.getRootNode() instanceof ShadowRoot) return true; // see header comment
     let px = -1, py = -1, inViewport = false;
@@ -242,7 +246,8 @@ export const VIEWPORT_JS = String.raw`(startK) => {
     if (editorProxy(el, hit)) return true;
     const scroller = scrollerOf(el);
     if (scroller && scroller.contains(hit) && stickyWithin(hit, scroller)) return 'clipped';
-    const label = covererLabel(hit, nameOf, el);
+    lastCover.node = null;
+    const label = covererLabel(hit, nameOf, el, lastCover);
     lastCoverer = label;
     coverers[label] = (coverers[label] || 0) + 1;
     coveredCount++;
@@ -283,7 +288,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
       // Covered: NOT listed, but kept as the diff baseline (else every full-screen dialog
       // rewrites the whole list).
       const reach = clickable(target);
-      if (!reach) { item.by = lastCoverer; coveredItems.push(item); coveredHits.push(el); continue; }
+      if (!reach) { item.by = lastCoverer; coveredItems.push(item); coveredHits.push(el); coverNodes.push(lastCover.node); continue; }
       if (reach === 'clipped') item.clipped = 1;
       items.push(item);
       hits.push(el);
@@ -339,6 +344,14 @@ export const VIEWPORT_JS = String.raw`(startK) => {
   };
   mintRefs(items, hits);
   mintRefs(coveredItems, coveredHits);
+  // A cover that is itself a listed control (a floating button) has a ref the caller can act on;
+  // a layer that is not (a backdrop, a sticky bar) has none, and gets none.
+  const listedRef = new Map();
+  for (let i = 0; i < items.length; i++) listedRef.set(hits[i], items[i].ref);
+  for (let i = 0; i < coveredItems.length; i++) {
+    const byRef = coverNodes[i] && listedRef.get(coverNodes[i]);
+    if (byRef) coveredItems[i].byRef = byRef;
+  }
   // ── Row context ─────────────────────────────────────────────────────────────
   // Three identical 'button "Delete"' lines pass the identity check on the wrong row, and
   // sticky refs stop tracking row order once rows are inserted or recycled.
