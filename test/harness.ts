@@ -24,6 +24,7 @@
 
 import type { ComputerUseDriver } from "../src/platform/driver.ts";
 import { createComputerUseApi, isReadVerb, type RunLedger, type WriteRound } from "../src/platform/tools/api.ts";
+import type { FindMiss } from "../src/platform/tools/find-target.ts";
 import { SurfaceGoneError, SurfaceUnreadableError, text, type ShotScope, type ToolResult } from "../src/platform/types.ts";
 
 /** The repl's API as the suites call it: the universal verbs plus whatever the driver adds. */
@@ -32,6 +33,8 @@ export interface ComputerUseApi {
   observe(opts?: { screenshot?: boolean }): Promise<{ url: string; title: string;
     elements: Array<{ ref: string; role: string; name: string; state?: string; offscreen?: boolean; rect: Box }>;
     headings?: Array<{ name: string; level: number; rect: Box }> }>;
+  /** With `why`, a miss answers {@link FindMiss} instead of null. */
+  find(name: string, scope: { role?: string; within?: unknown; visible?: boolean; near?: string; why: true }): Promise<{ ref: string; name: string } | FindMiss>;
   find(name: string, scope?: { role?: string; within?: unknown; visible?: boolean; near?: string }): Promise<{ ref: string; name: string } | null>;
   text(): Promise<string>;
   value(t: unknown): Promise<string>;

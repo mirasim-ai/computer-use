@@ -87,6 +87,7 @@ export abstract class ChromiumPageBase extends ComputerUseDriver {
   /** Chromium pages feed the diagnostics channel (console / pageerror / network). */
   override readonly supportsDiagnostics = true;
   override readonly scrollsInto = true;
+  override readonly readsCovered = true;
 
   /** Rendering requests sent and not yet answered, per page, with when each was sent. */
   private inflight = new WeakMap<Page, Map<Request, number>>();

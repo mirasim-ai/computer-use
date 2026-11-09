@@ -27,6 +27,9 @@ export abstract class ComputerUseDriverRefs extends ComputerUseDriverVerdict {
    *  viewport? DECLARED like `readsOffscreen`: the API reference and the cover notes offer it
    *  only where it exists. */
   readonly scrollsInto: boolean = false;
+  /** Does a read collect the controls an overlay sits on ({@link Snapshot.coveredElements})?
+   *  DECLARED like `scrollsInto`: only where it does can `find(…, {why})` answer `covered`. */
+  readonly readsCovered: boolean = false;
 
   /** Is this ref one the model has legitimately seen? Refs accumulate (capped) and die with the
    * surface ({@link forgetRefs}). A courtesy filter, never the last line of defense; when it says

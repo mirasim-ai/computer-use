@@ -58,7 +58,7 @@ export function createComputerUseApi(
   const specs = new Map(verbs.map((v) => [v.kind, v.schema]));
   const extras = [...specs.keys()];
   // How a target argument becomes a ref — one job, its own file (api-target.ts).
-  const { findWithMiss, asPoint, resolve, requireFocus } = createTargeting(driver, ledger, hooks, firstLine);
+  const { findWithMiss, missNote, asPoint, resolve, requireFocus } = createTargeting(driver, ledger, hooks, firstLine);
 
   /** The last dispatched action's kind, or null once a `find` has paid the settle for it. */
   let sinceAction: string | null = null;
@@ -238,7 +238,10 @@ export function createComputerUseApi(
     find: async (name: unknown, opts: unknown = {}) => {
       ledger().charge("find");
       const scope = findScope(opts, driver.readsOffscreen);
-      let { h, miss } = await findWithMiss(String(name ?? ""), scope);
+      // Not part of the scope: it changes what a miss ANSWERS, never what is searched, so a
+      // handle's re-resolution must not carry it.
+      const explain = !!(opts && typeof opts === "object" && (opts as { why?: unknown }).why);
+      let { h, miss, why } = await findWithMiss(String(name ?? ""), scope);
       // A miss right after an action may read the tree from BEFORE the popup it opened painted
       // (`click` returns when the DOM event fired). Retry briefly, once per action. Not a wait
       // inside `click`: that would tax every click (see driver-settle.ts); this pays only on a
@@ -247,13 +250,14 @@ export function createComputerUseApi(
         sinceAction = null;
         for (let waited = 0; !h && waited < FIND_SETTLE_BUDGET_MS; waited += FIND_SETTLE_INTERVAL_MS) {
           await new Promise((r) => setTimeout(r, FIND_SETTLE_INTERVAL_MS));
-          ({ h, miss } = await findWithMiss(String(name ?? ""), scope));
+          ({ h, miss, why } = await findWithMiss(String(name ?? ""), scope));
         }
       }
       // ok:true either way: `find` ANSWERS null and the run continues; a FAILED line would read
       // like a real failure, which stops the run.
       ledger().push("find", `${String(name ?? "")}${scopeLabel(scope)}`, true, h ? ambiguityNote(h) : miss);
-      return h;
+      // Without `why` a miss stays null, so every `if (!el)` already written keeps working.
+      return h ?? (explain ? why : null);
     },
     text: takesNothing("text", "it returns the surface's whole readable text",
       read("text", "", (t: string) => `${t.length} chars`, () => driver.readText())),
@@ -335,8 +339,10 @@ export function createComputerUseApi(
       const opts = options<Record<string, unknown>>("scroll", raw, "scroll({direction:'down'}) or scroll({to:'bottom'})");
       if (opts.into !== undefined) {
         // A ref or a handle. A covered control has no handle (find answers null), so it comes
-        // as the ref its cover note named.
+        // as the ref its cover note named, or a find(…, {why}) miss's `match.ref`.
         const into = typeof opts.into === "string" ? opts.into : (opts.into as { ref?: unknown } | null)?.ref;
+        const missed = missNote(opts.into);
+        if (missed) throw new Error(missed);
         if (typeof into !== "string") throw new Error("scroll({into}) takes a ref string or a find() handle");
         if (!driver.scrollsInto) throw new Error("scroll({into}) is not available on this platform — scroll by direction, count or to:");
         const extra = ["direction", "count", "to", "ref"].filter((k) => opts[k] !== undefined);

@@ -34,7 +34,7 @@ const GROUPS = {
     'smoke', 'scroll-behaviors', 'forms-fill', 'select-text', 'paste', 'repl', 'settle-controlled',
     'ref-lifecycle', 'nesting', 'read-page-behaviors', 'readonly-refs', 'screenshot-scopes', 'tab-targeting',
     'named-tabs', 'attach-recovery', 'attached-profile', 'connection-recovery', 'browser-state', 'mcp-log',
-    'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab',
+    'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why',
   ],
 };
 GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', 'extension-bridge', 'extension-access'];

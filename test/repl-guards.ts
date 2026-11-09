@@ -14,7 +14,8 @@
 import { createHarness } from "./harness.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
-import { nearMissNote } from "../src/platform/tools/find-target.ts";
+import { coveredMiss, nearMiss, nearMissNote } from "../src/platform/tools/find-target.ts";
+import { apiReference } from "../src/platform/tools/repl-docs.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ElectronDriver } from "../src/platform/electron/driver.ts";
 import type { OwnershipResource } from "../src/platform/types.ts";
@@ -98,6 +99,39 @@ async function main() {
   check("a miss whose name the surface text carries says so, and points at text()/near",
     /TEXT carries it/.test(inText), inText);
   check("...and a plain miss does not claim it", !/TEXT carries it/.test(nearMissNote([], "anything", {}, false)));
+
+  // ── find(…, {why: true}): the reason as data, from the same branches as the line ─────────
+  {
+    const rect = { x: 0, y: 0, w: 10, h: 10 };
+    const far = [{ ref: "e1", name: "Go", role: "button", offscreen: true, rect }, { ref: "e2", name: "Stop", role: "button", rect }];
+    const off = nearMiss(far, "Go", { role: "button", visible: true });
+    check("visible:true is what dropped it, with role kept → offscreen, naming the control",
+      off.reason === "offscreen" && off.match?.ref === "e1", JSON.stringify(off));
+    const byRole = nearMiss(far, "Go", { role: "link", visible: true });
+    check("a role excluded it too → filtered, not offscreen: scrolling would not bring it back",
+      byRole.reason === "filtered" && byRole.match?.ref === "e1", JSON.stringify(byRole));
+    const grouped = nearMiss(far, "Go", { near: "Toolbar" }, false, [{ label: "Toolbar", members: ["e2"] }]);
+    check("a near group that left it out → filtered", grouped.reason === "filtered" && grouped.match?.ref === "e1", JSON.stringify(grouped));
+    check("text only → text; nothing → absent; neither names a match",
+      nearMiss(far, "Quarterly", {}, true).reason === "text" && nearMiss(far, "Quarterly", {}, false).reason === "absent"
+        && !nearMiss(far, "Quarterly", {}, false).match);
+    const under = coveredMiss({ by: "an overlay", elements: [{ ref: "e5", name: "Save", role: "button", rect, coveredBy: 'button "Chat"', coveredByRef: "e6" }] },
+      "Save", {}, true);
+    check("a covered control → covered, with its own cover and that cover's ref",
+      under?.reason === "covered" && under.match?.ref === "e5" && under.by?.name === 'button "Chat"' && under.by?.ref === "e6",
+      JSON.stringify(under));
+    check("…and a name no covered control carries is not a covered miss",
+      coveredMiss({ by: "an overlay", elements: [] }, "Save", {}, true) === null);
+
+    const missed = await h.api.find("no such control anywhere", { why: true });
+    check("on macOS a miss with why answers {ref: null, reason, note}",
+      missed.ref === null && missed.reason === "absent" && /no match/.test(missed.note), JSON.stringify(missed));
+    check("…and without why it is still null", await h.api.find("no such control anywhere") === null);
+    const refText = apiReference(driver);
+    check("the macOS reference says a covered control reads as absent there, and offers no 'covered'",
+      /never reports what an overlay covers/.test(refText) && !/'covered' \(/.test(refText));
+  }
+
   const before = stub.calls.length;
   await h.api.find("no such control anywhere");
   check("a miss consults the surface text — one extra read, paid only on the miss",

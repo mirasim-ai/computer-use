@@ -8,7 +8,7 @@
 
 import type { ComputerUseDriver } from "../driver.ts";
 import type { ToolResult } from "../types.ts";
-import { type FindScope, type Handle, nearMissNote, rankByName, tiedOthers } from "./find-target.ts";
+import { coveredMiss, type FindMiss, type FindScope, type Handle, nearMiss, rankByName, tiedOthers } from "./find-target.ts";
 import type { RunLedger, ApiHooks } from "./api-contract.ts";
 
 export function createTargeting(
@@ -21,24 +21,20 @@ export function createTargeting(
     return (await findWithMiss(name, scope)).h;
   };
 
-  /** The same search, keeping what the READ knew for the journal line a miss writes. */
-  const findWithMiss = async (name: string, scope: FindScope = {}): Promise<{ h: Handle | null; miss: string }> => {
+  /** The same search, keeping what the READ knew for the journal line a miss writes, and the
+   *  same knowledge as data (`why`) for `find(…, {why: true})`. */
+  const findWithMiss = async (name: string, scope: FindScope = {}): Promise<{ h: Handle | null; miss: string; why: FindMiss | null }> => {
     const { elements, groups, partial, covered } = await driver.readElements();
     hooks.onRefs?.(elements.map((e) => e.ref));
     const h = rankByName(elements, name, scope, groups);
-    if (h) return { h, miss: "" };
-    // The control IS here, under an overlay (an ad bar, a banner). The text fallback below would
-    // call it "not a control" and send the model to text(), the opposite of the next move.
-    const hidden = covered && rankByName(covered.elements, name, scope);
-    const miss = covered && hidden
-      ? `no actionable match — ${hidden.role ?? "control"} "${hidden.name}" (${hidden.ref}) is here but «${
-        covered.elements.find((e) => e.ref === hidden.ref)?.coveredBy || covered.by}» `
-        + "covers it: dismiss that overlay first (find('close') reaches its close control when the page marks one; an unmarked one shows only in a screenshot), "
-        + (driver.scrollsInto ? `or scroll({into:'${hidden.ref}'}) to bring it clear, ` : "or scroll until the control sits clear of it, ")
-        + "then find again"
-      : nearMissNote(elements, name, scope, await nameIsInText(name), groups);
+    if (h) return { h, miss: "", why: null };
+    // The control IS here, under an overlay (an ad bar, a banner) — asked first: the text
+    // fallback would call it "not a control" and send the model to text(), the opposite move.
+    const found = coveredMiss(covered, name, scope, driver.scrollsInto)
+      ?? nearMiss(elements, name, scope, await nameIsInText(name), groups);
     // A partial read cannot say "not here": the name may sit in the part it never reached.
-    return { h, miss: partial ? `${miss} — but this read was PARTIAL (${partial}), so it may be in the part not read; find again, or narrow with within:` : miss };
+    const miss = partial ? `${found.note} — but this read was PARTIAL (${partial}), so it may be in the part not read; find again, or narrow with within:` : found.note;
+    return { h, miss, why: { ref: null, ...found, note: miss, ...(partial ? { partial } : {}) } };
   };
 
   /**
@@ -55,6 +51,18 @@ export function createTargeting(
     } catch {
       return false;
     }
+  };
+
+  /**
+   * Why a `find(…, {why: true})` miss cannot be a target — its own note, and the ref it carries
+   * when it has one — or null for anything else. Said by name: "a target must be a handle" would
+   * hide that the script never checked the miss.
+   */
+  const missNote = (t: unknown): string | null => {
+    const m = t as Partial<FindMiss> | null;
+    if (!m || typeof m !== "object" || m.ref !== null || typeof m.reason !== "string") return null;
+    return `the target is a find() miss (reason: ${m.reason}), not a control — ${m.note ?? ""}`
+      + (m.match ? `. The control it names is ${m.match.ref}: pass that ref once you have dealt with the reason` : "");
   };
 
   /**
@@ -89,6 +97,8 @@ export function createTargeting(
     if (t == null) {
       throw new Error(`the target is ${t} — a find() that matched nothing answers null, and its line above says why`);
     }
+    const missed = missNote(t);
+    if (missed) throw new Error(missed);
     let h = t as Handle;
     if (typeof h.ref !== "string") {
       throw new Error("a target must be a find() handle, a ref string, or a point {x, y} read off a screenshot");
@@ -160,5 +170,5 @@ export function createTargeting(
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   };
-  return { findByName, findWithMiss, asPoint, resolve, requireFocus };
+  return { findByName, findWithMiss, missNote, asPoint, resolve, requireFocus };
 }

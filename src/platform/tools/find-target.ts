@@ -70,6 +70,33 @@ export interface FindScope {
   near?: string;
 }
 
+/**
+ * Why a `find` matched nothing, as one word a script can branch on — each names a different next
+ * move, which the journal line alone cannot hand to code:
+ *  - `covered`: a control carries the name, but an overlay sits on its click point (only where
+ *    the driver declares `readsCovered`: its read collects the controls an overlay sits on);
+ *  - `offscreen`: a control carries it, outside the viewport, and `visible: true` dropped it;
+ *  - `filtered`: a control carries it, and `role` / `within` / a `near` group excluded it;
+ *  - `text`: no control carries it, but the surface's readable text does;
+ *  - `absent`: nothing on the surface carries it.
+ */
+export type MissReason = "covered" | "offscreen" | "filtered" | "text" | "absent";
+
+/**
+ * What `find(name, {why: true})` answers instead of `null`. `ref: null` keeps `if (!el.ref)` the
+ * test; `note` is the same line the journal shows. `match` is the control that carries the name
+ * (covered, offscreen, filtered); `by` is what covers it, with the cover's ref only when the cover
+ * is itself a listed control. `partial` says the read stopped early, so a miss is not an absence.
+ */
+export interface FindMiss {
+  ref: null;
+  reason: MissReason;
+  note: string;
+  match?: { ref: string; name: string; role: string };
+  by?: { name: string; ref?: string };
+  partial?: string;
+}
+
 /** Other matches a `find` names: three shows the ambiguity and which way to narrow; the exact
  *  count says how deep the pile goes. */
 const AMBIGUITY_SHOWN = 3;
@@ -253,7 +280,7 @@ function nearestFirst<T extends { name: string; rect: { x: number; y: number; w:
  *  string or a find() handle. Anything else is a mistake worth naming rather than ignoring. */
 export function findScope(opts: unknown, readsOffscreen: boolean): FindScope {
   if (opts === undefined || opts === null) return {};
-  if (typeof opts !== "object") throw new Error(`find's second argument is an options object: {role, within${readsOffscreen ? ", visible" : ""}, near}`);
+  if (typeof opts !== "object") throw new Error(`find's second argument is an options object: {role, within${readsOffscreen ? ", visible" : ""}, near, why}`);
   const o = opts as { role?: unknown; within?: unknown; visible?: unknown; near?: unknown };
   const within = typeof o.within === "string" ? o.within
     : o.within && typeof o.within === "object" && typeof (o.within as Handle).ref === "string" ? (o.within as Handle).ref
@@ -297,6 +324,35 @@ function isIncidental(name: string, want: string): boolean {
   return name.length > INCIDENTAL_CHARS && name.length > INCIDENTAL_RATIO * want.length;
 }
 
+/** A handle cut down to what a miss reports about the control it found. */
+const matchOf = (h: Handle) => ({ ref: h.ref, name: h.name, role: h.role ?? "" });
+
+/**
+ * The name IS here, on a control an overlay covers (an ad bar, a banner, a menu's backdrop). Asked
+ * before {@link nearMiss}: its text fallback would call it "not a control" and send the model to
+ * text(), the opposite of the next move. Null when no covered control carries the name.
+ */
+export function coveredMiss(
+  covered: { by: string; elements: Array<Named & { coveredBy?: string; coveredByRef?: string }> } | undefined,
+  name: string,
+  scope: FindScope,
+  scrollsInto: boolean,
+): Omit<FindMiss, "ref"> | null {
+  const hidden = covered && rankByName(covered.elements, name, scope);
+  if (!covered || !hidden) return null;
+  const el = covered.elements.find((e) => e.ref === hidden.ref);
+  const by = el?.coveredBy || covered.by;
+  return {
+    reason: "covered",
+    note: `no actionable match — ${hidden.role ?? "control"} "${hidden.name}" (${hidden.ref}) is here but «${by}» `
+      + "covers it: dismiss that overlay first (find('close') reaches its close control when the page marks one; an unmarked one shows only in a screenshot), "
+      + (scrollsInto ? `or scroll({into:'${hidden.ref}'}) to bring it clear, ` : "or scroll until the control sits clear of it, ")
+      + "then find again",
+    match: matchOf(hidden),
+    by: { name: by, ...(el?.coveredByRef ? { ref: el.coveredByRef } : {}) },
+  };
+}
+
 /**
  * What to say when NOTHING carried the name — a bare "no match" costs the caller a full observe().
  * Three things it can know, in the order they help:
@@ -304,11 +360,21 @@ function isIncidental(name: string, want: string): boolean {
  *  2. the name IS there but the scope removed it (role/visible/within) — the most actionable
  *     miss there is, and the one a caller cannot guess;
  *  3. the closest names by shared words, so a wording difference or a typo is one hop, not two.
+ * The same branches give the {@link MissReason}, so the word a script reads and the line the
+ * journal shows cannot disagree.
  */
-export function nearMissNote(elements: Named[], name: string, scope: FindScope = {}, inText = false, groups: NamedGroup[] = []): string {
+export function nearMiss(elements: Named[], name: string, scope: FindScope = {}, inText = false, groups: NamedGroup[] = []): Omit<FindMiss, "ref"> {
   const want = name.trim().toLowerCase();
   const group = nearGroup(groups, scope.near, elements);
-  if (group) return `no matching control in group "${group.label}" — nothing outside this group's members was considered; observe() to check its controls`;
+  const unseen: MissReason = inText ? "text" : "absent";
+  // What the filters cost: the name found again with ONLY `visible` dropped is off screen; found
+  // only with every filter dropped, a filter excluded it.
+  const offscreen = scope.visible ? rankByName(elements, name, { ...scope, visible: false }, groups) : null;
+  const loose = offscreen ?? (scope.role || scope.visible || scope.within || group ? rankByName(elements, name, {}) : null);
+  const scoped = (note: string): Omit<FindMiss, "ref"> => loose
+    ? { reason: offscreen ? "offscreen" : "filtered", note, match: matchOf(loose) }
+    : { reason: unseen, note };
+  if (group) return scoped(`no matching control in group "${group.label}" — nothing outside this group's members was considered; observe() to check its controls`);
   // The surface's TEXT carries the name but no control does (a heading, a card title). Said
   // separately because the next move is opposite: text() or `near`, not scrolling or waiting.
   const asText = inText
@@ -316,22 +382,23 @@ export function nearMissNote(elements: Named[], name: string, scope: FindScope =
       + "read it with text(), or use it to scope another find (near:'…')"
     : "";
   const named = elements.filter((e) => e.name.trim() && e.role !== "text");
-  if (!named.length) return `no match — this surface lists no named controls at all${asText}`;
+  if (!named.length) return { reason: unseen, note: `no match — this surface lists no named controls at all${asText}` };
 
   // Scoped out: same name, excluded by role/visible/within. Re-rank with no scope and say what
   // the scope cost, naming the role that DOES carry it.
-  if (scope.role || scope.visible || scope.within) {
-    const loose = rankByName(elements, name, {});
-    if (loose) {
-      const why = scope.role ? `role:'${scope.role}'` : scope.visible ? "visible:true" : `within:${scope.within}`;
-      return `no match under ${why} — without it the name finds ${loose.ref} (${loose.name.slice(0, 40)}); `
-        + "widen the scope or name the control the surface actually carries";
+  if ((scope.role || scope.visible || scope.within) && loose) {
+    if (offscreen) {
+      return scoped(`no match under visible:true — ${offscreen.ref} (${offscreen.name.slice(0, 40)}) carries the name `
+        + "outside the viewport; scroll it into view, then find again, or drop visible");
     }
+    const why = scope.role ? `role:'${scope.role}'` : scope.visible ? "visible:true" : `within:${scope.within}`;
+    return scoped(`no match under ${why} — without it the name finds ${loose.ref} (${loose.name.slice(0, 40)}); `
+      + "widen the scope or name the control the surface actually carries");
   }
 
   const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
   const wanted = words(want);
-  if (!wanted.length) return `no match${asText}`;
+  if (!wanted.length) return { reason: unseen, note: `no match${asText}` };
   const scored = named
     .map((e) => {
       const have = new Set(words(e.name));
@@ -347,9 +414,14 @@ export function nearMissNote(elements: Named[], name: string, scope: FindScope =
   const shortlist = scored
     .filter((x) => { const k = `${x.e.role}\u0000${x.e.name.trim().toLowerCase()}`; return seen.has(k) ? false : (seen.add(k), true); })
     .slice(0, 3);
-  if (!shortlist.length) return `no match — nothing among the ${named.length} named controls is close to it${asText}`;
+  if (!shortlist.length) return { reason: unseen, note: `no match — nothing among the ${named.length} named controls is close to it${asText}` };
   const list = shortlist.map((x) => `${x.e.role} "${x.e.name.slice(0, 40)}"`).join(", ");
-  return `no match — closest by name: ${list}${asText}`;
+  return { reason: unseen, note: `no match — closest by name: ${list}${asText}` };
+}
+
+/** {@link nearMiss}'s journal line alone. */
+export function nearMissNote(elements: Named[], name: string, scope: FindScope = {}, inText = false, groups: NamedGroup[] = []): string {
+  return nearMiss(elements, name, scope, inText, groups).note;
 }
 
 /**
