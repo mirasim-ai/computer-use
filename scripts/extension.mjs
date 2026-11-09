@@ -17,7 +17,9 @@ export const extensionSource = fileURLToPath(new URL('../extension/', import.met
 const files = ['background.js', 'group.js', 'relay.js', 'runtime-info.js', 'transport.js', 'access.js', 'toolbar.js',
   'connect.html', 'connect.js', 'panel.html', 'panel.css', 'panel.js', 'ask.html', 'ask.js',
   '_locales/en/messages.json', '_locales/zh_CN/messages.json',
-  ...[16, 32, 48, 128].map((size) => `icons/icon-${size}.png`)];
+  // No 48: chrome://extensions shows the "48" icon at 36 CSS px without resampling, so a real 48 px
+  // file is upscaled and blurry on a 2x screen; with no "48" entry Chrome takes the 128 instead.
+  ...[16, 32, 128].map((size) => `icons/icon-${size}.png`)];
 
 export function extensionId(key) {
   return [...createHash('sha256').update(Buffer.from(key, 'base64')).digest().subarray(0, 16)]
