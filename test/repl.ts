@@ -54,6 +54,15 @@ render();
  *  navigation it starts is still loading when the click returns. */
 const PAGE_PAY = `<!doctype html><title>Checkout</title><form action="/paid" method="post"><button type="submit">Pay $10.00</button></form>`;
 const PAGE_PAID = `<!doctype html><title>Paid</title><h1>Payment received</h1>`;
+/** The detours the reference teaches: a layer over the Menu button that Escape closes, a theme
+ *  toggle named by its state, and a Delete behind a confirm(). */
+const PAGE_DETOURS = `<!doctype html><title>Detours</title>
+<button onclick="document.getElementById('menu-open').textContent = 'menu opened'">Menu</button><p id="menu-open"></p>
+<div id="veil" style="position:fixed;inset:0;background:rgba(0,0,0,.4)"></div>
+<button aria-pressed="false" onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')">Dark mode</button>
+<ul><li id="row">Fix login redirect</li></ul>
+<button onclick="if (confirm('Delete Fix login redirect?')) document.getElementById('row')?.remove()">Delete</button>
+<script>addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('veil')?.remove(); });</script>`;
 /** Two named fields — the shape that shows what two interleaved callers do to one caret. */
 const PAGE_FIELDS = `<!doctype html><title>Fields</title><input aria-label="Field A"><br><input aria-label="Field B">`;
 
@@ -64,7 +73,7 @@ function serve(): Promise<{ base: string; close: () => void }> {
       return;
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(req.url === "/pay.html" ? PAGE_PAY : req.url === "/b.html" ? PAGE_B : req.url === "/churn.html" ? PAGE_CHURN : req.url === "/fields.html" ? PAGE_FIELDS : PAGE_A);
+    res.end(req.url === "/pay.html" ? PAGE_PAY : req.url === "/b.html" ? PAGE_B : req.url === "/churn.html" ? PAGE_CHURN : req.url === "/fields.html" ? PAGE_FIELDS : req.url === "/detours.html" ? PAGE_DETOURS : PAGE_A);
   });
   return new Promise((resolve) => srv.listen(0, "127.0.0.1", () => {
     const { port } = srv.address() as { port: number };
@@ -160,6 +169,30 @@ async function main() {
     const later = await run(`return [twice(n) + a + b, new K().v()];`);
     check("const / destructured let / function / class from an earlier call are all still there",
       /Returned: \[83,"k"\]/.test(later), line(later, /Returned/));
+
+    // ── Going on in one call: the reference's detour examples run as written ──
+    // The examples are copied from repl-docs.ts; a model copies them too, so they must work.
+    {
+      const ref = await run(`return computer.help();`);
+      check("the reference says to assert and go on in the same call", /Go on in the same call/.test(ref) && /if \(!await w\.wait/.test(ref));
+      check("…and keeps confirms, deletes, submits and payments out of branches", /Never let code decide a confirm, delete, submit, send or payment/.test(ref));
+      check("…and, where the dialog verb exists, says not to arm accept before reading", /never arm it before the click that raises one/.test(ref));
+
+      const menu = await run(`await w.openUrl({ url: '${fixtures.base}/detours.html' }); await w.wait({});
+        let menu = await w.find('Menu', {role:'button'}); if (!menu) { await w.keys('Escape'); await w.wait({}); menu = await w.find('Menu', {role:'button'}); } if (!menu) throw new Error('Menu missing or covered');
+        await w.click(menu); await w.expect({text: 'menu opened'}); return 'ok';`);
+      check("the layer example closes the layer and goes on in the same call", /Returned: "?ok"?$/m.test(menu), line(menu, /Returned|STOPPED|FAILED/));
+
+      const toggle = await run(`const toggle = await w.find('Light mode', {role:'button'}) ?? await w.find('Dark mode', {role:'button'}); return toggle?.name;`);
+      check("the toggle example finds the button by whichever name it has", /Returned: "?Dark mode"?$/m.test(toggle), line(toggle, /Returned|STOPPED/));
+
+      const unarmed = await run(`await w.click(await w.find('Delete', {role:'button'})); return await w.text();`);
+      check("a click without arming dismisses the confirm, quotes it, and deletes nothing",
+        /Delete Fix login redirect\?/.test(unarmed) && /auto-dismissed/.test(unarmed) && /Fix login redirect/.test(unarmed.split("Returned:")[1]?.split("Title:")[0] ?? ""),
+        line(unarmed, /JS dialog|Returned/));
+      const armed = await run(`await w.dialog({answer:'accept'}); await w.click(await w.find('Delete', {role:'button'})); await w.wait({text_gone: 'Fix login redirect'}); return 'deleted';`);
+      check("…and arming accept after reading it deletes", /accepted as you asked/.test(armed) && /Returned: "?deleted"?$/m.test(armed), line(armed, /Returned|STOPPED/));
+    }
 
     // ── A loop of verbs through one handle ────────────────────────────────────
     const looped = await run(`
