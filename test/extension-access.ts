@@ -13,6 +13,9 @@
  * test/extension-bridge.ts pins the rest of the bridge in the `all` scope.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium, type Page } from "playwright-core";
 import { BridgeServer } from "../src/platform/browser/bridge/server.ts";
 import { MIRASIM_EXTENSION_ID, extensionDir } from "../src/platform/browser/bridge/extension-id.ts";
@@ -141,6 +144,30 @@ async function main() {
     urls = (await listed()).map((t) => t.url);
     check("...and no longer listed", !urls.includes(url("/user")), JSON.stringify(urls));
     bridgeCdp.close();
+
+    // ── Downloads (the `downloads` permission's one use, relay.js searchDownloads) ──
+    // Into a throwaway folder: the rig's Chromium would otherwise save into the real ~/Downloads.
+    const downloadDir = mkdtempSync(join(tmpdir(), "cu-ext-downloads-"));
+    await raw.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloadDir });
+    const since = new Date(Date.now() - 1000).toISOString();
+    await agent.evaluate(`(() => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["receipt"], { type: "text/plain" }));
+      a.download = "mirasim-receipt.txt";
+      document.body.append(a);
+      a.click();
+    })()`);
+    const dl = await RawCdp.connect(server.cdpUrl());
+    let found: Array<{ filename?: string; state?: string }> = [];
+    for (let i = 0; i < 40 && !found.some((d) => d.filename?.endsWith("mirasim-receipt.txt")); i++) {
+      await sleep(100);
+      found = (await dl.send("Mirasim.downloads", { since })).items ?? [];
+    }
+    dl.close();
+    check("the agent's download is found through the extension", found.some((d) => d.filename?.endsWith("mirasim-receipt.txt")),
+      JSON.stringify(found.map((d) => d.filename)));
+    check("...saved where the test put it, not in the real Downloads folder", found.some((d) => d.filename?.startsWith(downloadDir)));
+    rmSync(downloadDir, { recursive: true, force: true });
 
     // ── Site rules ───────────────────────────────────────────────────────
     await setAccess(raw, { blocked: ["localhost"] });

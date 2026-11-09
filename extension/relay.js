@@ -520,7 +520,7 @@ export class RelayConnection {
         return await this._runCommand(method, args);
       }
       case "chrome.downloads.search": {
-        const items = (await this._runCommand(method, args)) ?? [];
+        const items = await searchDownloads(args[0]);
         return items.filter((item) => !policy.siteVerdict(item.finalUrl || item.url) && !policy.siteVerdict(item.referrer));
       }
       default:
@@ -583,6 +583,7 @@ export class RelayConnection {
       if (target?.tabId !== undefined) this._notifyAttached(target.tabId);
       return {};
     }
+    if (method === "chrome.downloads.search") return await searchDownloads(args[0]);
     const result = await invokeChromeMethod(method, args);
     // Said before the reply leaves: the bridge attaches the tab only once it has the reply.
     if (method === "chrome.tabs.create" && result?.id !== undefined) {
@@ -595,6 +596,21 @@ export class RelayConnection {
   _send(message) {
     this._transport.send(message);
   }
+}
+
+/**
+ * The one use of the `downloads` permission: the agent's download verb asks which files the
+ * browser saved since it started waiting, and where (bridge `Mirasim.downloads`). Called by name
+ * rather than through the reflective path below, so the permission's use is plain to read —
+ * the Web Store rejected 0.1.3 as "requests but does not use downloads" when it was not.
+ * @returns {Promise<chrome.downloads.DownloadItem[]>}
+ */
+async function searchDownloads(query) {
+  const { startedAfter, startedBefore } = query && typeof query === "object" ? query : {};
+  return await chrome.downloads.search({
+    ...(typeof startedAfter === "string" ? { startedAfter } : {}),
+    ...(typeof startedBefore === "string" ? { startedBefore } : {}),
+  });
 }
 
 function hostFromUrl(url) {
