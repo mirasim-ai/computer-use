@@ -62,6 +62,7 @@ const PAGE_DETOURS = `<!doctype html><title>Detours</title>
 <button aria-pressed="false" onclick="this.setAttribute('aria-pressed', this.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')">Dark mode</button>
 <ul><li id="row">Fix login redirect</li></ul>
 <button onclick="if (confirm('Delete Fix login redirect?')) document.getElementById('row')?.remove()">Delete</button>
+<button onclick="setTimeout(() => { const b = document.createElement('button'); b.textContent = 'Later'; document.body.appendChild(b); }, 1500)">Load more</button>
 <script>addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('veil')?.remove(); });</script>`;
 /** Two named fields — the shape that shows what two interleaved callers do to one caret. */
 const PAGE_FIELDS = `<!doctype html><title>Fields</title><input aria-label="Field A"><br><input aria-label="Field B">`;
@@ -178,10 +179,14 @@ async function main() {
       check("…and keeps confirms, deletes, submits and payments out of branches", /Never let code decide a confirm, delete, submit, send or payment/.test(ref));
       check("…and, where the dialog verb exists, says not to arm accept before reading", /never arm it before the click that raises one/.test(ref));
 
-      const menu = await run(`await w.openUrl({ url: '${fixtures.base}/detours.html' }); await w.wait({});
-        let menu = await w.find('Menu', {role:'button'}); if (!menu) { await w.keys('Escape'); await w.wait({}); menu = await w.find('Menu', {role:'button'}); } if (!menu) throw new Error('Menu missing or covered');
-        await w.click(menu); await w.expect({text: 'menu opened'}); return 'ok';`);
-      check("the layer example closes the layer and goes on in the same call", /Returned: "?ok"?$/m.test(menu), line(menu, /Returned|STOPPED|FAILED/));
+      // The reference's example, verbatim but for the name: once for a control under a layer,
+      // once for one the page has not drawn yet.
+      const detour = (name: string) => `let m = await w.find('${name}', {role:'button', why:true}); const first = m.reason; if (m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); } else if (m.reason === 'absent') await w.wait({control:'${name}'}); if (!m.ref) m = await w.find('${name}', {role:'button', why:true}); if (!m.ref) throw new Error(m.note); await w.click(m);`;
+      const menu = await run(`await w.openUrl({ url: '${fixtures.base}/detours.html' }); await w.wait({}); ${detour("Menu")} await w.expect({text: 'menu opened'}); return first;`);
+      check("the detour example closes the layer over a covered control, then goes on in the same call",
+        /Returned: "?covered"?$/m.test(menu), line(menu, /Returned|STOPPED|FAILED/));
+      const later = await run(`await w.click(await w.find('Load more', {role:'button'})); ${detour("Later")} return first;`);
+      check("…and waits out one that is not there yet", /Returned: "?absent"?$/m.test(later), line(later, /Returned|STOPPED|FAILED/));
 
       const toggle = await run(`const toggle = await w.find('Light mode', {role:'button'}) ?? await w.find('Dark mode', {role:'button'}); return toggle?.name;`);
       check("the toggle example finds the button by whichever name it has", /Returned: "?Dark mode"?$/m.test(toggle), line(toggle, /Returned|STOPPED/));
