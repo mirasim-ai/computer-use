@@ -381,9 +381,29 @@ falls back to a managed browser: when the extension is not connected, the error 
 including when the Mirasim desktop app's bridge holds it (the extension serves one bridge at
 a time, and the desktop app's comes first).
 
-The bridge attaches Chrome's debugger only to tabs being driven: the agent's own (the tab group)
-and a tab of yours that a session has bound, each with the windows its pages open. Your other
-tabs are listed by `computer.surfaces()` but carry no debugger, so the page keeps your color
+Which tabs the agent may use is set in the extension, and the extension enforces it whichever
+bridge is connected. Click its toolbar icon on a tab to hand that tab over: it joins the
+`mirasim` tab group of its window. Clicking it on a tab already handed over, or right-clicking
+it → Options, opens the panel, which takes a tab back (as does dragging it out of the group:
+either detaches it at once), pauses the agent (every tab is let go of, and every command
+refused, until you resume), lists the refused requests, and sets:
+
+- **What the agent can reach.** *Only the Mirasim group* — the default from extension 0.1.3: the
+  tabs you hand over, the agent's own tabs and the windows they open; your other tabs are not
+  listed at all. *Ask me* lists every tab and asks, in a small window, before the agent uses one
+  outside the group. *All tabs* is how earlier versions behaved.
+- **Site rules.** Sites the agent may never use, and optionally the only ones it may (a name
+  covers its subdomains). A blocked site is not listed, opened or navigated to; a tab that
+  follows a link onto one is let go of; an iframe from one is let go of while the page loads;
+  its cookies are left out of what the agent reads; and wiping every cookie is refused while any
+  limit is set.
+
+A refused call says why, and when the agent asks for a tab it cannot see, the miss tells it to
+ask you to hand the tab over.
+
+Among the tabs it may use, the bridge attaches Chrome's debugger only to tabs being driven: the
+agent's own and a tab of yours that a session has bound, each with the windows its pages open.
+The rest are listed by `computer.surfaces()` but carry no debugger, so the page keeps your color
 scheme and its dialogs stay yours — a tab you open while the agent works is not touched either.
 Binding one attaches it; it is let go of, with any window it opened, when the session moves to
 another tab, goes idle (two minutes) or ends. While any tab is attached Chrome shows its

@@ -67,7 +67,9 @@ approval_mode = "approve"
 Chrome is required), keeping its profile under `~/.mirasim-computer-use` so logins carry over
 between sessions. To drive the browser you are signed into instead, install the
 [Mirasim extension](https://chromewebstore.google.com/detail/mirasim/khflooofmndpmafhofjdcpjfgnlpikhg)
-and add `-e COMPUTER_USE_BROWSER=extension`.
+and add `-e COMPUTER_USE_BROWSER=extension`. By default the agent sees only the tabs it opens and
+the ones you hand it: click the extension's toolbar icon on a tab to hand that tab over, and use
+its panel to take tabs back, pause the agent, widen what it may reach or block sites.
 
 In extension mode the first browser call starts a bridge in the background and registers it as
 the extension's native-messaging host: a record under `~/.mirasim-computer-use/native-host/`
