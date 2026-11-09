@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Mirasim</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body class="ask">
+    <main>
+      <header>
+        <img src="icons/icon-32.png" alt="" width="24" height="24" />
+        <div class="brand"><strong data-i18n="askTitle"></strong></div>
+      </header>
+      <div class="card">
+        <div id="tab-title" class="tab-title"></div>
+        <div id="tab-host" class="tab-host"></div>
+      </div>
+      <p class="quiet" data-i18n="askBody"></p>
+      <div class="row">
+        <button id="allow" type="button" data-i18n="allow"></button>
+        <button id="deny" type="button" class="ghost" data-i18n="deny"></button>
+      </div>
+    </main>
+    <script src="ask.js" type="module"></script>
+  </body>
+</html>

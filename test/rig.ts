@@ -89,6 +89,23 @@ export async function evalInExtension(cdp: RawCdp, expression: string): Promise<
   return result?.value;
 }
 
+/**
+ * The extension's access settings (extension/access.js), written where the panel writes them.
+ * Retries while the service worker is still starting.
+ */
+export async function setAccess(cdp: RawCdp, settings: Record<string, unknown>): Promise<void> {
+  const expression = `chrome.storage.sync.set({ "mirasim-access": ${JSON.stringify(settings)} }).then(() => true)`;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await evalInExtension(cdp, expression);
+      return;
+    } catch (e) {
+      if (attempt >= 50) throw e;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+}
+
 /** data: URLs abort under chrome.debugger navigation, so pages come from here. */
 export async function servePages(routes: Record<string, string>): Promise<{ url: (path: string) => string; close: () => void }> {
   const { createServer } = await import("node:http");

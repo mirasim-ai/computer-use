@@ -19,8 +19,10 @@
  */
 
 import { RelayConnection, debugLog } from "./relay.js";
-import { MirasimTabGroup } from "./group.js";
+import { MirasimTabGroup, addToMirasimGroup } from "./group.js";
 import { nativeTransport, webSocketTransport } from "./transport.js";
+import { AccessPolicy, PANEL_SEEN_KEY } from "./access.js";
+import { Toolbar } from "./toolbar.js";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 /** How long the native probe waits for `pong` before calling the route dead. */
@@ -65,6 +67,9 @@ class BridgeExtension {
     this._timer = null;
     this._lastError = null;
     this._updateVersion = null;
+    /** The user's access settings, held by every connection (access.js). */
+    this._policy = new AccessPolicy();
+    this._toolbar = new Toolbar(this._policy, () => this._activeGroup);
     chrome.runtime.onUpdateAvailable.addListener(({ version }) => {
       this._updateVersion = version;
       if (this._activeGroup) this._activeGroup.updateAvailable(version);
@@ -91,7 +96,14 @@ class BridgeExtension {
           });
           return false;
         default:
-          return false;
+          // The panel and the ask window: this extension's own pages, nothing else.
+          if (sender?.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
+          if (!String(message?.type).startsWith("panel.") && message?.type !== "access.answer") return false;
+          this._onPageMessage(message).then(
+            (result) => sendResponse({ ok: true, result }),
+            (e) => sendResponse({ ok: false, error: e?.message ?? String(e) }),
+          );
+          return true;
       }
     });
 
@@ -107,6 +119,67 @@ class BridgeExtension {
     chrome.runtime.onInstalled.addListener(() => void this._connectNative());
     // Worker start IS the reconnect trigger: eviction plus any event wakes us right back up.
     void this._connectNative();
+  }
+
+  // ─── the panel and the ask window ────────────────────────────────────────
+
+  async _onPageMessage(message) {
+    await this._policy.ready;
+    const group = this._activeGroup;
+    switch (message.type) {
+      case "panel.state":
+        return await this._panelState(message.tabId);
+      case "panel.seen":
+        await chrome.storage.local.set({ [PANEL_SEEN_KEY]: true });
+        return {};
+      case "panel.settings":
+        return await this._policy.saveSettings(message.settings);
+      case "panel.pause":
+        await this._policy.setPaused(message.paused === true);
+        return {};
+      case "panel.handOver":
+        await addToMirasimGroup(message.tabId);
+        await this._toolbar.refresh(message.tabId);
+        return {};
+      case "panel.takeBack":
+        if (group) await group.takeBack(message.tabId);
+        else await chrome.tabs.ungroup(message.tabId).catch(() => {});
+        await this._toolbar.refresh(message.tabId);
+        return {};
+      case "panel.focusTab": {
+        const tab = await chrome.tabs.update(message.tabId, { active: true });
+        if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
+        return {};
+      }
+      case "access.answer":
+        group?.answerAsk(message.tabId, message.allow === true);
+        return {};
+      default:
+        throw new Error(`Unknown message: ${message.type}`);
+    }
+  }
+
+  /** Everything the panel shows, in one answer. */
+  async _panelState(tabId) {
+    const group = this._activeGroup;
+    const tab = Number.isInteger(tabId) ? await chrome.tabs.get(tabId).catch(() => null) : null;
+    const using = [];
+    for (const id of group?.connectedTabIds() ?? []) {
+      const t = await chrome.tabs.get(id).catch(() => null);
+      if (t) using.push({ id, title: t.title ?? "", url: t.url ?? "" });
+    }
+    return {
+      connected: !!group,
+      transport: this._transport,
+      error: group ? null : this._lastError,
+      extension: chrome.runtime.getManifest().version,
+      bridge: group?.bridgeInfo ?? null,
+      paused: this._policy.paused,
+      settings: this._policy.settings,
+      tab: tab ? { id: tab.id, title: tab.title ?? "", url: tab.url ?? "", ...(await this._toolbar.stateOf(tab)) } : null,
+      using,
+      log: this._policy.log,
+    };
   }
 
   // ─── native messaging ────────────────────────────────────────────────────
@@ -257,11 +330,13 @@ class BridgeExtension {
   async _adopt(connection, transport) {
     this._activeGroup?.close("Replaced by a new bridge connection");
     this._activeGroup = null;
-    const group = new MirasimTabGroup(connection);
+    const group = new MirasimTabGroup(connection, this._policy);
+    group.ontabstate = (tabId) => void this._toolbar.refresh(tabId);
     group.onclose = () => {
       if (this._activeGroup !== group) return;
       this._activeGroup = null;
       this._transport = null;
+      void this._toolbar.refreshAll();
       // Native reconnects on its own; the ws path needs a new hand-over.
       if (transport === "native") this._scheduleRetry();
     };
@@ -273,6 +348,7 @@ class BridgeExtension {
     // Armed WHILE connected, deliberately — see HEARTBEAT_MINUTES.
     this._armAlarm(HEARTBEAT_MINUTES);
     await group.ready;
+    void this._toolbar.refreshAll();
     if (this._updateVersion) group.updateAvailable(this._updateVersion);
   }
 }

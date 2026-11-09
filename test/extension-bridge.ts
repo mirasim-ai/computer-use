@@ -32,7 +32,7 @@ import { MIRASIM_EXTENSION_ID, extensionDir, extensionIdFromKey } from "../src/p
 import { createDriver } from "../src/platform/registry.ts";
 import { createHarness, firstText } from "./harness.ts";
 import { spawnChrome, sleep } from "./helpers.ts";
-import { RawCdp, evalInExtension, findLoadableChromium, servePages } from "./rig.ts";
+import { RawCdp, evalInExtension, findLoadableChromium, servePages, setAccess } from "./rig.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -101,11 +101,15 @@ async function main() {
   let rawCdp: RawCdp | null = null;
   try {
     // ── Extension handshake ─────────────────────────────────────────────
+    // This suite pins how the bridge and the extension share EVERY tab, which since 0.1.3 is the
+    // user's opt-in ("All tabs" in the panel); the default group-only scope and the site rules
+    // are test/extension-access.ts.
+    rawCdp = await RawCdp.connect(chrome.cdpUrl);
+    await setAccess(rawCdp, { scope: "all" });
     await server.ensureExtension();
     check("extension connects through the connect page", server.extensionConnected());
     // A connect opens nothing: the group appears with the agent's first tab (below), never as a
     // blank seed tab left in the user's window.
-    rawCdp = await RawCdp.connect(chrome.cdpUrl);
     const atConnect = await evalInExtension(
       rawCdp,
       `(async () => {

@@ -1,0 +1,179 @@
+{
+  "tipUsing": {
+    "message": "Mirasim Agent 正在使用这个标签页。点击打开面板。"
+  },
+  "tipHandedOver": {
+    "message": "已交给 Mirasim Agent。点击打开面板。"
+  },
+  "tipJoin": {
+    "message": "点击把这个标签页交给 Mirasim Agent。"
+  },
+  "tipBlocked": {
+    "message": "被 Mirasim 站点规则阻止。点击打开面板。"
+  },
+  "tipRestricted": {
+    "message": "Mirasim 无法使用这个页面。点击打开面板。"
+  },
+  "tipPausedPrefix": {
+    "message": "Agent 已暂停。"
+  },
+  "tipOfflinePrefix": {
+    "message": "Mirasim 未连接。"
+  },
+  "handOverFailed": {
+    "message": "没能交出这个标签页："
+  },
+  "statusConnected": {
+    "message": "已连接"
+  },
+  "statusOffline": {
+    "message": "未连接，启动 Mirasim 后 Agent 才能使用浏览器"
+  },
+  "pause": {
+    "message": "暂停 Agent"
+  },
+  "resume": {
+    "message": "恢复 Agent"
+  },
+  "pausedNote": {
+    "message": "Agent 已暂停：恢复之前，它发来的浏览器命令都会被拒绝。"
+  },
+  "sectionThisTab": {
+    "message": "当前标签页"
+  },
+  "tabStateNone": {
+    "message": "在标签页上点工具栏图标打开面板，才能管理那个标签页。"
+  },
+  "tabStateRestricted": {
+    "message": "浏览器自带的页面无法交给 Mirasim。"
+  },
+  "tabStateBlocked": {
+    "message": "被站点规则阻止，Agent 无法使用。"
+  },
+  "tabStateUsing": {
+    "message": "Agent 正在使用这个标签页。"
+  },
+  "tabStateHanded": {
+    "message": "已交给 Agent，它可以使用这个标签页。"
+  },
+  "tabStateGranted": {
+    "message": "你已允许 Agent 使用这个标签页。"
+  },
+  "tabStateOutsideAll": {
+    "message": "不在 Mirasim 分组里，但当前允许所有标签页，Agent 也能使用。"
+  },
+  "tabStateOutsideAsk": {
+    "message": "未交给 Agent，它使用前会先问你。"
+  },
+  "tabStateOutside": {
+    "message": "未交给 Agent，它看不到这个标签页。"
+  },
+  "handOver": {
+    "message": "交给 Agent"
+  },
+  "takeBack": {
+    "message": "收回"
+  },
+  "sectionAgentTabs": {
+    "message": "Agent 正在使用的标签页"
+  },
+  "agentTabsNone": {
+    "message": "目前没有"
+  },
+  "sectionScope": {
+    "message": "Agent 能访问的范围"
+  },
+  "scopeGroup": {
+    "message": "只限 Mirasim 分组"
+  },
+  "scopeGroupHint": {
+    "message": "你交出的标签页、Agent 自己开的标签页和它们的弹窗。其他标签页它看不到。"
+  },
+  "scopeAsk": {
+    "message": "每次问我"
+  },
+  "scopeAskHint": {
+    "message": "Agent 能看到所有标签页的标题和网址，使用分组外的标签页前先问你。"
+  },
+  "scopeAll": {
+    "message": "所有标签页"
+  },
+  "scopeAllHint": {
+    "message": "Agent 能看到并使用所有标签页。"
+  },
+  "sectionSites": {
+    "message": "站点规则"
+  },
+  "blockedLabel": {
+    "message": "不允许 Agent 使用这些网站"
+  },
+  "sitesPlaceholder": {
+    "message": "每行一个网站，例如 bank.com（包括它的子域名）"
+  },
+  "allowOnlyLabel": {
+    "message": "只允许 Agent 使用以下网站"
+  },
+  "save": {
+    "message": "保存"
+  },
+  "saved": {
+    "message": "已保存"
+  },
+  "sectionLog": {
+    "message": "最近被拦下"
+  },
+  "logNone": {
+    "message": "还没有被拦下的请求"
+  },
+  "logTab": {
+    "message": "标签页 $1"
+  },
+  "reason_site_blocked": {
+    "message": "阻止名单里的网站"
+  },
+  "reason_site_not_allowed": {
+    "message": "不在允许名单里"
+  },
+  "reason_out_of_scope": {
+    "message": "未交出的标签页"
+  },
+  "reason_ask_pending": {
+    "message": "没等到你的确认"
+  },
+  "reason_declined": {
+    "message": "你拒绝了"
+  },
+  "reason_paused": {
+    "message": "Agent 已暂停"
+  },
+  "reason_clear_cookies": {
+    "message": "清空所有 cookie"
+  },
+  "reason_cookie_site": {
+    "message": "受限网站的 cookie"
+  },
+  "footerExtension": {
+    "message": "扩展 $1"
+  },
+  "footerBridge": {
+    "message": "桥接：$1"
+  },
+  "footerBridgeOld": {
+    "message": "桥接：旧版本"
+  },
+  "askTitle": {
+    "message": "允许 Mirasim Agent 使用这个标签页吗？"
+  },
+  "askBody": {
+    "message": "允许后，在这个标签页关闭之前，Agent 都能读取和操作它。"
+  },
+  "allow": {
+    "message": "允许"
+  },
+  "deny": {
+    "message": "不允许"
+  },
+  "askGone": {
+    "message": "这个标签页已经关闭。"
+  }
+}

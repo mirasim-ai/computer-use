@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Mirasim",
   "version": "0.1.0",
+  "default_locale": "en",
   "description": "Connect your browser to Mirasim or the open-source Mirasim Computer Use so your agent can complete web tasks you authorize.",
   "permissions": [
     "debugger",
@@ -27,7 +28,12 @@
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
-    }
+    },
+    "default_popup": "panel.html"
+  },
+  "options_ui": {
+    "page": "panel.html",
+    "open_in_tab": true
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmKZp4T1ESV0xpq+w0n4wH6tCSpSdXGwUyQCM3vmmsxyX8zn1ITThwNgAzu2AK7J7HO9jhqfjJ5brCoKUui/DDOuPPcGLUWM9zcPNGvsqpCpOONd47MAkQL9Tv2hSotcZv27q9M33I8pUOn5S++g38BQXMZbM1f4ZC/dUAmqIQa4uFc0N7VKbCLt7/CxGl7+d0jrvLc/6cFiWIxDX1d73UoZiTbnUiC879wauYcSBSi21MTtiZyooSh5+6hFykbStxTUV1Pa52KD5VEYDMcQmsJHCXOZxk62Ox6wJ2rtdqkZNs6TpwGK5cfpX8irFoWYTNX0Nfvo8kNTxPZh3fZX4cwIDAQAB",
   "content_security_policy": {

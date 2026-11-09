@@ -16,6 +16,7 @@
  */
 
 import { RUNTIME_INFO } from "./runtime-info.js";
+import { AccessError } from "./access.js";
 
 export function debugLog(...args) {
   // eslint-disable-next-line no-console
@@ -34,6 +35,18 @@ const ALLOWED_COMMANDS = new Set([
   "chrome.tabs.reload",
   "chrome.downloads.search",
 ]);
+
+/** What a paused agent may still do: stay connected, let go of what it holds, and list the tabs it
+ *  may use (still filtered by the scope), so it can tell a pause from tabs that went away. */
+const ALLOWED_WHILE_PAUSED = new Set(["bridge.ping", "bridge.reload", "bridge.releaseTab", "bridge.info", "chrome.debugger.detach",
+  "chrome.tabs.query", "chrome.debugger.getTargets"]);
+
+/** Cookie reads whose answer is filtered by the site rules (`cookies` in the result). */
+const COOKIE_READS = new Set(["Network.getAllCookies", "Network.getCookies", "Storage.getCookies"]);
+/** Cookie writes checked cookie by cookie (`cookies` in the params). */
+const COOKIE_WRITES = new Set(["Network.setCookies", "Storage.setCookies"]);
+/** Commands that wipe every site's cookies at once, the blocked ones included. */
+const COOKIE_WIPES = new Set(["Network.clearBrowserCookies", "Storage.clearCookies"]);
 
 /** chrome.* events forwarded to the bridge (positional args, as the listener got them). */
 const FORWARDED_EVENTS = [
@@ -74,6 +87,27 @@ export class RelayConnection {
     this._closed = false;
     this._pendingReattach = new Set();
     this._recentReattach = new Set();
+    /** Tabs the bridge has been told about (`attachTab`, a forwarded popup) and not told to forget. */
+    this._announced = new Set();
+    /**
+     * Tabs taken away from the agent (a blocked site, out of scope), with why: from the moment
+     * this is set no command reaches them and no event leaves them, before the asynchronous
+     * detach has even started.
+     * @type {Map<number, {reason: string, url?: string}>}
+     */
+    this._revoked = new Map();
+    /** A tab's child sessions (out-of-process iframes, workers): sessionId → targetId. */
+    this._childTargets = new Map();
+    /** Child sessions on a blocked site: nothing goes in or out. */
+    this._blockedSessions = new Set();
+    /** What the bridge said about itself (`bridge.info`); null from a bridge that predates it. */
+    this.bridgeInfo = null;
+    /**
+     * Who decides what the agent may reach (group.js), asked before every tab is listed,
+     * attached or driven. Absent, nothing is refused — a test seam, never the product.
+     * @type {{policy: import("./access.js").AccessPolicy, visible(tab: chrome.tabs.Tab): boolean, authorizeAttach(tabId: number): Promise<void>, noteCreated?(tab: chrome.tabs.Tab): void} | undefined}
+     */
+    this.gate = undefined;
 
     /** @type {(() => void) | undefined} */
     this.onclose = undefined;
@@ -135,6 +169,16 @@ export class RelayConnection {
     this._send({ method: "extension.updateAvailable", params: [version] });
   }
 
+  /** Tell the bridge how far the user lets the agent reach, so it can say so when it lists
+   *  tabs. A bridge that predates this logs an unknown event and carries on. */
+  reportAccess(access) {
+    if (!this._closed) this._send({ method: "extension.access", params: [access] });
+  }
+
+  isAnnounced(tabId) {
+    return this._announced.has(tabId);
+  }
+
   close(reason) {
     this._transport.close(reason);
     // ws.onclose fires asynchronously; run the bookkeeping now so no CDP event
@@ -149,7 +193,29 @@ export class RelayConnection {
    *  them itself (`createTarget`). */
   attachTab(tab) {
     if (this._closed || (this._attachedTabs.has(tab.id) && !tab.discarded && tab.status !== "unloaded")) return;
+    if (this.gate && !this.gate.visible(tab)) return;
+    this._revoked.delete(tab.id);
+    this._announced.add(tab.id);
     this._send({ method: "chrome.tabs.onCreated", params: [tab, { agent: false }] });
+  }
+
+  /**
+   * Take a tab away from the agent: detach it, and unless `keepListed` (the pause), make the
+   * bridge forget it as if it had closed (it is no longer the agent's to see). Commands to it are
+   * refused from this call on, with `reason` (access.js `refusal`), until it is attached or
+   * announced again.
+   */
+  revoke(tabId, reason, { url, keepListed = false } = {}) {
+    if (this._closed) return;
+    this._revoked.set(tabId, { reason, url });
+    this._pendingReattach.delete(tabId);
+    if (this._attachedTabs.has(tabId)) {
+      chrome.debugger.detach({ tabId }).catch(() => {});
+      this._notifyDetached(tabId);
+      this._send({ method: "chrome.debugger.onDetach", params: [{ tabId }, "target_closed"] });
+    }
+    for (const [sessionId, child] of this._childTargets) if (child.tabId === tabId) this._forgetChild(sessionId);
+    if (!keepListed && this._announced.delete(tabId)) this._send({ method: "chrome.tabs.onRemoved", params: [tabId, { revoked: true }] });
   }
 
   /** Detach a tab the user dragged out of the group. chrome.debugger.detach does not fire
@@ -203,6 +269,9 @@ export class RelayConnection {
     clearInterval(this._silenceTimer);
     this._pendingReattach.clear();
     this._recentReattach.clear();
+    this._announced.clear();
+    this._childTargets.clear();
+    this._blockedSessions.clear();
     for (const remove of this._eventListeners) remove();
     this._eventListeners = [];
     for (const tabId of [...this._attachedTabs]) {
@@ -218,6 +287,19 @@ export class RelayConnection {
     const tabId = this._tabIdForEvent(fullMethod, args);
     if (tabId === undefined) return;
     if (!this._attachedTabs.has(tabId) && !this._forwardsWhenDetached(fullMethod)) return;
+    if (fullMethod === "chrome.debugger.onEvent" && !this._passesEvent(args)) return;
+    if (fullMethod === "chrome.tabs.onCreated") {
+      // A popup of a tab the agent drives: in scope as its opener is, and announced like one.
+      if (this._revoked.has(tabId)) return;
+      this.gate?.noteCreated?.(args[0]);
+      if (this.gate && !this.gate.visible(args[0])) return;
+      if (args[0]?.id !== undefined) this._announced.add(args[0].id);
+    }
+    if (fullMethod === "chrome.tabs.onRemoved" || fullMethod === "chrome.tabs.onReplaced") {
+      const gone = fullMethod === "chrome.tabs.onRemoved" ? args[0] : args[1];
+      this._announced.delete(gone);
+      this._revoked.delete(gone);
+    }
     this._send({ method: fullMethod, params: args });
     if (fullMethod === "chrome.debugger.onDetach") {
       const reason = args[1];
@@ -229,6 +311,66 @@ export class RelayConnection {
     } else if (fullMethod === "chrome.tabs.onReplaced") {
       this._notifyDetached(tabId);
     }
+  }
+
+  /**
+   * Does a debugger event leave for the bridge? Not from a revoked tab or a blocked child
+   * session, and a navigation onto a blocked site is where the tab (or the iframe) is taken
+   * away: the event that says what the page now is never reaches the agent.
+   */
+  _passesEvent([source, method, params]) {
+    const tabId = source?.tabId;
+    if (this._revoked.has(tabId)) return false;
+    if (source?.sessionId && this._blockedSessions.has(source.sessionId)) return false;
+    const policy = this.gate?.policy;
+    if (!policy) return true;
+    if (method === "Target.attachedToTarget") {
+      const verdict = policy.siteVerdict(params?.targetInfo?.url);
+      if (params?.sessionId) this._childTargets.set(params.sessionId, { tabId, targetId: params?.targetInfo?.targetId, forwarded: !verdict });
+      if (verdict) {
+        this._blockChild(tabId, params.sessionId, verdict, params.targetInfo.url);
+        return false;
+      }
+      return true;
+    }
+    if (method === "Target.detachedFromTarget") {
+      const child = params?.sessionId ? this._childTargets.get(params.sessionId) : undefined;
+      if (params?.sessionId) this._forgetChild(params.sessionId);
+      // The bridge hears of a child's end only if it heard of the child.
+      return child?.forwarded ?? true;
+    }
+    if (method === "Page.frameNavigated") {
+      const frame = params?.frame;
+      const verdict = policy.siteVerdict(frame?.url);
+      if (!verdict) return true;
+      if (!source?.sessionId && !frame?.parentId) {
+        policy.record({ reason: verdict, tabId, url: frame.url });
+        this.revoke(tabId, verdict, { url: frame.url });
+        this.ontabrevoked?.(tabId);
+        return false;
+      }
+      const child = source?.sessionId ? this._childTargets.get(source.sessionId) : undefined;
+      if (child && (frame.id === child.targetId || !frame.parentId)) {
+        this._blockChild(tabId, source.sessionId, verdict, frame.url);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** An iframe or worker on a blocked site: let it run (it may be paused waiting for a
+   *  debugger), then let go of it, so the page works and the agent never sees inside it. */
+  _blockChild(tabId, sessionId, reason, url) {
+    if (!sessionId || this._blockedSessions.has(sessionId)) return;
+    this._blockedSessions.add(sessionId);
+    this.gate?.policy.record({ reason, tabId, url, detail: "frame" });
+    void chrome.debugger.sendCommand({ tabId, sessionId }, "Runtime.runIfWaitingForDebugger").catch(() => {})
+      .then(() => chrome.debugger.sendCommand({ tabId }, "Target.detachFromTarget", { sessionId }).catch(() => {}));
+  }
+
+  _forgetChild(sessionId) {
+    this._childTargets.delete(sessionId);
+    this._blockedSessions.delete(sessionId);
   }
 
   _maybeScheduleReattach(tabId) {
@@ -318,31 +460,148 @@ export class RelayConnection {
       this.releaseTab((message.params ?? [])[0]);
       return {};
     }
+    if (message.method === "bridge.info") {
+      const info = (message.params ?? [])[0];
+      this.bridgeInfo = info && typeof info === "object" ? { name: String(info.name ?? ""), version: String(info.version ?? "") } : null;
+      this.onbridgeinfo?.();
+      return {};
+    }
     if (!ALLOWED_COMMANDS.has(message.method)) throw new Error(`Unknown method: ${message.method}`);
     const args = message.params ?? [];
-    if (message.method === "chrome.debugger.attach") {
+    const policy = this.gate?.policy;
+    if (policy?.paused && !ALLOWED_WHILE_PAUSED.has(message.method)) {
+      policy.record({ reason: "paused" });
+      throw new AccessError("paused");
+    }
+    if (this.gate) return await this._gatedCommand(message.method, args);
+    return await this._runCommand(message.method, args);
+  }
+
+  /** Every chrome.* command, held against the user's access settings first (access.js). */
+  async _gatedCommand(method, args) {
+    const { policy } = this.gate;
+    switch (method) {
+      case "chrome.tabs.query": {
+        const tabs = (await this._runCommand(method, args)) ?? [];
+        return Array.isArray(tabs) ? tabs.filter((tab) => this.gate.visible(tab)) : tabs;
+      }
+      case "chrome.debugger.getTargets": {
+        const visible = new Set((await chrome.tabs.query({})).filter((tab) => this.gate.visible(tab)).map((tab) => tab.id));
+        const targets = (await this._runCommand(method, args)) ?? [];
+        return targets.filter((t) => t.tabId !== undefined && visible.has(t.tabId));
+      }
+      case "chrome.debugger.attach": {
+        const tabId = args[0]?.tabId;
+        await this.gate.authorizeAttach(tabId);
+        this._revoked.delete(tabId);
+        return await this._runCommand(method, args);
+      }
+      case "chrome.debugger.sendCommand":
+        return await this._gatedCdp(args);
+      case "chrome.tabs.create": {
+        const url = args[0]?.url;
+        const verdict = policy.siteVerdict(url);
+        if (verdict) {
+          policy.record({ reason: verdict, url });
+          throw new AccessError(verdict, { url });
+        }
+        return await this._runCommand(method, args);
+      }
+      case "chrome.tabs.remove":
+      case "chrome.tabs.reload": {
+        const ids = Array.isArray(args[0]) ? args[0] : [args[0]];
+        for (const tabId of ids) {
+          const tab = await chrome.tabs.get(tabId).catch(() => null);
+          if (tab && !this.gate.visible(tab)) {
+            policy.record({ reason: "out-of-scope", tabId });
+            throw new AccessError("out-of-scope", { tabId });
+          }
+        }
+        return await this._runCommand(method, args);
+      }
+      case "chrome.downloads.search": {
+        const items = (await this._runCommand(method, args)) ?? [];
+        return items.filter((item) => !policy.siteVerdict(item.finalUrl || item.url) && !policy.siteVerdict(item.referrer));
+      }
+      default:
+        return await this._runCommand(method, args);
+    }
+  }
+
+  /** A CDP command for a tab (or one of its child sessions), held against the site rules. */
+  async _gatedCdp(args) {
+    const { policy } = this.gate;
+    const [debuggee, cdpMethod, params] = args;
+    const tabId = debuggee?.tabId;
+    const revoked = this._revoked.get(tabId);
+    if (revoked) throw new AccessError(revoked.reason, { tabId, url: revoked.url });
+    if (debuggee?.sessionId && this._blockedSessions.has(debuggee.sessionId)) throw new AccessError("site-blocked", { url: "this frame's site" });
+    const refuse = (reason, details = {}) => {
+      policy.record({ reason, tabId, ...details });
+      throw new AccessError(reason, { tabId, ...details });
+    };
+    if (cdpMethod === "Page.navigate") {
+      const verdict = policy.siteVerdict(params?.url);
+      if (verdict) refuse(verdict, { url: params.url });
+    }
+    if (COOKIE_WIPES.has(cdpMethod) && policy.restrictive()) refuse("clear-cookies");
+    if (COOKIE_WRITES.has(cdpMethod)) {
+      for (const cookie of params?.cookies ?? []) {
+        const domain = cookie?.domain || hostFromUrl(cookie?.url);
+        if (!policy.cookieAllowed(domain)) refuse("cookie-site", { url: domain });
+      }
+    }
+    if (cdpMethod === "Network.setCookie" || cdpMethod === "Network.deleteCookies") {
+      const domain = params?.domain || hostFromUrl(params?.url);
+      if (!policy.cookieAllowed(domain)) refuse("cookie-site", { url: domain });
+    }
+    if (cdpMethod === "Storage.clearDataForOrigin" || cdpMethod === "Storage.clearDataForStorageKey") {
+      const origin = params?.origin ?? params?.storageKey;
+      const verdict = policy.siteVerdict(origin);
+      if (verdict) refuse(verdict, { url: origin });
+    }
+    const result = await this._runCommand("chrome.debugger.sendCommand", args);
+    if (COOKIE_READS.has(cdpMethod) && Array.isArray(result?.cookies))
+      return { ...result, cookies: result.cookies.filter((c) => policy.cookieAllowed(c.domain)) };
+    return result;
+  }
+
+  /** Run one allow-listed chrome.* command as asked, with the attach bookkeeping. */
+  async _runCommand(method, args) {
+    if (method === "chrome.debugger.attach") {
       const target = args[0];
       // A zombie attach from a previous service-worker life throws "Another debugger is
       // already attached" against ourselves. Clearing our own leftover is safe; a REAL
       // other debugger (devtools) re-throws on the second try and that error is honest.
       try {
-        await invokeChromeMethod(message.method, args);
+        await invokeChromeMethod(method, args);
       } catch (e) {
         if (!String(e?.message).includes("already attached")) throw e;
         await chrome.debugger.detach({ tabId: target?.tabId }).catch(() => {});
-        await invokeChromeMethod(message.method, args);
+        await invokeChromeMethod(method, args);
       }
       if (target?.tabId !== undefined) this._notifyAttached(target.tabId);
       return {};
     }
-    const result = await invokeChromeMethod(message.method, args);
+    const result = await invokeChromeMethod(method, args);
     // Said before the reply leaves: the bridge attaches the tab only once it has the reply.
-    if (message.method === "chrome.tabs.create" && result?.id !== undefined) this.ontabcreatedforagent?.(result.id);
+    if (method === "chrome.tabs.create" && result?.id !== undefined) {
+      this.ontabcreatedforagent?.(result.id);
+      this._announced.add(result.id);
+    }
     return result ?? {};
   }
 
   _send(message) {
     this._transport.send(message);
+  }
+}
+
+function hostFromUrl(url) {
+  try {
+    return url ? new URL(url).hostname : "";
+  } catch {
+    return "";
   }
 }
 

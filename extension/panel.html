@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mirasim</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="icons/icon-32.png" alt="" width="24" height="24" />
+        <div class="brand">
+          <strong>Mirasim</strong>
+          <span id="status" class="status"></span>
+        </div>
+        <button id="pause" class="ghost" type="button"></button>
+      </header>
+      <p id="paused-note" class="note warn" hidden data-i18n="pausedNote"></p>
+
+      <section id="this-tab">
+        <h2 data-i18n="sectionThisTab"></h2>
+        <div class="card">
+          <div class="tab-line">
+            <div class="tab-text">
+              <div id="tab-title" class="tab-title"></div>
+              <div id="tab-host" class="tab-host"></div>
+            </div>
+            <button id="tab-action" type="button" hidden></button>
+          </div>
+          <div id="tab-state" class="tab-state"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="sectionAgentTabs"></h2>
+        <ul id="using" class="list"></ul>
+      </section>
+
+      <section>
+        <h2 data-i18n="sectionScope"></h2>
+        <div class="choices" id="scope">
+          <label class="choice">
+            <input type="radio" name="scope" value="group" />
+            <span><b data-i18n="scopeGroup"></b><small data-i18n="scopeGroupHint"></small></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="scope" value="ask" />
+            <span><b data-i18n="scopeAsk"></b><small data-i18n="scopeAskHint"></small></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="scope" value="all" />
+            <span><b data-i18n="scopeAll"></b><small data-i18n="scopeAllHint"></small></span>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="sectionSites"></h2>
+        <label class="field">
+          <span data-i18n="blockedLabel"></span>
+          <textarea id="blocked" rows="3" spellcheck="false" data-i18n-placeholder="sitesPlaceholder"></textarea>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="allow-only" />
+          <span data-i18n="allowOnlyLabel"></span>
+        </label>
+        <label class="field" id="allowed-field" hidden>
+          <textarea id="allowed" rows="3" spellcheck="false" data-i18n-placeholder="sitesPlaceholder"></textarea>
+        </label>
+        <div class="row">
+          <button id="save" type="button" data-i18n="save"></button>
+          <span id="saved" class="quiet" hidden data-i18n="saved"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="sectionLog"></h2>
+        <ul id="log" class="list log"></ul>
+      </section>
+
+      <footer id="footer" class="quiet"></footer>
+    </main>
+    <script src="panel.js" type="module"></script>
+  </body>
+</html>

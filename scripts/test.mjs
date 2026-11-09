@@ -37,7 +37,7 @@ const GROUPS = {
     'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab',
   ],
 };
-GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', 'extension-bridge'];
+GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', 'extension-bridge', 'extension-access'];
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const tsx = createRequire(import.meta.url).resolve('tsx/cli');

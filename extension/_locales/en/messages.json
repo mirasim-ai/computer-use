@@ -1,0 +1,179 @@
+{
+  "tipUsing": {
+    "message": "The Mirasim agent is using this tab. Click for the panel."
+  },
+  "tipHandedOver": {
+    "message": "Handed to the Mirasim agent. Click for the panel."
+  },
+  "tipJoin": {
+    "message": "Click to hand this tab to the Mirasim agent."
+  },
+  "tipBlocked": {
+    "message": "Blocked by your Mirasim site rules. Click for the panel."
+  },
+  "tipRestricted": {
+    "message": "Mirasim cannot use this page. Click for the panel."
+  },
+  "tipPausedPrefix": {
+    "message": "Agent paused. "
+  },
+  "tipOfflinePrefix": {
+    "message": "Mirasim is not connected. "
+  },
+  "handOverFailed": {
+    "message": "Could not hand this tab over:"
+  },
+  "statusConnected": {
+    "message": "Connected"
+  },
+  "statusOffline": {
+    "message": "Not connected. Start Mirasim to use the agent."
+  },
+  "pause": {
+    "message": "Pause agent"
+  },
+  "resume": {
+    "message": "Resume agent"
+  },
+  "pausedNote": {
+    "message": "The agent is paused: every browser command is refused until you resume it."
+  },
+  "sectionThisTab": {
+    "message": "This tab"
+  },
+  "tabStateNone": {
+    "message": "Open the panel from the toolbar icon on a tab to manage that tab."
+  },
+  "tabStateRestricted": {
+    "message": "Browser pages cannot be handed to Mirasim."
+  },
+  "tabStateBlocked": {
+    "message": "Blocked by your site rules: the agent cannot use it."
+  },
+  "tabStateUsing": {
+    "message": "The agent is using this tab."
+  },
+  "tabStateHanded": {
+    "message": "Handed to the agent: it can use this tab."
+  },
+  "tabStateGranted": {
+    "message": "You allowed the agent to use this tab."
+  },
+  "tabStateOutsideAll": {
+    "message": "Not in the Mirasim group, but the agent can use it: all tabs are allowed."
+  },
+  "tabStateOutsideAsk": {
+    "message": "Not handed over: the agent asks you before using it."
+  },
+  "tabStateOutside": {
+    "message": "Not handed over: the agent cannot see this tab."
+  },
+  "handOver": {
+    "message": "Hand to agent"
+  },
+  "takeBack": {
+    "message": "Take back"
+  },
+  "sectionAgentTabs": {
+    "message": "Tabs the agent is using"
+  },
+  "agentTabsNone": {
+    "message": "None right now"
+  },
+  "sectionScope": {
+    "message": "What the agent can reach"
+  },
+  "scopeGroup": {
+    "message": "Only the Mirasim group"
+  },
+  "scopeGroupHint": {
+    "message": "Tabs you hand over, the agent's own tabs and their popups. It cannot see any other tab."
+  },
+  "scopeAsk": {
+    "message": "Ask me"
+  },
+  "scopeAskHint": {
+    "message": "The agent sees every tab's title and address, and asks you before using one outside the group."
+  },
+  "scopeAll": {
+    "message": "All tabs"
+  },
+  "scopeAllHint": {
+    "message": "The agent can see and use every tab."
+  },
+  "sectionSites": {
+    "message": "Site rules"
+  },
+  "blockedLabel": {
+    "message": "Never let the agent use these sites"
+  },
+  "sitesPlaceholder": {
+    "message": "One site per line, e.g. bank.com (covers its subdomains)"
+  },
+  "allowOnlyLabel": {
+    "message": "Only let the agent use these sites"
+  },
+  "save": {
+    "message": "Save"
+  },
+  "saved": {
+    "message": "Saved"
+  },
+  "sectionLog": {
+    "message": "Recently refused"
+  },
+  "logNone": {
+    "message": "Nothing refused yet"
+  },
+  "logTab": {
+    "message": "tab $1"
+  },
+  "reason_site_blocked": {
+    "message": "Blocked site"
+  },
+  "reason_site_not_allowed": {
+    "message": "Not on the allow list"
+  },
+  "reason_out_of_scope": {
+    "message": "Tab not handed over"
+  },
+  "reason_ask_pending": {
+    "message": "No answer in time"
+  },
+  "reason_declined": {
+    "message": "You declined"
+  },
+  "reason_paused": {
+    "message": "Agent paused"
+  },
+  "reason_clear_cookies": {
+    "message": "Clearing every cookie"
+  },
+  "reason_cookie_site": {
+    "message": "Cookies of a restricted site"
+  },
+  "footerExtension": {
+    "message": "Extension $1"
+  },
+  "footerBridge": {
+    "message": "bridge: $1"
+  },
+  "footerBridgeOld": {
+    "message": "bridge: an older version"
+  },
+  "askTitle": {
+    "message": "Let the Mirasim agent use this tab?"
+  },
+  "askBody": {
+    "message": "If you allow it, the agent can read and operate this page until the tab is closed."
+  },
+  "allow": {
+    "message": "Allow"
+  },
+  "deny": {
+    "message": "Don't allow"
+  },
+  "askGone": {
+    "message": "This tab has been closed."
+  }
+}

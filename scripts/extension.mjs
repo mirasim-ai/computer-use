@@ -14,8 +14,10 @@ import { parseArgs } from 'node:util';
 import { crc32 } from 'node:zlib';
 
 export const extensionSource = fileURLToPath(new URL('../extension/', import.meta.url));
-const files = ['background.js', 'group.js', 'relay.js', 'runtime-info.js', 'transport.js',
-  'connect.html', 'connect.js', ...[16, 32, 48, 128].map((size) => `icons/icon-${size}.png`)];
+const files = ['background.js', 'group.js', 'relay.js', 'runtime-info.js', 'transport.js', 'access.js', 'toolbar.js',
+  'connect.html', 'connect.js', 'panel.html', 'panel.css', 'panel.js', 'ask.html', 'ask.js',
+  '_locales/en/messages.json', '_locales/zh_CN/messages.json',
+  ...[16, 32, 48, 128].map((size) => `icons/icon-${size}.png`)];
 
 export function extensionId(key) {
   return [...createHash('sha256').update(Buffer.from(key, 'base64')).digest().subarray(0, 16)]
