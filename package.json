@@ -1,6 +1,6 @@
 {
   "name": "@mirasim/computer-use",
-  "version": "0.1.0-rc.7",
+  "version": "0.1.0-rc.8",
   "description": "Computer use for any agent: an MCP server that drives browsers, macOS apps, Windows apps and Electron apps through their accessibility trees.",
   "type": "module",
   "keywords": [
