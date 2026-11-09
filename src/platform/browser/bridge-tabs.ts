@@ -5,6 +5,7 @@
  */
 import type { Browser, Page } from "playwright-core";
 import { pageTargetInfo } from "./tabs.ts";
+import type { ExtensionAccess } from "./bridge/model-core.ts";
 
 interface BridgeTabInfo {
   tabId: number;
@@ -27,18 +28,29 @@ export async function bridgeRequest<T>(browser: Browser, method: string, params:
 
 /** The bridge's tabs this client holds no page for (see the header), and the nonce of the browser
  *  session they belong to (null off the bridge, or from a bridge too old to name one). */
-export async function bridgeTabs(browser: Browser): Promise<{ dormant: BridgeTabInfo[]; browserSession: string | null }> {
-  if (browser.version() !== "mirasim-bridge") return { dormant: [], browserSession: null };
+export async function bridgeTabs(browser: Browser): Promise<{ dormant: BridgeTabInfo[]; browserSession: string | null; access: ExtensionAccess | null }> {
+  if (browser.version() !== "mirasim-bridge") return { dormant: [], browserSession: null, access: null };
   try {
-    const result = await bridgeRequest<{ tabs: BridgeTabInfo[]; browserSession?: string }>(browser, "Mirasim.tabs");
+    const result = await bridgeRequest<{ tabs: BridgeTabInfo[]; browserSession?: string; access?: ExtensionAccess | null }>(browser, "Mirasim.tabs");
     // An older bridge says nothing of `held`: it attached every loaded tab, so only unloaded ones lack a page.
     const dormant = result.tabs.filter((t) => t.unloaded || t.held === false).map((t) => ({ ...t, browserSession: result.browserSession ?? "" }));
-    return { dormant, browserSession: result.browserSession || null };
+    return { dormant, browserSession: result.browserSession || null, access: result.access ?? null };
   } catch (e) {
     // A previous bridge did not expose metadata separately. Preserve its existing behavior;
     // connection failures and other errors still need to reach the caller.
-    if (/wasn't found|not found|not allowed|unknown method/i.test(String(e))) return { dormant: [], browserSession: null };
+    if (/wasn't found|not found|not allowed|unknown method/i.test(String(e))) return { dormant: [], browserSession: null, access: null };
     throw e;
+  }
+}
+
+/** The user's access settings as the bridge last heard them; null off the bridge, from an older
+ *  bridge or extension, or when the bridge cannot be asked. */
+export async function bridgeAccess(browser: Browser): Promise<ExtensionAccess | null> {
+  if (browser.version() !== "mirasim-bridge") return null;
+  try {
+    return (await bridgeRequest<{ access?: ExtensionAccess | null }>(browser, "Mirasim.access")).access ?? null;
+  } catch {
+    return null;
   }
 }
 

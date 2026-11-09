@@ -8,7 +8,7 @@
 import { Type } from "typebox";
 import type { Page } from "playwright-core";
 import { type ActResult, type HeaderChanges, type OwnershipResource, type Snapshot, type TargetInfo, SurfaceUnreadableError, text, type ToolResult, type VerbSpec, type Verdict } from "../types.ts";
-import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE, userTabCloseRefusal } from "./messages.ts";
+import { NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE, PAUSED_BY_USER, accessMissNote, userTabCloseRefusal } from "./messages.ts";
 import { PASTE_VERB, SELECT_OPTION_VERB } from "../chromium/actions-value.ts";
 import { SELECT_TEXT_VERB } from "../chromium/select-text.ts";
 import { DIALOG_VERB, DRAG_VERB, UPLOAD_VERB } from "../chromium/actions.ts";
@@ -17,7 +17,8 @@ import { BrowserDriverVerbs } from "./driver-verbs.ts";
 import { previewPage } from "../chromium/preview.ts";
 import { withPageCapture } from "../chromium/shot.ts";
 import { DOWNLOAD_VERB } from "./downloads.ts";
-import { bridgeRequest, bridgeTabs, closeBridgeTab, holdOnlyBridgeTab, restoreBridgeTab } from "./bridge-tabs.ts";
+import { bridgeAccess, bridgeRequest, bridgeTabs, closeBridgeTab, holdOnlyBridgeTab, restoreBridgeTab } from "./bridge-tabs.ts";
+import type { ExtensionAccess } from "./bridge/model-core.ts";
 import { pageTargetInfo } from "./tabs.ts";
 
 /** How long `close()` waits for the journal's queued line (one evidence shot's worth: the shot
@@ -76,6 +77,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
   private reported: Page | undefined | null = null;
   /** The bridge has no `Mirasim.holdOnly` (an older one, which attaches every tab): stop asking. */
   private holdUnsupported = false;
+  /** The user's access settings, as the last listing on the bridge carried them. */
+  private access: ExtensionAccess | null = null;
 
   override async activeTarget(): Promise<string | null> {
     return this.dormantSelection?.id ?? super.activeTarget();
@@ -249,13 +252,15 @@ export class BrowserDriver extends BrowserDriverVerbs {
   override async observeElements(opts: { prefix?: string; forceImage?: boolean; afterAction?: string } = {}): Promise<ToolResult> {
     const none = await this.noTabNote();
     if (none) return this.noTabObservation(none, opts.prefix);
-    return super.observeElements(opts);
+    try { return await super.observeElements(opts); }
+    catch (e) { throw await this.userPaused() ? new Error(PAUSED_BY_USER) : e; }
   }
 
   override async observeImage(opts: Parameters<BrowserDriverVerbs["observeImage"]>[0] = {}): Promise<ToolResult> {
     const none = await this.noTabNote();
     if (none) return this.noTabObservation(none, opts.prefix);
-    return super.observeImage(opts);
+    try { return await super.observeImage(opts); }
+    catch (e) { throw await this.userPaused() ? new Error(PAUSED_BY_USER) : e; }
   }
 
   /** Why the session holds no tab, or null when it holds one. Connects first: before that,
@@ -290,12 +295,16 @@ export class BrowserDriver extends BrowserDriverVerbs {
    * and a tab is named by id or title, so the bare listing left it to work out why it missed.
    */
   override explainMiss(query: string): string | null {
+    // The listing just before the miss carried the user's settings: a tab they did not hand over is
+    // not a tab that is not open.
+    const limited = this.access ? accessMissNote(this.access) : null;
     const q = query.trim();
-    if (!URLISH.test(q)) return null;
+    if (!URLISH.test(q)) return limited;
     const url = JSON.stringify(/^[a-z][a-z\d+.-]*:\/\//i.test(q) ? q : `http://${q}`);
-    return "mirasim-cu: computer.surface() binds a tab that is already open, by its id or title — never by URL — "
+    const byUrl = "mirasim-cu: computer.surface() binds a tab that is already open, by its id or title — never by URL — "
       + "and opens nothing. Bind a tab and go there: const w = await computer.surface('<id>'); "
       + `await w.openUrl({url: ${url}}) — or await w.newTab({url: ${url}}) to leave that tab as it is.`;
+    return limited ? `${byUrl}\n${limited}` : byUrl;
   }
 
   override promptFragment(): string {
@@ -317,8 +326,9 @@ export class BrowserDriver extends BrowserDriverVerbs {
     await this.ensure();
     // Refresh metadata before reading Page objects: reconciliation may retire a renderer
     // Chrome just discarded, and no title read should revive it as a side effect.
-    const { dormant, browserSession } = !this.tab && !this.attached && !this.managedProfileDir
-      ? await bridgeTabs(this.browser!) : { dormant: [], browserSession: null };
+    const { dormant, browserSession, access } = !this.tab && !this.attached && !this.managedProfileDir
+      ? await bridgeTabs(this.browser!) : { dormant: [], browserSession: null, access: null };
+    this.access = access;
     // The listing carries the bridge's nonce for free: a session holding no tab learns of a
     // browser change here, not only one whose bound tab vanished (driver-connect.ts).
     this.noteBridgeSession(browserSession);
@@ -370,8 +380,24 @@ export class BrowserDriver extends BrowserDriverVerbs {
 
   /** Every verb can move the session to another tab (new_tab, close_tab, a popup adopted). */
   override async perform(kind: string, a: Record<string, any>): Promise<ActResult> {
-    try { return await super.perform(kind, a); }
-    finally { await this.syncHeld(); }
+    try {
+      const res = await super.perform(kind, a);
+      return !res.ok && await this.userPaused() ? { ...res, note: PAUSED_BY_USER } : res;
+    } catch (e) {
+      throw await this.userPaused() ? new Error(PAUSED_BY_USER) : e;
+    } finally {
+      await this.syncHeld();
+    }
+  }
+
+  /**
+   * Asked only after something failed: a paused extension refuses every command, and Playwright
+   * rewrites the refusal of an evaluate into "Execution context was destroyed", which would send
+   * the model chasing a navigation that never happened.
+   */
+  private async userPaused(): Promise<boolean> {
+    if (!this.onBridge()) return false;
+    return (await bridgeAccess(this.browser!))?.paused === true;
   }
 
   private async selectTarget(id: string): Promise<ActResult> {

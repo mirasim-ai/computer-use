@@ -30,7 +30,9 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
     const p = (params ?? {}) as Record<string, unknown>;
     switch (method) {
       case "Mirasim.tabs":
-        return { tabs: await this.listTargets(client), browserSession: this.browserSession };
+        return { tabs: await this.listTargets(client), browserSession: this.browserSession, access: this.access };
+      case "Mirasim.access":
+        return { access: this.access };
       case "Mirasim.tabTarget": {
         return { targetId: await this.tabTarget(Number(p.tabId), String(p.browserSession ?? "")) };
       }

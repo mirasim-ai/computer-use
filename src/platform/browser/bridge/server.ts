@@ -19,6 +19,7 @@ import { type CdpMessage } from "./model.ts";
 import { BridgeServerCore, ExtensionConnection } from "./server-core.ts";
 import { webSocketChannel, type ExtensionChannel } from "./extension-channel.ts";
 import { parseExtensionRuntime } from './extension-updates.ts';
+import { ownVersion } from "../../../entries/version.ts";
 
 // Re-exported so callers keep importing the options shape from here.
 export type { BridgeServerOptions } from "./server-core.ts";
@@ -31,6 +32,12 @@ const INCUMBENT_PROBE_MS = 5_000;
  *  for the SAME browser to redial (its backoff starts at 1 s), so a hiccup — a host crash, an
  *  extension reload — does not hand the bridge to the other browser. */
 const STANDBY_GRACE_MS = 5_000;
+
+/** Which host runs this bridge: the desktop app bundles it under Electron, `npx` runs it in Node. */
+function bridgeIdentity(): { name: string; version: string } {
+  const version = ownVersion();
+  return { name: process.versions.electron ? "Mirasim" : "Computer Use", version: version === "0.0.0" ? "" : version };
+}
 
 export class BridgeServer extends BridgeServerCore {
 
@@ -195,11 +202,18 @@ export class BridgeServer extends BridgeServerCore {
         }
         this.updates.runtime = runtime;
         this.extensionInitialized = true;
+        // Who is on this end, for the extension's panel. An extension that predates the panel
+        // answers "Unknown method", which is nothing to act on.
+        void this.extension?.send("bridge.info", [bridgeIdentity()]).catch(() => {});
         const waiters = this.readyWaiters;
         this.readyWaiters = [];
         for (const resolve of waiters) resolve();
         break;
       }
+      case "extension.access":
+        // How far the user lets the agent reach (extension/access.js), for the driver to say so.
+        this.model.setAccess(params[0]);
+        break;
       case 'extension.updateAvailable': {
         const version = params[0];
         if (typeof version !== 'string' || !/^\d+(\.\d+){0,3}$/.test(version)) break;

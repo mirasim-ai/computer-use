@@ -26,6 +26,17 @@ export type SendToExtension = (method: string, params: unknown[]) => Promise<unk
 import { BridgeClient, STAND_IN_PREFIX, tabIsUnloaded, type BridgeTab, type TabAttachment , type CdpMessage } from "./client.ts";
 import { RuntimeDomain, isRuntimeContextEvent } from "./runtime-contexts.ts";
 
+/** The user's access settings as the extension reports them (extension/access.js). */
+export interface ExtensionAccess {
+  /** `group`: only the mirasim group and the agent's own tabs are listed; `ask`: every tab, the
+   *  user asked before one outside the group is attached; `all`: every tab. */
+  scope: "group" | "all" | "ask";
+  /** Some sites are blocked, or only some allowed: their tabs are not listed. */
+  siteRules: boolean;
+  /** The user paused the agent: every tab is let go of, and every command refused but listing. */
+  paused: boolean;
+}
+
 // Re-exported so a caller that only speaks to the model keeps ONE import site.
 export { BridgeClient, type BridgeTab, type TabAttachment } from "./client.ts";
 
@@ -51,6 +62,9 @@ export abstract class BridgeModelCore {
    *  the user is keeping) nor one adopted from a group that outlived an earlier connection.
    *  {@link recycleAgentTabs} closes exactly this set. */
   protected agentTabs = new Set<number>();
+  /** How far the user lets the agent reach, as the extension last said (extension/access.js);
+   *  null from an extension that predates the setting, which lists every tab. */
+  access: ExtensionAccess | null = null;
   /** The browser session those tab ids belong to — see {@link onExtensionConnected}. */
   protected browserSession: string | null = null;
   protected attachments = new Map<number, TabAttachment>();
@@ -99,6 +113,12 @@ export abstract class BridgeModelCore {
   }
 
   // ─── Extension → model inputs ─────────────────────────────────────────
+
+  setAccess(raw: unknown): void {
+    const a = raw as Partial<ExtensionAccess> | undefined;
+    if (!a || typeof a !== "object" || !["group", "all", "ask"].includes(String(a.scope))) return;
+    this.access = { scope: a.scope as ExtensionAccess["scope"], siteRules: a.siteRules === true, paused: a.paused === true };
+  }
 
   onTabCreated(tab: BridgeTab, opener: { agent?: boolean } = {}): void {
     if (tab.id === undefined) return;
@@ -243,6 +263,8 @@ export abstract class BridgeModelCore {
    * extension too old to say) ⇒ the ids may now name the user's pages, so the marks go.
    */
   onExtensionConnected(browserSession?: string): void {
+    // Each line reports its own access settings (or, from an older extension, none).
+    this.access = null;
     const sameSession = !!browserSession && browserSession === this.browserSession;
     if (!sameSession) this.agentTabs.clear();
     // The bridge log is the only place this decision is visible, and it decides whether a tab

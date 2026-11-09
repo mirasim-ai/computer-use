@@ -204,3 +204,19 @@ export function userTabCloseRefusal(id: string): string {
     + "whether to close it — say which page — and call close_tab again with confirmed: true if they agree. "
     + "Reading it and acting in it needs no permission; only closing does";
 }
+
+/** Why a tab the model named is not listed, when the user limits what the agent may reach in their
+ *  browser (extension/access.js); null when nothing is limited. */
+export function accessMissNote(access: { scope: string; siteRules: boolean }): string | null {
+  const parts: string[] = [];
+  if (access.scope === "group") {
+    parts.push("the user lets the agent see only the tabs it opened and the ones handed to it (the Mirasim tab group), "
+      + "so a page open in another tab is not listed — ask them to click the Mirasim toolbar icon on that tab to hand it over, then list surfaces again");
+  }
+  if (access.siteRules) parts.push("tabs on sites the user blocked in Mirasim are not listed either, and cannot be opened");
+  return parts.length ? `mirasim-cu: ${parts.join("; ")}.` : null;
+}
+
+/** A command refused because the user paused the agent from the extension's panel. */
+export const PAUSED_BY_USER = "The user paused the agent from the Mirasim extension: every browser command is refused "
+  + "until they resume it. Tell them, and wait for them to resume before trying again";
