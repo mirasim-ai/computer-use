@@ -135,6 +135,19 @@ async function main() {
       const ok = await typeVerb(same, 1, "Excel", "ZZ");
       check("a field that reads back exactly the expected edit is reported as matched",
         ok.verified === true && /matched — the same field reads back exactly/.test(ok.note ?? ""), (ok.note ?? "").slice(-70));
+      // ChatGPT's empty composer reads its placeholder as its value (caret at 0): the typed text
+      // alone afterwards is the edit asked for, not "content differs" (which stops the run).
+      const placeholder = { typedKey: "k2", typedValue: "Work with Codex\n", typedRange: { start: 0, length: 0 } };
+      const fromEmpty = (async (op: string) => (op === "type"
+        ? placeholder : op === "textvalue" ? { value: "ZZ" } : {})) as never;
+      const empty = await typeVerb(fromEmpty, 1, "ChatGPT", "ZZ");
+      check("a field whose empty value read as its placeholder, then reads back the typed text alone, is matched",
+        empty.verified === true && /placeholder/.test(empty.note ?? ""), (empty.note ?? "").slice(-90));
+      const kept = (async (op: string) => (op === "type"
+        ? placeholder : op === "textvalue" ? { value: "ZZWork with Codex\n" } : {})) as never;
+      const both = await typeVerb(kept, 1, "ChatGPT", "ZZ");
+      check("…but text read before input that is still there is not taken for a placeholder",
+        both.verified === true && !/placeholder/.test(both.note ?? ""), (both.note ?? "").slice(-60));
       const other = (async (op: string) => (op === "type"
         ? receipt : op === "textvalue" ? { value: "something else" } : {})) as never;
       const bad = await typeVerb(other, 1, "Excel", "ZZ");

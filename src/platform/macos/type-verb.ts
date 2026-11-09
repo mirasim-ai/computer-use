@@ -63,6 +63,13 @@ async function readsBackAsTyped(
       const { value } = await call<{ value: unknown }>("textvalue", { key: typedKey });
       if (typeof value !== "string") break;
       if (Date.now() >= deadline) {
+        // An EMPTY Chromium/Electron field reports its placeholder as its value ("Work with
+        // Codex\n" in ChatGPT's composer), so the "original text" was never there: the field now
+        // holding exactly the typed text, with that text gone, is the edit that was asked for.
+        if (value !== expected && value === text && typedValue.trim() && !value.includes(typedValue.trim())) {
+          return { verified: true, note: `matched — the field reads back exactly the typed text; what it read before input `
+            + `(${JSON.stringify(typedValue.trim().slice(0, 40))}) was an empty field's placeholder, which some web fields report as their value` };
+        }
         if (value === expected && expected === typedValue) {
           return { note: "unverified — the expected text was already present before input, so read-back cannot establish whether the keys took effect" };
         }
