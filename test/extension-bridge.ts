@@ -40,6 +40,11 @@ function check(label: string, ok: boolean, detail = "") {
   if (!ok) failures++;
 }
 
+/** Is this tab of the real browser still open? Asked of the extension, which sees every tab. */
+async function tabAlive(cdp: RawCdp, tabId: number): Promise<boolean> {
+  return (await evalInExtension(cdp, `chrome.tabs.get(${tabId}).then((t) => t.id, () => null)`)) !== null;
+}
+
 async function main() {
   // The pinned key and the derived ID must agree, or the connect URL goes nowhere.
   const manifest = JSON.parse(readFileSync(join(extensionDir(), "manifest.json"), "utf8")) as { key: string };
@@ -445,6 +450,50 @@ async function main() {
         `${JSON.stringify(closedListed)}; tab ${readingGone}`);
     } finally {
       await bindDriver.close().catch(() => {});
+    }
+
+    // ── A new tab that never surfaces is not replaced by the user's ─────
+    // newBackgroundPage used to fall back to the first open page when its tab did not show up in
+    // time — here the user's bound tab, which the session then claimed and close_tab({all}) closed.
+    // The miss is manufactured: the bridge answers createTarget with an id no page carries.
+    const missDriver = createDriver("browser", {
+      cdpUrl: server.cdpUrl(), browser: { cdpUrl: server.cdpUrl(), cdpStrict: true },
+      env: { ...process.env, COMPUTER_USE_CDP_URL: server.cdpUrl(), COMPUTER_USE_CDP_STRICT: "1" },
+    });
+    const missModel = (server as unknown as { model: { createTarget(url?: string): Promise<{ targetId: string }> } }).model;
+    const realCreate = missModel.createTarget;
+    try {
+      const missTab = await evalInExtension(rawCdp!,
+        `chrome.tabs.create({ url: ${JSON.stringify(pages.url("/reading"))}, active: false }).then((t) => t.id)`) as number;
+      await sleep(1200);
+      const listed = (await missDriver.listTargets()).find((t) => t.title === "user reading");
+      check("the user's tab to bind for the miss is listed", !!listed, "");
+      await missDriver.focusTarget(listed!.id);
+      await missDriver.prepareTarget();
+      let created: string | null = null;
+      missModel.createTarget = async (url?: string) => {
+        const r = await realCreate.call(missModel, url);
+        created = r.targetId;
+        return { targetId: `${r.targetId}-unseen` };
+      };
+      const missed = await missDriver.perform("new_tab", {}).catch((e: unknown) => ({ ok: false, note: String(e) }));
+      missModel.createTarget = realCreate;
+      check("new_tab whose tab never surfaces fails", missed.ok === false && /did not appear/.test(missed.note ?? ""),
+        JSON.stringify(missed));
+      const after = await missDriver.listTargets();
+      check("...without taking the user's bound tab as its own",
+        after.some((t) => t.title === "user reading" && t.own === false) && after.every((t) => t.own === false),
+        JSON.stringify(after.map((t) => `${t.title}:${t.own}`)));
+      const swept = await missDriver.perform("close_tab", { all: true });
+      await sleep(300);
+      check("...so close_tab({all}) leaves the user's tab open", swept.ok === true && await tabAlive(rawCdp!, missTab),
+        JSON.stringify(swept));
+      // The tab that never surfaced is the bridge's real one; the driver could not name it to close.
+      if (created) await (missModel as unknown as { closeTarget(id: string): Promise<unknown> }).closeTarget(created).catch(() => {});
+      await evalInExtension(rawCdp!, `chrome.tabs.remove(${missTab}).then(() => true)`).catch(() => {});
+    } finally {
+      missModel.createTarget = realCreate;
+      await missDriver.close().catch(() => {});
     }
 
     // ── Second CDP client shares the same browser ───────────────────────

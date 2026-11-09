@@ -121,10 +121,7 @@ async function seedOriginLocalStorage(
   origin: string,
   items: Array<{ name: string; value: string }>,
 ): Promise<void> {
-  const before = new Set(context.pages());
   const page = await newBackgroundPage(context);
-  // newBackgroundPage can, in a race, hand back a PRE-EXISTING page — not ours to close.
-  const own = !before.has(page);
   try {
     await page.route("**/*", (route) =>
       route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>mirasim-cu state import</title>" }));
@@ -136,8 +133,7 @@ async function seedOriginLocalStorage(
     throw new Error(`mirasim-cu: localStorage import failed for ${origin}: ${firstLine(e)}`);
   } finally {
     await page.unroute("**/*").catch(() => {});
-    if (own) await page.close().catch(() => {});
-    else await page.goto("about:blank").catch(() => {}); // borrowed page: leave it blank, not on a fake document
+    await page.close().catch(() => {});
   }
 }
 

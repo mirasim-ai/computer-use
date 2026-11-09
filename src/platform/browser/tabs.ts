@@ -6,8 +6,11 @@
 
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { browserConfigFromEnv, type BrowserConfig } from "./config.ts";
+import { msgNewTabNotFound } from "./messages.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** How long a tab we created may take to surface as a Page — see {@link pageWithTarget}. */
+const NEW_TAB_WAIT_MS = 5_000;
 
 /**
  * Open a tab WITHOUT raising the browser. `context.newPage()` makes Chrome the frontmost
@@ -34,7 +37,16 @@ export async function newBackgroundPage(ctx: BrowserContext): Promise<Page> {
   } finally {
     await session.detach().catch(() => {});
   }
-  return (await pageWithTarget(ctx, targetId, before)) ?? anchor;
+  const page = await pageWithTarget(ctx, targetId, before);
+  if (page) return page;
+  // Never fall back to `anchor`: on an endpoint we did not launch it is the USER'S tab (often the
+  // one the session has bound), and every caller claims what this returns — which would make the
+  // person's tab closable by close_tab({all}) without asking. Close the tab we did open, so no
+  // blank one is left behind, and fail the open instead.
+  const closer = await ctx.newCDPSession(anchor).catch(() => null);
+  const closed = (await closer?.send("Target.closeTarget", { targetId }).catch(() => null))?.success === true;
+  await closer?.detach().catch(() => {});
+  throw new Error(msgNewTabNotFound(targetId, closed));
 }
 
 /**
@@ -47,8 +59,11 @@ async function pageWithTarget(
   targetId: string,
   before: ReadonlySet<Page>,
 ): Promise<Page | null> {
-  // Playwright learns about the target asynchronously; wait briefly for it to surface.
-  for (let i = 0; i < 40; i++) {
+  // Playwright learns about the target asynchronously. ~30ms is usual, even through the bridge;
+  // the budget is for a loaded machine, since a miss now fails the open rather than taking a
+  // stand-in page.
+  const deadline = Date.now() + NEW_TAB_WAIT_MS;
+  while (Date.now() < deadline) {
     for (const p of ctx.pages()) {
       if (before.has(p) || p.isClosed()) continue;
       if ((await pageTargetInfo(p).catch(() => null))?.targetId === targetId) return p;

@@ -104,6 +104,14 @@ export function msgEndpointUnavailable(cdpUrl: string, detail: string): string {
   return `mirasim-cu: explicit CDP endpoint ${cdpUrl} is unavailable.\n(${detail})`;
 }
 
+/** A background tab was created but never surfaced on this connection (tabs.ts
+ *  `newBackgroundPage`): nothing was claimed in its place, and the tab closed again if it could be. */
+export function msgNewTabNotFound(targetId: string, closed: boolean): string {
+  return `mirasim-cu: opened a new tab (${targetId}) but it did not appear on this connection in time, `
+    + (closed ? "so it was closed again" : "and it could not be closed again (a blank tab may be left)")
+    + " and no tab was taken in its place — the user's tabs are untouched; try again";
+}
+
 /**
  * What the model is told after we reopened a browser the user had closed.
  *

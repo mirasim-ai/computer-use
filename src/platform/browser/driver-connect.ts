@@ -122,15 +122,19 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         const lostUrl = this.active?.url() ?? "";
         // Attached: the window that vanished was OURS, and the user's own windows may well
         // still be on screen — take a new window rather than a tab in one of theirs.
-        this.active = this.attached ? await this.openOwnWindow()
+        // First our own tab under a new page object, as a bridged browser hands back on every
+        // extension reconnection — found by Chrome's targetId, never by "some open page", which on
+        // this endpoint is as likely the user's.
+        const reminted = this.attached || this.tab ? null : await this.findReminted();
+        this.active = reminted ?? (this.attached ? await this.openOwnWindow()
           : this.tab ? await this.reclaimTab()
-          : await newBackgroundPage(this.context);
+          : await newBackgroundPage(this.context));
         this.claim(this.active);
-        // What happened is readable only from what we landed on: a blank page means the tab (or
-        // browser) really went away; a page with a URL means nothing closed and the ids were
-        // re-minted under us, as a bridged browser does on every extension reconnection.
+        // What happened is readable from what we landed on: our tab found again, or a re-claimed
+        // one with a URL, means nothing closed and the ids were re-minted under us; a blank page
+        // means the tab (or browser) really went away.
         const blank = !this.active.url() || this.active.url() === "about:blank";
-        this.pendingNote = !blank ? SURFACE_REIDENTIFIED_NOTE
+        this.pendingNote = reminted || !blank ? SURFACE_REIDENTIFIED_NOTE
           : this.wokeAfterSelfClose ? TAB_REOPENED_AFTER_SELF_CLOSE_NOTE
           : this.managedProfileDir && !this.tab ? REOPENED_NOTE
           : this.explicit && !this.managedProfileDir && !this.attached
@@ -233,6 +237,19 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     this.wireContext();
     await this.installKeepInTab(this.active);
     await this.publishClaim();
+  }
+
+  /** An open page that is one of this session's tabs by Chrome's identity although not by object
+   *  (see {@link recognise}) — the one `active` pointed at first. Null when there is none. */
+  private async findReminted(): Promise<Page | null> {
+    let ours: Page | null = null;
+    for (const p of this.context.pages()) {
+      if (p.isClosed()) continue;
+      const known = await this.recognise(p).catch(() => null);
+      if (known === "same") return p;
+      if (known === "ours") ours ??= p;
+    }
+    return ours;
   }
 
   /** After every claim, a tab surface records in its endpoint file WHICH slice of the shared
