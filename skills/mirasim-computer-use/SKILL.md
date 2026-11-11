@@ -62,6 +62,11 @@ In extension mode the user decides what you may reach (the extension's panel). T
   own tab. Bind the new one: `const t2 = await computer.surface("<id from the note>")`.
 - If `newTab` fails saying the tab never appeared, nothing else was taken in its place: try once
   more, then list surfaces. Do not act on whichever tab happens to be active instead.
+- A link or `window.open` that asks for a new tab gets a real one (`target="_blank"`, also
+  inside an iframe). The click's own line names the new tab's id and where it landed, and `w`
+  stays on the tab it clicked: bind the new one with `computer.surface("<id from the line>")`.
+  To check "does this open in a new tab?", read that line or `computer.surfaces()` in the same
+  call — no second tab and the page (or frame) itself navigated means it did not.
 
 ## Going on in one call
 
