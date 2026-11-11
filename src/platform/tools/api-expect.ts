@@ -1,11 +1,15 @@
 /** A postcondition is a read, never a replay of the action it checks. */
 import type { ComputerUseDriver } from "../driver.ts";
 import { options, type RunLedger } from "./api-contract.ts";
+import { nearText, type ClosestControls } from "./api-wait.ts";
+
+const clip = (s: string, max = 120) => (s.length > max ? `${s.slice(0, max)}… (+${s.length - max} chars)` : s);
 
 export function expectVerb(
   driver: ComputerUseDriver,
   ledger: () => RunLedger,
   value: (target: unknown) => Promise<string>,
+  closest?: ClosestControls,
 ) {
   return async (raw: unknown) => {
     const opts = options<Record<string, unknown>>("expect", raw,
@@ -26,6 +30,9 @@ export function expectVerb(
     driver.noteContentRead();
     const label = kind === "value" ? "field value" : `${kind} ${JSON.stringify(opts[kind])}`;
     let ok = false;
+    // What was there INSTEAD, for the failure: a failed expect stops the run, and without this
+    // the next call is spent finding out what the field held or what the control is called.
+    let found = "";
     try {
       if (kind === "value") {
         const deadline = Date.now() + cap;
@@ -38,6 +45,7 @@ export function expectVerb(
               timer = setTimeout(() => reject(new Error("value read timed out")), remaining);
             })]);
             if (driver.valueMatches(actual, opts.equals as string)) { ok = true; break; }
+            found = `the field holds «${clip(actual)}», not «${clip(opts.equals as string)}»`;
           } finally { clearTimeout(timer); }
           if (Date.now() >= deadline) break;
           await new Promise(r => setTimeout(r, Math.min(100, deadline - Date.now())));
@@ -48,13 +56,21 @@ export function expectVerb(
           : kind === "control" ? await driver.waitForControl(condition, false, cap)
             : await driver.waitForUrl(condition, false, cap);
         ok = result.ok;
+        if (!ok) {
+          found = kind === "url" ? (result.note ?? "").split(". ")[0] ?? ""
+            : kind === "control" ? (closest ? await closest(condition) : "")
+              : nearText(await driver.readTextForWait().catch(() => ""), condition);
+        }
       }
     } catch (e) {
       ledger().push("expect", label, false, `verification unavailable: ${(e as Error).message}; do not replay the preceding action`, true, "uncertain");
       throw e;
     }
     ledger().push("expect", label, ok, ok ? "condition verified" : "condition was not verified; subsequent steps stopped, preceding action was not replayed", true, ok ? "verified" : "uncertain");
-    if (!ok) throw new Error(`Expectation failed for ${label}. Observe the result before deciding whether any earlier action can be retried.`);
+    if (!ok) {
+      throw new Error(`Expectation failed for ${label}${found ? ` — ${found}` : ""}. `
+        + "Observe the result before deciding whether any earlier action can be retried.");
+    }
     return true;
   };
 }

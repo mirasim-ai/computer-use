@@ -60,6 +60,20 @@ export function createComputerUseApi(
   // How a target argument becomes a ref — one job, its own file (api-target.ts).
   const { findWithMiss, missNote, asPoint, resolve, requireFocus } = createTargeting(driver, ledger, hooks, firstLine);
 
+  /** The controls nearest a name nothing carried, in find()'s miss wording — what a wait or an
+   *  expect that gave up on a control says instead of only "it did not appear". */
+  const closestControls = async (name: string): Promise<string> => {
+    try {
+      const { h, miss } = await findWithMiss(name);
+      // find() matches more loosely than a control wait (a word inside a longer name, a value):
+      // its pick, with its own caveat, is the nearest thing there is.
+      if (h) return `a find() for it answers ${ambiguityNote(h)}`;
+      return miss.replace(/^no match(?: — )?/, "");
+    } catch {
+      return "";
+    }
+  };
+
   /** The last dispatched action's kind, or null once a `find` has paid the settle for it. */
   let sinceAction: string | null = null;
 
@@ -361,12 +375,12 @@ export function createComputerUseApi(
       else if (typeof ref === "string") hooks.onTarget?.(ref);
       return acted("scroll", { ...opts, ...(ref === undefined ? {} : { ref }) }, String(ref ?? opts.direction ?? opts.to ?? ""));
     },
-    wait: waitVerb(driver, ledger),
+    wait: waitVerb(driver, ledger, closestControls),
     expect: expectVerb(driver, ledger, async (target) => {
       if (!driver.readValue) throw new Error("This platform cannot read field values");
       const { ref } = await resolve(target);
       return driver.readValue(ref);
-    }),
+    }, closestControls),
     focus: async (target: unknown) => {
       return acted("focus", { target: String(target ?? "") }, String(target ?? ""));
     },
