@@ -18,23 +18,51 @@ app ships the same tools built in (Settings → Computer Use).
 
 ## Benchmark
 
-![Same model, same tasks, 39% less time](docs/benchmark/codex-frontend.png)
+![DevBrowse Bench v1 core results: time −26%, model requests −45%, input tokens −50%, failed runs 4 : 8](docs/benchmark/devbrowse-v1.png)
 
-Six small frontend tasks on a React + Vite app (two features, three bug fixes, one QA pass), run
-in Codex in the ChatGPT desktop app with the same model and the same prompt. The only difference
-is the tool the agent checks its work with: Codex Computer Use in Codex's in-app browser, or
-Mirasim Computer Use as an MCP server. Each tool ran every task 5 times, the two interleaved in
-one session; timing comes from Codex's own session record, and the final code was graded by
-hidden behaviour checks.
+[DevBrowse Bench](https://github.com/mirasim-ai/devbrowse-bench) measures browser use in
+development work: a coding agent changes a web app, then checks its own work in a browser. v1 has
+60 tasks: 51 on a simulated React + Vite task manager (features, bug fixes, QA passes) and 9
+merged bug fixes from Excalidraw, Lexical, tldraw and react-admin. Each task runs as a pair, both
+sides at the same time in Codex in the ChatGPT desktop app, with the same model (`gpt-6.1-sol` at
+medium reasoning effort), the same prompt and the same starting code. The only difference is the
+browser tool the agent is told to use: ChatGPT Computer Use (the in-app browser of Codex), or
+Mirasim Computer Use 0.1.0-rc.5 as an MCP server. 200 runs per side, on 2026-11-06 and
+2026-11-07; time, model requests and tokens come from Codex's own session record, and every run
+was graded by rule-based judges.
 
-With Mirasim Computer Use the agent finished in 39% less time and passed 30/30 tasks (vs 26/30).
-The time was saved in round trips, not in the browser: the agent made 37% fewer model requests
-while writing almost the same number of output tokens. `observe()` returns elements as data, so
-the agent puts its checks in the script and gets back a verdict instead of reading the page after
-every click. And a click lands where a user's mouse would: on the QA task an invisible layer
-covers a button, Mirasim Computer Use fails the click and names the layer, while Codex Computer
-Use reports the click as done, and its report caught the bug in 1 of 5 runs.
+| | ChatGPT Computer Use | Mirasim Computer Use |
+|---|---|---|
+| Runs passed | 192 / 200 | 196 / 200 |
 
+Over the 192 pairs where both sides passed (change = Mirasim total / ChatGPT total − 1, 95%
+interval from resampling tasks):
+
+| Metric | Change | 95% interval |
+|---|---|---|
+| Time | −26% | −32% to −20% |
+| Model requests | −45% | −48% to −42% |
+| Input tokens | −50% | −54% to −46% |
+| Output tokens | −8% | −13% to −3% |
+| Browser calls | −37% | −41% to −32% |
+
+Most of the time was saved in round trips: the agent made 45% fewer model requests, while the
+output tokens it wrote fell by only 8%. `observe()` returns elements as data, so the agent puts
+its checks in the script and gets back a verdict instead of reading the page after every click.
+And a click lands where a user's mouse would: a click on a covered control fails and names the
+layer that took it. The four extra failures on the other side are all one QA task, where a
+transparent layer under a sticky header covers a toolbar for mouse clicks: the report written with
+ChatGPT Computer Use missed it in 4 of 5 runs, the one written with Mirasim Computer Use in none.
+
+These numbers describe the two tools as they were on those two days. Around the end of the runs,
+ChatGPT Computer Use changed how it uses the browser and began to need fewer model requests per
+run. When 39 of the 60 tasks were run again the same way on 2026-11-10 and 2026-11-11, with a
+later release of Mirasim Computer Use, the time saving on them was about −16%, against −25% for
+the same tasks here. That rerun is not part of v1.
+
+Tasks, judges, every run and the full report are in the
+[DevBrowse Bench repository](https://github.com/mirasim-ai/devbrowse-bench)
+([v1 report](https://github.com/mirasim-ai/devbrowse-bench/blob/main/results/v1/REPORT.md)).
 
 ## Install
 
