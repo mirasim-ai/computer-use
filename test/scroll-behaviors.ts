@@ -236,6 +236,28 @@ const FIXTURE_DRAG_CLAMP = page(`
   onmouseup = () => { on = false; };
 </script>`, "resize");
 
+/** A board whose cards are re-rendered on drop: the card that was grabbed is removed and a new
+ *  node takes its place in the other column, as a framework's keyed list does when an item
+ *  changes lists. The grabbed element no longer exists once the mouse is up. */
+const FIXTURE_DRAG_REMOUNT = page(`
+<style>body { margin: 0; } .col { position: absolute; top: 0; width: 200px; height: 300px; background: #eee; } button { display: block; width: 180px; height: 30px; margin: 10px; }</style>
+<div class="col" id="todo" style="left: 0"><button>Write report</button></div>
+<div class="col" id="done" style="left: 220px"><button>Old card</button></div>
+<script>
+  let held = null;
+  onmousedown = (e) => { held = e.target.closest('button'); };
+  onmouseup = (e) => {
+    const col = document.elementFromPoint(e.clientX, e.clientY)?.closest('.col');
+    if (held && col && held.parentElement !== col) {
+      const fresh = document.createElement('button');
+      fresh.textContent = held.textContent;
+      held.remove();
+      col.append(fresh);
+    }
+    held = null;
+  };
+</script>`, "board");
+
 /** A list reordered by dragging rows that are not controls: the drag moves text only and never
  *  moves the focus, and a landed reorder must not read as "likely swallowed". The status line is
  *  what makes the text diff see it (a pure reorder keeps the same set of lines). */
@@ -585,6 +607,19 @@ async function main() {
       clamp.ok && /now sits at \(290,190\), 190px short of the release point/.test(clamp.note), clamp.note);
     const stuck = await h.act("drag", { ref: grip, toX: 50, toY: 190 });
     check("a drag that moves nothing says the element did not move", stuck.ok && stuck.note.includes("did not move"), stuck.note);
+
+    // The grabbed card is removed on drop and re-created in the other column. Measuring where
+    // it landed must not wait for an element that will never come back (it waited 30 s).
+    await h.act("open_url", { url: FIXTURE_DRAG_REMOUNT });
+    const card = (await h.api.find("Write report"))?.ref;
+    const remountStart = Date.now();
+    const remount = await h.act("drag", { ref: card, toX: 320, toY: 150 });
+    const remountMs = Date.now() - remountStart;
+    const columns = (await h.act("run_js", { code: "[...document.querySelectorAll('.col')].map((c) => c.id + ':' + [...c.children].map((b) => b.textContent).join('+')).join(' ')" })).note;
+    check("a drag whose element the page re-creates on drop still lands", remount.ok && columns.includes("todo: done:Old card+Write report"), columns);
+    check("...and returns promptly instead of waiting for the old element", remountMs < 3000, `${remountMs} ms`);
+    check("...and says the grabbed element is gone, so its landing was not measured",
+      /is no longer on the page/.test(remount.note) && !/did not move|followed to|now sits at/.test(remount.note), remount.note);
 
     // Rows at y 15 / 45 / 75: drag gamma onto alpha.
     await h.act("open_url", { url: FIXTURE_DRAG_REORDER });

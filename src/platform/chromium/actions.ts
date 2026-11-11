@@ -278,6 +278,13 @@ export const DRAG_VERB: VerbSpec = {
 };
 
 
+/** How long a drag end may take to measure before the press: both were located and scrolled into
+ *  view a moment earlier, so an element that takes longer than this is not there. */
+const DRAG_MEASURE_MS = 2000;
+/** ...and how long the grabbed element may take to measure after the release. Short: when the
+ *  drop replaced it, it never comes back, and every millisecond here is the caller's. */
+const DRAG_LANDED_MS = 500;
+
 /**
  * drag — press, interpolated move, release. Start and destination each resolve from a ref
  * (element center) or raw coordinates. Returns the release point for the journal.
@@ -300,8 +307,9 @@ export async function performDrag(
     await loc.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => {});
     return loc;
   };
+  // Bounded: with no timeout a measurement waits Playwright's 30 s for an element that is gone.
   const center = async (loc: Locator, what: string, ref: unknown): Promise<{ x: number; y: number } | ActResult> => {
-    const box = await loc.boundingBox().catch(() => null);
+    const box = await loc.boundingBox({ timeout: DRAG_MEASURE_MS }).catch(() => null);
     if (!box) return { ok: false, note: `no element for ${what} ${String(ref)}` };
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   };
@@ -348,10 +356,18 @@ export async function performDrag(
   await page.mouse.up();
   // Where the grabbed element ENDED (a handle at its limit stops short). Reported, not judged:
   // a text-selection drag or a drop into a bin legitimately leaves the start where it was.
+  //
+  // A drop often REPLACES the grabbed element (a board card re-rendered in its new column), and
+  // then there is nothing left to measure: the wait is kept short, and the note says the element
+  // is gone instead of leaving the landing out, so the caller looks for it under a new ref.
   let landed = "";
   if (fromLoc) {
-    const end = await center(fromLoc as Locator, "ref", a.ref).catch(() => null);
-    if (end && !("ok" in end)) {
+    const box = await (fromLoc as Locator).boundingBox({ timeout: DRAG_LANDED_MS }).catch(() => "gone" as const);
+    if (box === "gone" || !box) {
+      landed = ` — ${String(a.ref)} is no longer ${box === "gone" ? "on the page" : "visible"} (the drop removed, re-rendered or hid it), `
+        + "so where it landed was not measured: re-observe to find it under its new ref";
+    } else {
+      const end = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       const off = Math.round(Math.hypot(end.x - to.x, end.y - to.y));
       const moved = Math.round(Math.hypot(end.x - from.x, end.y - from.y));
       landed = moved < 2
