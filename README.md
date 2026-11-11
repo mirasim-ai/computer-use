@@ -213,7 +213,7 @@ session. The tool server runs no model of its own.
   naming the configuration.
   ```sh
   COMPUTER_USE_MCP_LOG=~/.mirasim-computer-use/mcp.jsonl mirasim-cu mcp
-  # {"ts":"…","type":"server_start","version":"0.1.0-rc.1","platforms":"browser","tools":[…]}
+  # {"ts":"…","type":"server_start","version":"0.1.0","platforms":"browser","tools":[…]}
   # {"ts":"…","type":"call","tool":"computer_repl","args":{"code":"await w.observe();"},"isError":false,"ms":412,
   #  "details":{"url":"https://example.com","verdict":"changed","elementCount":7,"ledgerLines":2,
   #   "timing":{"runMs":96,"observeMs":310,"steps":[{"kind":"observe","target":"","ok":true,"ms":96,"note":"7 elements"}]}}}
