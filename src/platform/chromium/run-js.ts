@@ -54,6 +54,14 @@ export const RUN_JS_CODE_DESC =
  */
 const ILLEGAL_RETURN = /Illegal return statement/;
 
+/**
+ * The source as the body of an async function. Joined from pieces, not written as one template
+ * string: the build minifies every multi-line string that parses as a script and puts
+ * parentheses around what fills its `${…}` (scripts/build.mjs), which is right for a value and
+ * breaks statements — `(return 1)` is a SyntaxError of its own.
+ */
+const asFunctionBody = (src: string) => ["(async () => {", src, "})()"].join("\n");
+
 /** Code that READS the clipboard — the one page API measured to hang a run: the browser asks
  *  the person for permission, and in a tab nobody is watching nobody answers. */
 const READS_CLIPBOARD = /clipboard\s*(\?\.|\.)\s*read(Text)?\b/;
@@ -117,7 +125,7 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
       result = await race(src);
     } catch (e) {
       if (!ILLEGAL_RETURN.test((e as Error).message || "")) throw e;
-      result = await race(`(async () => {\n${src}\n})()`);
+      result = await race(asFunctionBody(src));
     }
     if (result === timedOut) {
       return { ok: false, note: `run_js gave no result within ${limit / 1000}s — `

@@ -335,6 +335,8 @@ async function main() {
     await run(`await t.closeTab(); await w.focus();`);
     const waited = await run(`return await w.runJs({ code: "new Promise((r) => setTimeout(() => r(7), 1500))", ms: 3000 });`);
     check("runJs({code, ms}) reaches the page with its wait", /Returned: 7/.test(waited), line(waited, /Returned|STOPPED/));
+    const body = await run(`return await w.runJs({ code: "const n = document.querySelectorAll('html').length; return n * 20;" });`);
+    check("runJs takes a function body with return as well as an expression", /Returned: 20/.test(body), line(body, /Returned|STOPPED/));
 
     // ── Handles: two tabs, one run ────────────────────────────────────────────
     const opened = await run(`

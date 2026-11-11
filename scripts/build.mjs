@@ -146,7 +146,8 @@ function minifyScript(text) {
 
 /** Where each slot appears: how often in all (`text`), how often as code (`code`), and the
  *  offsets of the code reads. A slot used as a name (a declaration, a property, a parameter)
- *  is refused: parentheses cannot go around it. */
+ *  is refused: parentheses cannot go around it. So is a slot that is a statement by itself:
+ *  what fills it may be statements, which the parentheses would turn into a syntax error. */
 function slotUses(source) {
   const program = parse(source.startsWith('(') ? `${source}\n` : source, { ecmaVersion: 'latest' });
   const counts = new Map();
@@ -161,6 +162,9 @@ function slotUses(source) {
       && !(parent.type === 'AssignmentPattern' && key === 'right');
     if (named || (parent?.type === 'MemberExpression' && key === 'property' && !parent.computed)) {
       throw new Error(`slot ${node.name} is used as a name, not a value`);
+    }
+    if (parent?.type === 'ExpressionStatement') {
+      throw new Error(`slot ${node.name} is a statement by itself: build that string from pieces, not as one template`);
     }
     counts.get(node.name).code++;
     reads.push(node.start);
