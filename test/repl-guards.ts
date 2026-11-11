@@ -19,6 +19,9 @@ import { apiReference } from "../src/platform/tools/repl-docs.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ElectronDriver } from "../src/platform/electron/driver.ts";
 import type { OwnershipResource } from "../src/platform/types.ts";
+import { expectVerb } from "../src/platform/tools/api-expect.ts";
+import type { RunLedger } from "../src/platform/tools/api-contract.ts";
+import type { ComputerUseDriver } from "../src/platform/driver.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -287,6 +290,22 @@ async function main() {
       /\*macos\/49403:62106:/.test(line) && !/(^|\s)\*?49403:/.test(line.slice("Targets:".length)), line.slice(0, 160) || seen.split("\n")[0]);
     await appDriver.close();
   }
+
+  // ── expect({value}): a read still in flight when the budget ends ──────────────────────
+  // The poll pauses until the deadline, so its last read often has no time left. That read
+  // timing out must not replace what an earlier read already found.
+  const ledgerStub = { charge() {}, push() {}, attach() {} } as unknown as RunLedger;
+  const driverStub = { noteContentRead() {}, valueMatches: (a: string, b: string) => a === b } as unknown as ComputerUseDriver;
+  const expectMessage = async (read: () => Promise<string>) => {
+    try { await expectVerb(driverStub, () => ledgerStub, read)({ value: "e1", equals: "SPRING-20", ms: 150 }); return "no failure"; }
+    catch (e) { return (e as Error).message; }
+  };
+  let reads = 0;
+  const heldThenHung = await expectMessage(() => (reads++ === 0 ? Promise.resolve("SPRING-10") : new Promise<string>(() => {})));
+  check("a value expect whose last read ran out of time still says what the field held",
+    /Expectation failed/.test(heldThenHung) && /SPRING-10/.test(heldThenHung) && reads > 1, `${reads} reads: ${heldThenHung.slice(0, 120)}`);
+  const neverRead = await expectMessage(() => new Promise<string>(() => {}));
+  check("...and one that never read the field says the read timed out", /value read timed out/.test(neverRead), neverRead);
 
   await driver.close();
   console.log(failures ? `\n${failures} check(s) failed` : "\nall repl guard checks passed");

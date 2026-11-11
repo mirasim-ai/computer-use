@@ -36,20 +36,28 @@ export function expectVerb(
     try {
       if (kind === "value") {
         const deadline = Date.now() + cap;
+        const timedOut = Symbol("value-read-timeout");
         do {
           // Read-only polling, with a ceiling even if the underlying read stops responding.
           let timer: ReturnType<typeof setTimeout> | undefined;
           try {
             const remaining = Math.max(1, deadline - Date.now());
-            const actual = await Promise.race([value(opts.value), new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error("value read timed out")), remaining);
+            const actual = await Promise.race([value(opts.value), new Promise<typeof timedOut>((resolve) => {
+              timer = setTimeout(() => resolve(timedOut), remaining);
             })]);
+            if (actual === timedOut) {
+              // The budget ran out with a read in flight. A field that was already read is a
+              // field that held something else: that is the answer, not "could not verify".
+              if (found) break;
+              throw new Error("value read timed out");
+            }
             if (driver.valueMatches(actual, opts.equals as string)) { ok = true; break; }
             found = `the field holds «${clip(actual)}», not «${clip(opts.equals as string)}»`;
           } finally { clearTimeout(timer); }
           if (Date.now() >= deadline) break;
           await new Promise(r => setTimeout(r, Math.min(100, deadline - Date.now())));
-        } while (Date.now() <= deadline);
+          // The pause ends ON the deadline: a read started then has no time left to answer in.
+        } while (Date.now() < deadline);
       } else {
         const condition = String(opts[kind]);
         const result = kind === "text" ? await driver.waitForText(condition, false, cap)
