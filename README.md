@@ -22,14 +22,18 @@ app ships the same tools built in (Settings → Computer Use).
 
 [DevBrowse Bench](https://github.com/mirasim-ai/devbrowse-bench) measures browser use in
 development work: a coding agent changes a web app, then checks its own work in a browser. v1 has
-60 tasks: 51 on a simulated React + Vite task manager (features, bug fixes, QA passes) and 9
-merged bug fixes from Excalidraw, Lexical, tldraw and react-admin. Each task runs as a pair, both
-sides at the same time in Codex in the ChatGPT desktop app, with the same model (`gpt-6.1-sol` at
-medium reasoning effort), the same prompt and the same starting code. The only difference is the
-browser tool the agent is told to use: ChatGPT Computer Use (the in-app browser of Codex), or
-Mirasim Computer Use 0.1.0-rc.5 as an MCP server. 200 runs per side, on 2026-11-06 and
-2026-11-07; time, model requests and tokens come from Codex's own session record, and every run
-was graded by rule-based judges.
+60 tasks in three parts, the three panels of the figure. 51 are on Team Tasks, a simulated React +
+Vite task manager written for the benchmark: 44 classic and extended tasks (features, bug fixes,
+QA passes) and 7 interaction tasks ★, bugs where a control the user can see cannot be clicked. 9
+are on real projects: merged bug fixes from the open-source repositories of Excalidraw, Lexical,
+tldraw and react-admin.
+
+Each task runs as a pair, both sides at the same time in Codex in the ChatGPT desktop app, with
+the same model (`gpt-6.1-sol` at medium reasoning effort), the same prompt and the same starting
+code. The only difference is the browser tool the agent is told to use: ChatGPT Computer Use (the
+in-app browser of Codex), or Mirasim Computer Use 0.1.0-rc.5 as an MCP server. 200 runs per side,
+on 2026-11-06 and 2026-11-07; time, model requests and tokens come from Codex's own session
+record, and every run was graded by rule-based judges.
 
 | | ChatGPT Computer Use | Mirasim Computer Use |
 |---|---|---|
@@ -50,9 +54,10 @@ Most of the time was saved in round trips: the agent made 45% fewer model reques
 output tokens it wrote fell by only 8%. `observe()` returns elements as data, so the agent puts
 its checks in the script and gets back a verdict instead of reading the page after every click.
 And a click lands where a user's mouse would: a click on a covered control fails and names the
-layer that took it. The four extra failures on the other side are all one QA task, where a
-transparent layer under a sticky header covers a toolbar for mouse clicks: the report written with
-ChatGPT Computer Use missed it in 4 of 5 runs, the one written with Mirasim Computer Use in none.
+layer that took it. The four extra failures on the other side are all one interaction task ★, a
+QA pass where a transparent layer under a sticky header covers a toolbar for mouse clicks: the
+report written with ChatGPT Computer Use missed it in 4 of 5 runs, the one written with Mirasim
+Computer Use in none.
 
 These numbers describe the two tools as they were on those two days. Around the end of the runs,
 ChatGPT Computer Use changed how it uses the browser and began to need fewer model requests per
