@@ -96,8 +96,8 @@ async function confirmSetText(loc: Locator, want: string, how: string | null): P
 }
 
 /**
- * select_option — native <select> by label, then by value, then the custom-dropdown
- * road: open the control and click the option by visible name.
+ * select_option — a native <select> from its own option list (label, then value), anything else
+ * by the custom-dropdown road: open the control and click the option by visible name.
  */
 /** The select_option verb's schema. Ref-only — a native <select>'s option list is not in the
  * DOM, so there is no coordinate to aim at. Ref fields are spelled out here because the tool layer is downstream
@@ -229,6 +229,33 @@ export async function performPaste(
   };
 }
 
+/** A native <select>'s own options and whether the control takes input, read in ONE evaluate —
+ *  null for anything that is not a <select>. What makes a miss cost a read instead of a timeout. */
+const SELECT_OPTIONS_JS = `(el) => {
+  if (!el || el.tagName !== "SELECT") return null;
+  return {
+    disabled: !!el.disabled,
+    options: Array.from(el.options).map((o) => ({
+      label: (o.label || o.text || "").replace(/\\s+/g, " ").trim(),
+      value: o.value,
+      disabled: o.disabled || (o.parentElement && o.parentElement.tagName === "OPTGROUP" && o.parentElement.disabled) || false,
+    })),
+  };
+}`;
+
+/** How many option names a refusal lists before it counts the rest. */
+const LISTED_OPTIONS = 12;
+const listed = (names: string[]) =>
+  names.slice(0, LISTED_OPTIONS).map((n) => `"${n.slice(0, 40)}"`).join(", ")
+  + (names.length > LISTED_OPTIONS ? `, +${names.length - LISTED_OPTIONS} more` : "");
+
+/**
+ * Pick an option. A native <select> is answered from its OWN option list: the pick, or a refusal
+ * naming what it does offer — never a wait for an option that is not there. Playwright's
+ * selectOption waits its whole timeout for a missing label, and the old ladder paid that three
+ * times over (by label, by value, open-and-click: about 20 s for one wrong name, measured).
+ * Anything else is a custom dropdown: open it, then click the option by visible name.
+ */
 export async function performSelectOption(
   page: Page,
   a: Record<string, any>,
@@ -236,21 +263,68 @@ export async function performSelectOption(
 ): Promise<ActResult> {
   const loc = await locate();
   if (!loc) return { ok: false, note: `no select for ref ${a.ref}` };
-  try { await loc.selectOption({ label: a.option }, { timeout: 8000 }); return { ok: true }; }
-  catch (error) { stopForInputInterruption(error); }
-  try { await loc.selectOption(a.option, { timeout: 8000 }); return { ok: true }; }
-  catch (error) { stopForInputInterruption(error); }
-  // Custom (non-<select>) dropdowns: open it, then click the option by visible name.
+  const want = String(a.option ?? "");
+  const native = await loc.evaluate(pageFn(SELECT_OPTIONS_JS) as any).catch(() => null) as
+    { disabled: boolean; options: Array<{ label: string; value: string; disabled: boolean }> } | null;
+  if (native) {
+    const norm = (v: string) => v.replace(/\s+/g, " ").trim().toLowerCase();
+    const opts = native.options;
+    // The label as written, then the value, then either with case and spacing set aside.
+    let at = opts.findIndex((o) => o.label === want.trim());
+    if (at < 0) at = opts.findIndex((o) => o.value === want);
+    if (at < 0) at = opts.findIndex((o) => norm(o.label) === norm(want));
+    if (at < 0) at = opts.findIndex((o) => norm(o.value) === norm(want));
+    const enabled = opts.filter((o) => !o.disabled).map((o) => o.label || o.value);
+    if (at < 0) {
+      return { ok: false, note: `"${want}" is not one of this select's options, by label or by value — nothing was selected. `
+        + (opts.length ? `It offers: ${listed(opts.map((o) => (o.label || o.value) + (o.disabled ? " (disabled)" : "")))}` : "It has no options at all right now") };
+    }
+    if (native.disabled) return { ok: false, note: "this select is disabled, so no option can be picked — nothing was selected" };
+    if (opts[at]!.disabled) {
+      return { ok: false, note: `the option "${opts[at]!.label || opts[at]!.value}" is disabled, so it cannot be picked — nothing was selected. `
+        + (enabled.length ? `The enabled options are: ${listed(enabled)}` : "No option of this select is enabled") };
+    }
+    try {
+      await loc.selectOption({ index: at }, { timeout: 8000 });
+      return { ok: true };
+    } catch (error) {
+      stopForInputInterruption(error);
+      return { ok: false, note: `could not select "${want}": ${(error instanceof Error ? error.message : String(error)).split("\n")[0]}` };
+    }
+  }
+  // Custom (non-<select>) dropdowns: open it, then click the option by visible name. Only what
+  // is DRAWN counts: every native <select> on the page keeps its <option>s in the role tree too.
+  const options = page.getByRole("option");
+  const named = page.getByRole("option", { name: want, exact: false });
+  const drawn = (l: Locator) => l.evaluateAll((els: any[]) => els.map((el) =>
+    el.tagName === "OPTION" || !el.getClientRects().length ? null : String(el.innerText || el.textContent || "").replace(/\s+/g, " ").trim(),
+  )).catch(() => [] as Array<string | null>);
+  const firstDrawn = async (l: Locator) => (await drawn(l)).findIndex((t) => t !== null);
   try {
     await loc.click({ timeout: 4000 });
     await sleep(400);
-    await page.getByRole("option", { name: a.option, exact: false }).first().click({ timeout: 4000 });
+    // Options already showing without the wanted one is an answer; none showing yet may be a
+    // list still loading, so the named option gets a short wait before the miss is called.
+    let at = await firstDrawn(named);
+    for (const until = Date.now() + 2000; at < 0 && Date.now() < until && (await firstDrawn(options)) < 0;) {
+      await sleep(200);
+      at = await firstDrawn(named);
+    }
+    if (at < 0) {
+      const names = (await drawn(options)).filter((t): t is string => !!t);
+      return { ok: false, note: `could not select "${want}": this control is not a <select>, and clicking it `
+        + (names.length
+          ? `revealed no option with that name — the options showing are: ${listed(names)}. The list is still open`
+          : "revealed no options at all — it may not be a dropdown, or its list is not made of options; observe to see what the click did") };
+    }
+    await named.nth(at).click({ timeout: 4000 });
     return { ok: true, note: "selected via open-and-click (custom dropdown)" };
   } catch (e) {
+    stopForInputInterruption(e);
     return {
       ok: false,
-      note: `could not select "${a.option}": not by label or value, and opening the control revealed no option `
-        + `with that name — ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`,
+      note: `could not select "${want}": this control is not a <select>, and opening it to click the option failed — `
+        + `${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`,
     };
   }
 }
