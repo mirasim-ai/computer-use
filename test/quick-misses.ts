@@ -35,6 +35,14 @@ const FIXTURE_SELECT = page(`
 </div>
 <p id="picked">nothing picked</p>`);
 
+/** A control whose name is close to, but not, the one a script will wait for. */
+const FIXTURE_NEAR_NAME = page(`
+<button>Filter by Date</button>
+<button>Reset all filters</button>
+<input aria-label="Coupon" value="SPRING-10">
+<p>Orders, newest first</p>
+<p>In progress</p><p>1</p>`);
+
 /** The clipboard exists only in a secure context, which a data: URL is not: one page on localhost. */
 function serve(): Promise<{ url: string; close: () => void }> {
   return new Promise((resolve) => {
@@ -118,6 +126,28 @@ async function main() {
     check("...and nothing is left on navigator.clipboard once the call is over", (own as unknown) === false, String(own));
     const mention = await timed(() => h.act("run_js", { code: "(() => { const read = () => navigator.clipboard.readText(); return typeof read; })()" }));
     check("code that only mentions the clipboard read still runs", mention.out.ok && /function/.test(mention.out.note), mention.out.note.slice(0, 120));
+
+    // ── wait / expect: the control is there under a slightly different name ───
+    await open(FIXTURE_NEAR_NAME);
+    await h.act("wait", { control: "Filter Date", ms: 600 });
+    check("a wait that gave up names the closest controls", /Filter by Date/.test(h.lastNote()), h.lastNote().slice(0, 260));
+    const expectFailure = async (opts: Record<string, unknown>) => {
+      try { await (h.api.expect as (o: unknown) => Promise<boolean>)(opts); return ""; } catch (e) { return (e as Error).message; }
+    };
+    const expected = await expectFailure({ control: "Filter Date", ms: 400 });
+    check("a failed expect names the closest controls", /Filter by Date/.test(expected), expected.slice(0, 260));
+    await h.act("wait", { control: "Orders, newest first", ms: 400 });
+    check("a wait for a name only the TEXT carries says so", /TEXT/.test(h.lastNote()), h.lastNote().slice(0, 260));
+    const valueMiss = await expectFailure({ value: await h.api.find("Coupon"), equals: "SPRING-20", ms: 300 });
+    check("a failed value expect says what the field holds", /SPRING-10/.test(valueMiss), valueMiss.slice(0, 200));
+    const textMiss = await expectFailure({ text: "Orders, oldest first", ms: 300 });
+    check("a failed text expect quotes the closest line", /Orders, newest first/.test(textMiss), textMiss.slice(0, 240));
+    const spaced = await expectFailure({ text: "In progress 1", ms: 300 });
+    check("...and says when only the spacing differs", /spacing or line breaks/.test(spaced), spaced.slice(0, 240));
+    await h.act("wait", { text: "Orders, oldest first", ms: 300 });
+    check("a text wait that gave up quotes the closest line too", /Orders, newest first/.test(h.lastNote()), h.lastNote().slice(0, 260));
+    await h.act("wait", { control: "Zzyzx", ms: 400 });
+    check("a wait with nothing close says nothing is close", !/closest/.test(h.lastNote()) && /no control named/.test(h.lastNote()), h.lastNote().slice(0, 200));
 
     await driver.close();
   } finally {
