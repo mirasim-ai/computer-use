@@ -60,6 +60,8 @@ async function main() {
     "/bridge": "<title>bridge page</title><h1>BRIDGE</h1>",
     "/outside": "<title>outside</title><h1>USER TAB</h1><a id=pop href=/popup target=_blank>pop</a>",
     "/popup": "<title>user popup</title>",
+    "/linker": "<title>linker</title><a href=/linked target=_blank>linked</a>",
+    "/linked": "<title>linked page</title><h1>LINKED</h1>",
     "/two": "<title>from client two</title>",
     "/reading": "<title>user reading</title><h1>THE USER'S PAGE</h1><button onclick=\"window.open('/reading-pop', '_blank', 'popup,width=480,height=360')\">open pop</button>",
     "/reading-pop": "<title>reading pop</title><h1>POP OF THE USER'S PAGE</h1>",
@@ -307,6 +309,22 @@ async function main() {
     check("the session's own tabs are marked as its own",
       (await scopeDriver.listTargets()).some((t) => t.own === true), JSON.stringify(targets.map((t) => t.own)));
 
+    // A tab the session's page asks for (a target=_blank link) is opened through the bridge as
+    // the session's own (page-tabs.ts), and closing it leaves the session on the page it clicked.
+    await scopeDriver.perform("open_url", { url: pages.url("/linker") });
+    const followed = await scopeDriver.perform("click", { name: "linked" });
+    const afterLink = await scopeDriver.listTargets();
+    check("a _blank link on the session's page opens a second tab of the session's own",
+      followed.ok === true && afterLink.filter((t) => t.own).length === 2
+      && afterLink.some((t) => t.own && t.active && t.title.includes("linked page")),
+      JSON.stringify(afterLink.map((t) => `${t.title}:${t.own}:${t.active}`)));
+    const closedLinked = await scopeDriver.perform("close_tab", {});
+    const afterClose = await scopeDriver.listTargets();
+    check("...and closing it returns the session to the page it clicked",
+      closedLinked.ok === true && afterClose.filter((t) => t.own).length === 1
+      && afterClose.some((t) => t.own && t.active && t.title.includes("linker")),
+      `${closedLinked.note}; ${JSON.stringify(afterClose.map((t) => `${t.title}:${t.own}:${t.active}`))}`);
+
     // The half that protects the user: close_tab refuses it BY NAME, and `all` leaves it alone.
     const refused = outside ? await scopeDriver.perform("close_tab", { id: outside.id }) : { ok: true, note: "not run" };
     check("close_tab refuses the user's tab", refused.ok === false && /user's own tab/.test(refused.note ?? ""),
@@ -393,7 +411,7 @@ async function main() {
       check("the next bind reads it again", again.includes("THE USER'S PAGE") && await debuggerOn(readingTab), again.slice(0, 120));
 
       // A popup of the bound tab is borrowed with it: taken over, and let go of the same way. A
-      // popup WINDOW, the one kind the driver leaves alone (keep-in-tab.ts: an OAuth handshake).
+      // popup WINDOW, the one kind the driver leaves to Chrome (page-tabs.ts: an OAuth handshake).
       const elements = firstText(await bindDriver.observeElements());
       const popRef = elements.split("\n").find((l) => /"open pop"/.test(l))?.match(/^e\d+/)?.[0];
       const popped = await bindDriver.perform("click", { ref: popRef });

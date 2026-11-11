@@ -21,6 +21,11 @@ import { performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
 import { performRunJs } from "../chromium/run-js.ts";
 import { withPageCapture } from "../chromium/shot.ts";
 
+/** How many tabs one verb's page may ask for, and for how long after it: Chrome's own span of
+ *  transient activation, the time a click stays good for a `window.open`. */
+const PAGE_TABS_PER_VERB = 4;
+const PAGE_TAB_ACTIVATION_MS = 5000;
+
 /**
  * What new_tab says when the session already had a tab. Scripts wrote `const tab = await
  * w.newTab(...)` and then `tab.expect(...)` ("tab.expect is not a function", twice in the v3
@@ -101,6 +106,8 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         return { ok: false, note };
       }
     }
+    // A tab the page asks for from here on is this verb's doing (see pageTabBudget).
+    this.pageTabBudget = { until: Number.POSITIVE_INFINITY, left: PAGE_TABS_PER_VERB };
     let res: ActResult;
     try {
       // Evidence capture is asynchronous. Let it finish before navigation or a viewport
@@ -118,7 +125,12 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
       const reason = e instanceof Error ? (e.message.split("\n")[0] ?? "dispatch failed") : String(e);
       this.journal?.publishAction(kind, a, this.lastPoint, { ok: false, note: reason });
       throw e;
+    } finally {
+      this.pageTabBudget.until = Date.now() + PAGE_TAB_ACTIVATION_MS;
     }
+    // A tab the page asked for during the verb (a `target=_blank` link, `window.open`) is opened
+    // by us, and is the session's target before this verb answers: the run that clicked lists it.
+    while (this.pageTabJobs.size) await Promise.allSettled([...this.pageTabJobs]);
     if (openedTab) res = { ...res, note: `new tab ${openedTab} is now the target; ${res.note ?? ""}` };
     // Journal the dispatch verdict as-is — the pending note below is model context ("the
     // browser had been closed"), not evidence about THIS action, so it stays out of the line.

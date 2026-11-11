@@ -64,7 +64,7 @@ async function main() {
   process.env.COMPUTER_USE_CDP_URL = chrome.cdpUrl;
   // Full renders keep the assertions direct; delta mechanics are scroll-behaviors' job.
   process.env.COMPUTER_USE_OBS_DELTA = "0";
-  // No offscreen keep-in-tab rewriting: this test NEEDS real second tabs to open.
+  // The default window posture: the stray blank tab below is one Chrome opens itself.
   delete process.env.COMPUTER_USE_WINDOW;
   delete process.env.COMPUTER_USE_TAB;
   const { resolveProfile } = await import("../src/platform/profile.ts");
@@ -83,15 +83,20 @@ async function main() {
     const blankLinkRef = navText.match(/(e\d+): link "Blank link"/)?.[1];
     check("page A refs found", !!alphaRef && !!spawnRef && !!openBRef && !!blankLinkRef, `${alphaRef},${spawnRef},${openBRef},${blankLinkRef}`);
 
-    // ── A target=_blank link stays in THIS tab (keep-in-tab, every posture) ──
-    // Counted as a DIFFERENCE: a throwaway Chrome always holds its own start page, and what
-    // keep-in-tab promises is that the click adds nothing.
+    // ── A target=_blank link opens a SECOND tab, and the session follows it ──
+    // Counted as a DIFFERENCE: a throwaway Chrome always holds its own start page. The driver
+    // opens the tab itself, in the background (page-tabs.ts); test/page-opened-tabs.ts pins the
+    // rest (window.open, forms, a cross-origin frame).
     const tabsBefore = (firstText(await h.targets()).match(/\[tab\]/g) ?? []).length;
     const blankClick = firstText(await h.act("click", { ref: blankLinkRef, name: "Blank link" }));
-    await sleep(500);
     const afterBlank = firstText(await h.targets());
-    check("a _blank link opens no tab", (afterBlank.match(/\[tab\]/g)?.length ?? 0) === tabsBefore, afterBlank.replace(/\n/g, " | "));
-    check("the link navigated in place instead", /Beta page/.test(blankClick + firstText(await h.observe({}))));
+    check("a _blank link opens one more tab", (afterBlank.match(/\[tab\]/g)?.length ?? 0) === tabsBefore + 1, afterBlank.replace(/\n/g, " | "));
+    check("the click's own observation is the new tab", /Beta page/.test(blankClick), blankClick.split("\n")[0]);
+    check("the move to it is announced as the page's doing, with the tab's id and address",
+      new RegExp(`the page opened a new tab, t\\d+ \\(opened ${fixtures.base}/b\\.html\\)`).test(blankClick), blankClick.split("\n")[0]);
+    check("page A is still open behind it", /Tab A/.test(afterBlank) && /Tab B/.test(afterBlank), afterBlank.replace(/\n/g, " | "));
+    const closedBlank = firstText(await h.act("close_tab", {}));
+    check("closing the new tab returns to page A", closedBlank.includes("Alpha page"), closedBlank.split("\n")[0]);
     // Back to A — a NEW document, so its refs are minted afresh above the old high-water mark
     // (ref-lifecycle.ts pins that). Re-read the handles; the first load's are stale.
     const backA = firstText(await h.act("open_url", { url: `${fixtures.base}/a.html` }));

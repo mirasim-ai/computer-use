@@ -5,9 +5,9 @@
  * parked browser that activates (Chrome does whenever a page opens a real window) takes the
  * user's typing into a window they cannot see.
  *
- * Not opening one is the fix (KEEP_IN_TAB_JS); this is the net under it, for what a page script
- * cannot close — a `window.open()` with no URL, a popup with window features that survives, a
- * native picker. It runs only after we SAW a window appear, so other actions pay nothing.
+ * Opening a page's tabs ourselves, in the background, is the fix (PAGE_TABS_JS); this is the net
+ * under it, for what Chrome still opens — a `window.open()` with no URL, a popup with window
+ * features, a script's `form.submit()` to a new tab, a native picker. It runs only after we SAW a window appear, so other actions pay nothing.
  *
  * macOS only: `lsappinfo` is the whole focus API available without a native dependency. Every
  * step is best-effort and silent — it must never fail an action.

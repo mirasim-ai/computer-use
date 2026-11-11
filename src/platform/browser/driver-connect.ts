@@ -11,19 +11,20 @@
  * managed Chrome, adopt-or-launch on a persistent profile (acquire.ts has the ladder).
  */
 
-import type { Page } from "playwright-core";
+import type { Frame, Page } from "playwright-core";
 import { connectBrowserCdp } from "./cdp-connection.ts";
 import { acquireManagedBrowser, openBlankTab, publishTabIdentity } from "./acquire.ts";
 import { acquireBridge, bridgeJustStarted, extensionHeldElsewhere, waitForExtension } from "./bridge/acquire-bridge.ts";
-import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, pageTargetInfo } from "./tabs.ts";
+import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, newBackgroundPageIn, pageTargetInfo } from "./tabs.ts";
 import { bridgeBrowserSession } from "./bridge-tabs.ts";
 import { BROWSER_SWITCHED_NOTE, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote } from "./messages.ts";
 import { SurfaceUnreadableError } from "../types.ts";
-import { KEEP_IN_TAB_JS } from "./keep-in-tab.ts";
+import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_JS } from "./page-tabs.ts";
+import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
 import { ActionJournal } from "./journal.ts";
 import { captureEvidenceShot } from "../chromium/shot.ts";
 import { ensureRefSelector } from "../chromium/page-refs.ts";
-import { REIDENTIFIED_WHY } from "./driver-core.ts";
+import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
 
 export abstract class BrowserDriverConnect extends BrowserDriverTabs {
@@ -235,7 +236,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     }
     if (this.active) this.claim(this.active);
     this.wireContext();
-    await this.installKeepInTab(this.active);
+    await this.installPageTabs(this.active);
     await this.publishClaim();
   }
 
@@ -315,21 +316,107 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
   }
 
   /**
-   * Keep clicks in one tab so the browser never grabs the user's keyboard (see KEEP_IN_TAB_JS).
-   * Added once per context; the current page gets it directly because an init script only
-   * reaches documents created after it. NOT gated on window position: a new tab makes Chrome
-   * frontmost wherever its window sits.
+   * Open the tabs a page asks for ourselves, in the background, so the browser never grabs the
+   * user's keyboard (see page-tabs.ts). Added once per context; the current page gets the script
+   * directly because an init script only reaches documents created after it. NOT gated on window
+   * position: a tab Chrome opens makes it frontmost wherever its window sits.
    *
-   * ATTACHED: an init script is CONTEXT-wide and would stop the user's own `_blank` links opening
-   * tabs, so inject into our page only; an uncaught `_blank` opens in our window anyway.
+   * ATTACHED: not installed. The session's boundary there is its own WINDOW, a tab opened over
+   * CDP cannot be placed in a given window, and a context-wide script would take over the
+   * user's own links. Chrome opens such a tab itself, in our window, where `adoptWhenReal`
+   * claims it and the focus net (focus-guard.ts) hands the keyboard back.
    */
-  private async installKeepInTab(page: Page | undefined): Promise<void> {
-    if (this.keepInTabInstalled) return;
-    if (!this.attached) {
-      this.keepInTabInstalled = true;
-      await this.context.addInitScript(KEEP_IN_TAB_JS).catch(() => { this.keepInTabInstalled = false; });
+  private async installPageTabs(page: Page | undefined): Promise<void> {
+    if (this.pageTabsInstalled || this.attached) return;
+    this.pageTabsInstalled = true;
+    try {
+      await this.context.exposeBinding(PAGE_TABS_BINDING, (source: { page: Page; frame: Frame }, raw: unknown) => {
+        const job = this.answerPageTab(source, raw).catch(() => {});
+        this.pageTabJobs.add(job);
+        void job.finally(() => this.pageTabJobs.delete(job));
+      });
+      await this.context.addInitScript(PAGE_TABS_JS);
+    } catch {
+      this.pageTabsInstalled = false;
     }
-    await page?.evaluate(KEEP_IN_TAB_JS).catch(() => {});
+    await page?.evaluate(PAGE_TABS_JS).catch(() => {});
+  }
+
+  /** Is this frame, or one it is nested in, an iframe whose `sandbox` withholds allow-popups?
+   *  The flags are inherited downwards, so every owner element up to the top is read. */
+  private async popupsSandboxed(frame: Frame): Promise<boolean> {
+    for (let f: Frame | null = frame; f?.parentFrame(); f = f.parentFrame()) {
+      const sandbox = await f.frameElement()
+        .then((el) => el.getAttribute("sandbox").finally(() => { void el.dispose().catch(() => {}); }))
+        .catch(() => null);
+      if (sandbox !== null && !/(^|\s)allow-popups(\s|$)/i.test(sandbox)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * One message from the page-side script (page-tabs.ts): a tab to open, or what the page did
+   * with the stand-in window an earlier `window.open` returned.
+   *
+   * Every driver connected to this browser hears every page's request, so the first question
+   * is whose page it is: one we own or are acting on is ours to answer, and any other is left
+   * to its owner (or, with none, to the page's own fallback).
+   */
+  private async answerPageTab(source: { page: Page; frame: Frame }, raw: unknown): Promise<void> {
+    let msg: { op?: unknown; id?: unknown; url?: unknown; what?: unknown };
+    try { msg = JSON.parse(String(raw)); } catch { return; }
+    const from = source.page;
+    const id = typeof msg.id === "string" ? msg.id : "";
+    const url = typeof msg.url === "string" ? msg.url : "";
+    if (from !== this.active && !(await this.ownPages().catch(() => [] as Page[])).includes(from)) return;
+    if (msg.op === "kept") {
+      this.appendNote(msg.what === "form"
+        ? `a form asked for a new tab but was submitted in its own tab, to ${url} — `
+          + "a POST cannot be carried into a tab opened in the background, so whether it opens a new tab cannot be checked here"
+        : `a link asked for a new tab but was followed in its own tab, to ${url} — `
+          + "the page could not hold that navigation back, so whether it opens a new tab cannot be checked here");
+      return;
+    }
+    if (msg.op === "go" || msg.op === "close") {
+      const opened = this.pageOpenedTabs.get(id);
+      if (!opened || opened.from !== from || opened.tab.isClosed()) return;
+      if (msg.op === "close") await opened.tab.close().catch(() => {});
+      else if (url) await opened.tab.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS }).catch(() => {});
+      return;
+    }
+    if (msg.op !== "open" || !id || !url) return;
+    const answer = (taken: boolean) => source.frame
+      .evaluate(`typeof window.${PAGE_TAB_ANSWER} === "function" && window.${PAGE_TAB_ANSWER}(${JSON.stringify(id)}, ${taken})`)
+      .then((waiting) => waiting === true, () => false);
+    if (Date.now() > this.pageTabBudget.until || this.pageTabBudget.left <= 0) { await answer(false); return; }
+    // Chrome refuses a new tab to a frame sandboxed without allow-popups, and so must we: hand
+    // the request back, where Chrome blocks it, and say why nothing opened.
+    if (await this.popupsSandboxed(source.frame)) {
+      await answer(false);
+      this.appendNote(`a frame asked for a new tab (${url}), but its sandbox attribute has no allow-popups, `
+        + "so the browser blocks it — no tab was opened");
+      return;
+    }
+    this.pageTabBudget.left--;
+    // The page stopped waiting and opened the tab itself: a second one here would be a duplicate.
+    if (!(await answer(true))) return;
+    // In the opener's own cookie jar: an isolated surface's tabs live in its context.
+    const tab = this.tab?.isolated && this.ctxId && this.browser
+      ? await newBackgroundPageIn(this.browser, this.ctxId)
+      : await newBackgroundPage(this.context);
+    if (this.tab?.isolated && this.ctxId) this.pageCtxIds.set(tab, this.ctxId);
+    this.claim(tab);
+    this.pageOpenedTabs.set(id, { from, tab });
+    tab.once("close", () => this.pageOpenedTabs.delete(id));
+    this.makeActive(tab, null);
+    let landed: string;
+    try {
+      await tab.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+      landed = landedNote("opened", url, tab.url());
+    } catch (e) {
+      landed = `asked to open ${url}: ${navVerdict(e).note ?? "its navigation did not finish"}`;
+    }
+    this.appendNote(pageOpenedNote(this.tabId(tab), landed));
   }
 
   /**
@@ -347,9 +434,9 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     if (page.context() !== this.context) {
       // Only on a Playwright that tracks foreign contexts as real wrappers: re-wire the new one.
       this.context = page.context();
-      this.keepInTabInstalled = false;
+      this.pageTabsInstalled = false;
       this.wireContext();
-      await this.installKeepInTab(page);
+      await this.installPageTabs(page);
     }
     return page;
   }

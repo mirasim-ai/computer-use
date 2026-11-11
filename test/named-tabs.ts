@@ -139,6 +139,31 @@ async function main() {
     const gTargets = await g.listTargets();
     check("gamma lists only its own tab", gTargets.length === 1, JSON.stringify(gTargets.map((t) => t.title)));
 
+    // A tab a surface's PAGE asks for (a target=_blank link) is that surface's own: opened in
+    // its context, with its cookies, listed by it alone (page-tabs.ts).
+    const LINK_JS = (href: string) => `document.body.append(Object.assign(document.createElement("a"), `
+      + `{ href: ${JSON.stringify(href)}, target: "_blank", textContent: "listing" })); 1`;
+    await g.perform("run_js", { code: LINK_JS("/json/list") });
+    const gFollowed = await g.perform("click", { name: "listing" });
+    const gTabs = await g.listTargets();
+    check("a _blank link on gamma's page opens a second tab of gamma's", gFollowed.ok && gTabs.length === 2 && (await g.currentUrl()).endsWith("/json/list"),
+      `${gFollowed.note ?? ""} ${JSON.stringify(gTabs.map((t) => t.title))} ${await g.currentUrl()}`);
+    const gJar = await g.perform("run_js", { code: "document.cookie" });
+    check("...in gamma's own cookie jar", /actor=gamma/.test(gJar.note ?? ""), gJar.note ?? "");
+    check("...which delta does not list", (await d.listTargets()).length === 1);
+    check("...and the default context did not grow a tab for it", (await defaultPages()) === 5, `${await defaultPages()} pages`);
+    await g.perform("close_tab", {});
+    check("closing it leaves gamma its stamped tab", (await g.listTargets()).length === 1 && (await g.currentUrl()) === HTTP_URL, await g.currentUrl());
+    // The same from a named tab in the shared context: alpha's, and not beta's.
+    await a.perform("run_js", { code: LINK_JS(`${chrome.cdpUrl}/json/list`) });
+    const aFollowed = await a.perform("click", { name: "listing" });
+    const aTabs = await a.listTargets();
+    check("a _blank link on alpha's page opens a second tab of alpha's", aFollowed.ok && aTabs.length === 2 && (await a.currentUrl()).endsWith("/json/list"),
+      `${aFollowed.note ?? ""} ${JSON.stringify(aTabs.map((t) => t.title))} ${await a.currentUrl()}`);
+    check("...which beta does not list", (await b.listTargets()).length === 1);
+    await a.perform("close_tab", {});
+    check("closing it leaves alpha on its own page", (await a.listTargets()).length === 1 && (await a.currentUrl()) === URL_A, await a.currentUrl());
+
     // Respawn: a fresh driver with gamma's key re-adopts the stamped tab AND its context.
     const g2 = driverWithTab("ctx:ev-gamma", chrome.cdpUrl);
     check("respawned gamma re-adopts its stamped tab", (await g2.currentUrl()) === HTTP_URL, await g2.currentUrl());

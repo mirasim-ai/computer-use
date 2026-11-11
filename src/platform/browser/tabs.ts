@@ -129,13 +129,10 @@ export async function claimIsolatedTab(browser: Browser, key: string): Promise<{
   for (const p of openPages()) {
     if (await stampedWith(p, key)) return { page: p, ctxId: await pageContextId(p) };
   }
-  const before = new Set(openPages());
   const session = await browser.newBrowserCDPSession();
   let browserContextId: string;
-  let targetId: string;
   try {
     ({ browserContextId } = await session.send("Target.createBrowserContext"));
-    ({ targetId } = await session.send("Target.createTarget", { url: "about:blank", background: true, browserContextId }));
   } catch (e) {
     // An endpoint that will not mint a browser context (the bridge answers "Not allowed") cannot
     // serve an isolated claim at all; say so with the alternative, not as a raw protocol error
@@ -150,13 +147,31 @@ export async function claimIsolatedTab(browser: Browser, key: string): Promise<{
   } finally {
     await session.detach().catch(() => {});
   }
+  const page = await newBackgroundPageIn(browser, browserContextId);
+  await page.evaluate(`window.name = ${JSON.stringify(TAB_STAMP + key)}`).catch(() => {});
+  return { page, ctxId: browserContextId };
+}
+
+/**
+ * A background tab in ONE browser context, by its CDP id: an isolated surface's first tab, and
+ * a tab one of its pages asks for (page-tabs.ts), which must share the opener's cookies and
+ * storage. Raw CDP on the browser, because the context was minted outside Playwright's wrappers.
+ */
+export async function newBackgroundPageIn(browser: Browser, browserContextId: string): Promise<Page> {
+  const openPages = () => browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
+  const before = new Set(openPages());
+  const session = await browser.newBrowserCDPSession();
+  let targetId: string;
+  try {
+    ({ targetId } = await session.send("Target.createTarget", { url: "about:blank", background: true, browserContextId }));
+  } finally {
+    await session.detach().catch(() => {});
+  }
   // By id, as in {@link pageWithTarget}: a racing claim's tab would also be the wrong context.
   for (let i = 0; i < 40; i++) {
     for (const p of openPages()) {
       if (before.has(p)) continue;
-      if ((await pageTargetInfo(p).catch(() => null))?.targetId !== targetId) continue;
-      await p.evaluate(`window.name = ${JSON.stringify(TAB_STAMP + key)}`).catch(() => {});
-      return { page: p, ctxId: browserContextId };
+      if ((await pageTargetInfo(p).catch(() => null))?.targetId === targetId) return p;
     }
     await sleep(25);
   }

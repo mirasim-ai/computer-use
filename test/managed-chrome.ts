@@ -218,9 +218,17 @@ async function main() {
       };
 
       // A page that opens a NEW TAB on click is the real-world case (a search result with
-      // target=_blank): Chrome raises the window for the new tab, and nothing can stop that at
-      // the source — so the driver must put the window back.
-      await driver.perform("open_url", { url: "data:text/html,<title>bg</title><a id=x href='data:text/html,<title>t2</title>' target=_blank>go</a>" });
+      // target=_blank). A tab Chrome opens for a page raises the browser, and nothing can stop
+      // that at the source — so the driver opens the tab itself, in the background
+      // (page-tabs.ts), and the window stays where it was.
+      // Over http: a link from one data: URL to another is refused by Chrome whatever its target.
+      const { createServer: createLinkServer } = await import("node:http");
+      const linkServer = createLinkServer((req, res) => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(req.url === "/t2" ? "<title>t2</title><h1>second</h1>" : "<title>bg</title><a id=x href=/t2 target=_blank>go</a>");
+      });
+      await new Promise<void>((r) => linkServer.listen(0, "127.0.0.1", () => r()));
+      await driver.perform("open_url", { url: `http://127.0.0.1:${(linkServer.address() as { port: number }).port}/` });
       const leftBefore = await windowLeft();
       check("the window starts off-screen", leftBefore <= -200, `left ${leftBefore}`);
       const frontBefore = front();
@@ -228,10 +236,12 @@ async function main() {
       await driver.perform("click", { name: "go" });
       const leftAfter = await windowLeft();
       check("a page-opened tab does not leave the window on-screen", leftAfter <= -200, `left ${leftAfter}`);
-      // A target=_blank click must not open a tab at all: tab creation is what makes Chrome
-      // frontmost, and nothing after the fact can undo that.
+      // The tab the link asked for exists all the same, and is the session's target.
       const pagesAfter = ((await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as Array<{ type: string }>).filter((t) => t.type === "page").length;
-      check("a target=_blank click opens no new tab in background mode", pagesAfter === pagesBefore, `${pagesBefore} → ${pagesAfter} page targets`);
+      check("a target=_blank click opens its tab in background mode", pagesAfter === pagesBefore + 1, `${pagesBefore} → ${pagesAfter} page targets`);
+      const onNewTab = await driver.perform("run_js", { code: "document.title" });
+      check("...and the session is on that tab", /t2/.test(onNewTab.note ?? ""), onNewTab.note?.slice(0, 120) ?? "");
+      linkServer.close();
       console.log(`      (focus, observed only: ${frontBefore} → ${front()})`);
 
       // Switching tabs must not raise the browser either: `page.bringToFront()` activates the
@@ -274,8 +284,8 @@ async function main() {
       // connected would take the popup below as its own active tab too) (the benchmark's 2–5 tabs per
       // pair). `computer.surface()` must bind the tab THIS runtime opened instead of refusing,
       // the listing must tell the leftovers apart, and a window this session's page opens is its
-      // own. A POPUP window (features given) is the open background mode does not keep in the
-      // tab (keep-in-tab.ts), the one an OAuth handshake makes.
+      // own. A POPUP window (features given) is the open the driver leaves to Chrome
+      // (page-tabs.ts), the one an OAuth handshake makes.
       {
         const { createServer } = await import("node:http");
         const srv = createServer((req, res) => {

@@ -31,7 +31,16 @@ export const APPEARED_WHY = "a tab this session did not open appeared in the bro
  *  driver's OWN tab would get {@link APPEARED_WHY}. Chrome's targetId survives the reconnect,
  *  so it is what this is decided on. */
 export const REIDENTIFIED_WHY = "this session's own tab came back under a new id, because the connection to the browser dropped and returned";
-
+/**
+ * What a run is told when the page asked for a tab (a `target=_blank` link, `window.open`) and
+ * the driver opened it — see page-tabs.ts. It names the tab and where it landed, so "did that
+ * open a new tab, and to what?" is answered by the click's own line, and it says how to bind
+ * it: the handle the script clicked through stays on its own tab (as with new_tab).
+ */
+export const pageOpenedNote = (id: string, landed: string) =>
+  `the page opened a new tab, ${id} (${landed}) — it is now the active tab, and the tab it was opened from is unchanged: `
+  + `const t = await computer.surface('${id}') binds the new one, the handle you acted through stays on its own tab, `
+  + "and refs from earlier observations belong to that tab";
 
 export abstract class BrowserDriverCore extends ChromiumPageDriver {
   protected readonly downloads = new BrowserDownloads();
@@ -55,8 +64,21 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   /** The listener armed by `upload` without a ref, kept so a second arming replaces the first
    * instead of stacking two answers on one chooser. */
   protected armedChooser: ((fc: { setFiles(p: string[]): Promise<void> }) => void) | null = null;
-  /** Whether this context already carries the keep-clicks-in-one-tab init script. */
-  protected keepInTabInstalled = false;
+  /** Whether this context already carries the page-tabs binding and init script (page-tabs.ts). */
+  protected pageTabsInstalled = false;
+  /** Page-tab requests being answered right now. `perform` waits for them, so the tab a click
+   *  opened is listed and observed in the run that clicked. */
+  protected readonly pageTabJobs = new Set<Promise<void>>();
+  /** The tabs opened for `window.open` calls, by request id, with the page that asked: the
+   *  only page whose stand-in window may navigate or close them. */
+  protected readonly pageOpenedTabs = new Map<string, { from: Page; tab: Page }>();
+  /**
+   * When a page's request for a tab is honoured: while a verb runs and for Chrome's own 5s of
+   * transient activation after it, and a few times per verb at most. The page-side script only
+   * asks with a user activation behind it, but the binding is callable by any page script, and
+   * unbounded it would be a way to open windows on the user's machine with no click at all.
+   */
+  protected pageTabBudget = { until: 0, left: 0 };
   /** The profile belongs to the USER (browser takeover) — see {@link isAttachedProfile}. */
   protected attached = false;
   /** A page appeared since the last action — the focus net reads and clears it (driver.ts). */
@@ -164,9 +186,10 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
    *
    * Not one of the reopened notes: the browser did not close, so that wording would send the
    * model looking for a page that never died. Model-requested moves do not come here:
-   * `focusTarget` assigns `active` and journals its own line.
+   * `focusTarget` assigns `active` and journals its own line. A null `why` is a caller that
+   * says the move in its own words ({@link pageOpenedNote}).
    */
-  protected makeActive(p: Page, why: string): void {
+  protected makeActive(p: Page, why: string | null): void {
     if (this.active === p) return;
     this.active = p;
     this.rememberIdentity(p);
@@ -175,9 +198,10 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
     // are minted per page and COLLIDE across tabs. The reset is for the delta base and rect
     // table, keyed by those same refs, which would otherwise invent geometry changes.
     this.resetObservationState();
-    const note = `the active tab changed (${why}) — nothing was lost, but refs from earlier `
-      + `observations belong to the previous tab, so re-observe before acting on them`;
-    this.appendNote(note);
+    if (why !== null) {
+      this.appendNote(`the active tab changed (${why}) — nothing was lost, but refs from earlier `
+        + `observations belong to the previous tab, so re-observe before acting on them`);
+    }
     // Observers need it too: later lines' url and shot refer to the new tab. `auto` separates it
     // from the model's own focus switches.
     this.journal?.publishAction("focus", { auto: true }, null, { ok: true });
