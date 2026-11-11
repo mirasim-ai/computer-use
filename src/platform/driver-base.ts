@@ -220,6 +220,12 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
    * Drivers that cannot answer for one element leave it undefined; the tool layer says so. */
   readValue?(ref: string): Promise<string>;
 
+  /** Optional: is the element this ref named still on the surface? A ref stays KNOWN after its
+   * node is re-rendered away (refs accumulate), so a find() handle asks this before it trusts its
+   * ref, and re-finds by name when the answer is no. One cheap lookup, no walk; a driver that
+   * cannot answer without a walk leaves it undefined and its handles keep trusting a known ref. */
+  refLive?(ref: string): Promise<boolean>;
+
   /** Compare a read-back value using the platform's text representation. */
   valueMatches(actual: string, expected: string): boolean { return actual === expected; }
 

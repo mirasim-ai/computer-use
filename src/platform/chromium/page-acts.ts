@@ -10,6 +10,8 @@
 import { type Locator } from "playwright-core";
 import type { ActResult } from "../types.ts";
 import { locateOnPage } from "./locate.ts";
+import { readableFrames } from "./frames.ts";
+import { refSelector } from "./page-refs.ts";
 import { clickNamingCover, performDrag, refuseIfGated } from "./actions.ts";
 import { performScroll, performScrollInto } from "./scroll.ts";
 import { performPaste, performSelectOption, setTextWithFallbacks } from "./actions-value.ts";
@@ -43,6 +45,22 @@ export abstract class ChromiumPageActs extends ChromiumPageBase {
     if (hint) return { ok: false, note: hint };
     const miss = `no element for ref ${ref ?? "(none)"}${name ? ` / "${name}"` : ""}`;
     return { ok: false, note: ref && await this.documentReplaced() ? `${miss} — ${DOCUMENT_REPLACED}` : miss };
+  }
+
+  /** Is the node this ref named still in a document of this page? The registry lookup a click
+   *  starts with, and nothing else: a re-rendered row or a reloaded page answers false while the
+   *  ref is still among the known ones. */
+  override async refLive(ref: string): Promise<boolean> {
+    try {
+      const sel = await refSelector(this.page(), ref);
+      for (const frame of readableFrames(this.page())) {
+        if (await frame.locator(sel).count().catch(() => 0)) return true;
+      }
+      return false;
+    } catch {
+      // Cannot tell (mid-navigation, no browser): the verb's own locate gives the real answer.
+      return true;
+    }
   }
 
   /** Has the page's document been replaced since the last observation? The page-side ref counter

@@ -123,7 +123,10 @@ export function createTargeting(
         + `(${list}) — this write would be a guess. Narrow it: find('${h.name}', {within}) or {near}, `
         + "or observe() and act by ref.");
     }
-    if (driver.knownRef(h.ref)) return { ref: h.ref, name: h.name };
+    // Known is not alive: refs accumulate, so a node re-rendered away (a form after Save, a page
+    // after reload inside one run) still passes the gate, and the verb would miss by ref and then
+    // look the name up among a few roles only. Ask the surface, and re-find like any gone ref.
+    if (driver.knownRef(h.ref) && (!driver.refLive || await driver.refLive(h.ref))) return { ref: h.ref, name: h.name };
     const again = await findByName(h.name, h.scope ?? {});
     if (!again) throw new Error(`"${h.name}" is no longer on the surface (its ref ${h.ref} is gone)`);
     // UNAMBIGUOUS when found and ambiguous now: with the ref gone, "the same control" is a guess,

@@ -43,6 +43,22 @@ const FIXTURE_NEAR_NAME = page(`
 <p>Orders, newest first</p>
 <p>In progress</p><p>1</p>`);
 
+/** A form that re-renders itself: same names, new nodes, so every ref from before is dead while
+ *  the controls are all still there. */
+const FIXTURE_RERENDER = page(`
+<div id="root"></div>
+<script>
+  let renders = 0;
+  function render() {
+    renders++;
+    document.getElementById('root').innerHTML =
+      '<input aria-label="Due date" value="2026-11-2' + renders + '">'
+      + '<button onclick="render()">Save</button>'
+      + '<p id="count">render ' + renders + '</p>';
+  }
+  render();
+</script>`);
+
 /** The clipboard exists only in a secure context, which a data: URL is not: one page on localhost. */
 function serve(): Promise<{ url: string; close: () => void }> {
   return new Promise((resolve) => {
@@ -148,6 +164,25 @@ async function main() {
     check("a text wait that gave up quotes the closest line too", /Orders, newest first/.test(h.lastNote()), h.lastNote().slice(0, 260));
     await h.act("wait", { control: "Zzyzx", ms: 400 });
     check("a wait with nothing close says nothing is close", !/closest/.test(h.lastNote()) && /no control named/.test(h.lastNote()), h.lastNote().slice(0, 200));
+
+    // ── a handle whose node was re-rendered underneath it ─────────────────────
+    await open(FIXTURE_RERENDER);
+    const due = await h.api.find("Due date");
+    const save = await h.api.find("Save", { role: "button" });
+    await h.api.click(save);
+    let value = "";
+    try { value = await h.api.value(due); } catch (e) { value = `threw: ${(e as Error).message}`; }
+    check("value() follows a handle to the re-rendered field", value === "2026-11-22", value.slice(0, 200));
+    await h.api.click(save);
+    let clicked = "";
+    try { clicked = await h.api.click(due); } catch (e) { clicked = `threw: ${(e as Error).message}`; }
+    check("click() follows a handle to a re-rendered field (not only buttons and links)", !/threw/.test(clicked), clicked.slice(0, 200));
+
+    const kept = await h.api.find("Due date");
+    await h.api.act("reload", {});
+    let afterReload = "";
+    try { afterReload = await h.api.value(kept); } catch (e) { afterReload = `threw: ${(e as Error).message}`; }
+    check("a handle survives a reload made in the same run", afterReload === "2026-11-21", afterReload.slice(0, 200));
 
     await driver.close();
   } finally {
