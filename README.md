@@ -9,7 +9,7 @@ to take one step, look, and only then work out the next one. Capable models now 
 experienced person: they plan several GUI steps at once. Mirasim Computer Use is tuned for
 exactly that. It runs a multi-step plan reliably and gives the model accurate feedback on every
 step, so the model can trust the result instead of checking the screen after each click. With a
-strong model, the same task takes fewer model calls and finishes sooner.
+strong model, the same task takes fewer model requests and finishes sooner.
 
 The screen reads back as text, a numbered list of elements from the accessibility tree, and
 pixels are used only when text is not enough. It runs no model of its own and needs no API key:
