@@ -44,7 +44,7 @@ export abstract class ChromiumPageActs extends ChromiumPageBase {
     const hint = await this.blankSurfaceHint();
     if (hint) return { ok: false, note: hint };
     const miss = `no element for ref ${ref ?? "(none)"}${name ? ` / "${name}"` : ""}`;
-    return { ok: false, note: ref && await this.documentReplaced() ? `${miss} — ${DOCUMENT_REPLACED}` : miss };
+    return { ok: false, targetGone: true, note: ref && await this.documentReplaced() ? `${miss} — ${DOCUMENT_REPLACED}` : miss };
   }
 
   /** Is the node this ref named still in a document of this page? The registry lookup a click

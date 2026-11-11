@@ -14,6 +14,9 @@ const MAX_KNOWN_REFS = 2000;
 export abstract class ComputerUseDriverRefs extends ComputerUseDriverVerdict {
   /** Refs the model may act on, accumulated across observations. See {@link knownRef}. */
   private refs = new Set<string>();
+  /** What each ref last named. NOT cleared by {@link forgetRefs}: it is what lets a refusal of
+   *  a ref from before a reload say which control that was. Capped like {@link refs}. */
+  private refNames = new Map<string, { role: string; name: string }>();
   /** Has an element observation on this surface ever succeeded? NOT cleared by
    *  {@link forgetRefs}: it alone tells a REPLACED surface from a never-readable one. */
   private everObserved = false;
@@ -36,6 +39,12 @@ export abstract class ComputerUseDriverRefs extends ComputerUseDriverVerdict {
    * no, answer with {@link staleRefNote}. */
   knownRef(ref: string): boolean {
     return this.refs.has(ref);
+  }
+
+  /** The role and name `ref` carried when it was last listed — also after the surface that
+   *  minted it is gone, so a refusal can say what it was. Undefined for a ref never handed out. */
+  refWas(ref: string): { role: string; name: string } | undefined {
+    return this.refNames.get(ref);
   }
 
   /**
@@ -88,6 +97,12 @@ export abstract class ComputerUseDriverRefs extends ComputerUseDriverVerdict {
     for (const e of snap.elements) {
       this.refs.delete(e.ref); // re-insert: Set keeps insertion order, so this refreshes recency
       this.refs.add(e.ref);
+      this.refNames.delete(e.ref);
+      this.refNames.set(e.ref, { role: e.role, name: e.name });
+    }
+    for (const ref of this.refNames.keys()) {
+      if (this.refNames.size <= MAX_KNOWN_REFS) break;
+      this.refNames.delete(ref);
     }
     for (const ref of this.refs) {
       if (this.refs.size <= MAX_KNOWN_REFS) break;

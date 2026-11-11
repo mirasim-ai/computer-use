@@ -367,5 +367,8 @@ export interface ActResult {
    * `AXShowMenu` on Chrome's address bar can answer AXError -25204 and open the menu ~800 ms later.
    */
   mayHaveActed?: boolean;
+  /** `ok: false` because the element the ref named is not on the surface any more — nothing was
+   *  dispatched. Lets the tool layer say where that control is NOW instead of only that it is gone. */
+  targetGone?: boolean;
 }
 
