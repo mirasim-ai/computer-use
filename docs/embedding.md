@@ -339,9 +339,9 @@ construction) and replaced in about a second.
   the agent opens **its own window** instead of taking a tab the user is looking at and
   only lists targets from that window; a browser that cannot be driven becomes an **error
   with advice** instead of a SIGTERM to the process they are working in; and the
-  keep-clicks-in-one-tab script is injected per page rather than context-wide, so their
-  other tabs keep behaving normally. Never infer it — guessing wrong destroys a window
-  someone was working in.
+  script that hands a page's request for a new tab to the driver is not installed, so their
+  own links keep behaving normally and a tab a page asks for is opened by Chrome, in the
+  agent's window. Never infer it — guessing wrong destroys a window someone was working in.
 
 If no Chrome exists and none of the knobs point at one, the first browser action fails
 with the fix in hand (install Chrome / set `COMPUTER_USE_CHROME` / set `COMPUTER_USE_CDP_URL`) — never
