@@ -54,6 +54,34 @@ export const RUN_JS_CODE_DESC =
  */
 const ILLEGAL_RETURN = /Illegal return statement/;
 
+/** Code that READS the clipboard — the one page API measured to hang a run: the browser asks
+ *  the person for permission, and in a tab nobody is watching nobody answers. */
+const READS_CLIPBOARD = /clipboard\s*(\?\.|\.)\s*read(Text)?\b/;
+
+/**
+ * For the length of one evaluate, make a clipboard read that WOULD raise a permission prompt
+ * reject instead. Only when the permission is still `prompt`: granted reads run, denied ones
+ * reject by themselves. Only the read is replaced, so code that merely mentions it is untouched,
+ * and {@link CLIPBOARD_UNGUARD_JS} puts the page's own methods back.
+ */
+const CLIPBOARD_GUARD_JS = `(async () => {
+  try {
+    const c = navigator.clipboard;
+    if (!c || window.__mfClipboardGuard) return "none";
+    const state = await navigator.permissions.query({ name: "clipboard-read" }).then((p) => p.state, () => "unknown");
+    if (state !== "prompt") return state;
+    const refuse = () => Promise.reject(new DOMException(
+      "reading the clipboard needs a permission prompt, and nobody is at this tab to answer it, so the read was refused "
+      + "instead of left waiting. To check what a button copied, replace navigator.clipboard.writeText with a recorder "
+      + "before the click and read what it was handed", "NotAllowedError"));
+    c.readText = refuse;
+    c.read = refuse;
+    window.__mfClipboardGuard = () => { delete c.readText; delete c.read; delete window.__mfClipboardGuard; };
+    return "guarded";
+  } catch (e) { return "unknown"; }
+})()`;
+const CLIPBOARD_UNGUARD_JS = "window.__mfClipboardGuard && window.__mfClipboardGuard()";
+
 /**
  * Evaluate in `page` and report the result — or the exception, or the timeout, each as itself.
  *
@@ -79,6 +107,10 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
     page().evaluate(js) as Promise<unknown>,
     new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => resolve(timedOut), limit); }),
   ]);
+  // A read that would only raise a prompt is made to answer now (CLIPBOARD_GUARD_JS); the guard
+  // itself must never be what fails or delays the run.
+  const guarded = READS_CLIPBOARD.test(src)
+    && await Promise.race([page().evaluate(CLIPBOARD_GUARD_JS).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 1000))]) === "guarded";
   try {
     let result: unknown;
     try {
@@ -103,5 +135,6 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
     return { ok: true, note: `threw: ${clipResult(((e as Error).message || String(e)).split("\n")[0] ?? "")}` };
   } finally {
     if (timer) clearTimeout(timer);
+    if (guarded) await page().evaluate(CLIPBOARD_UNGUARD_JS).catch(() => {});
   }
 }

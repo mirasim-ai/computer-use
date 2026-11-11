@@ -8,6 +8,7 @@
  * Against a real throwaway Chrome, through the test harness: these are the notes the model reads.
  */
 
+import { createServer } from "node:http";
 import { spawnChrome } from "./helpers.ts";
 import { createHarness } from "./harness.ts";
 
@@ -34,6 +35,28 @@ const FIXTURE_SELECT = page(`
 </div>
 <p id="picked">nothing picked</p>`);
 
+/** The clipboard exists only in a secure context, which a data: URL is not: one page on localhost. */
+function serve(): Promise<{ url: string; close: () => void }> {
+  return new Promise((resolve) => {
+    const srv = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      // A headless Chrome denies the read at once; a window on someone's desk asks them, and the
+      // promise waits for an answer. That is what this page stands in for: the permission still
+      // at "prompt", and a read that never settles.
+      res.end(`<!doctype html><title>clipboard fixture</title><button>Copy order number</button>
+<script>
+  navigator.permissions.query = async () => ({ state: "prompt" });
+  Clipboard.prototype.readText = () => new Promise(() => {});
+  Clipboard.prototype.read = () => new Promise(() => {});
+</script>`);
+    });
+    srv.listen(0, "127.0.0.1", () => resolve({
+      url: `http://localhost:${(srv.address() as { port: number }).port}/`,
+      close: () => srv.close(),
+    }));
+  });
+}
+
 /** How long `f` took, with what it answered. */
 async function timed<T>(f: () => Promise<T>): Promise<{ out: T; ms: number }> {
   const t0 = Date.now();
@@ -43,6 +66,7 @@ async function timed<T>(f: () => Promise<T>): Promise<{ out: T; ms: number }> {
 
 async function main() {
   const chrome = await spawnChrome({});
+  const site = await serve();
   process.env.COMPUTER_USE_CDP_URL = chrome.cdpUrl;
   delete process.env.COMPUTER_USE_OBS_DELTA;
   const { resolveProfile } = await import("../src/platform/profile.ts");
@@ -85,8 +109,19 @@ async function main() {
     check("a custom dropdown without the option answers quickly", !customMiss.out.ok && customMiss.ms < 4000, `${sec(customMiss.ms)}: ${customMiss.out.note.slice(0, 200)}`);
     check("...and lists the options it revealed", /Apple/.test(customMiss.out.note) && /Banana/.test(customMiss.out.note), customMiss.out.note.slice(0, 200));
 
+    // ── run_js: a clipboard read that waits on a permission prompt ────────────
+    await open(site.url);
+    const clip = await timed(() => h.act("run_js", { code: "navigator.clipboard.readText()" }));
+    check("a clipboard read does not wait out the whole run_js budget", clip.ms < 4000, `${sec(clip.ms)}: ${clip.out.note.slice(0, 200)}`);
+    check("...and the answer says why, and what to do instead", /permission prompt/.test(clip.out.note) && /recorder/.test(clip.out.note), clip.out.note.slice(0, 240));
+    const own = await h.api.act("run_js", { code: "Object.prototype.hasOwnProperty.call(navigator.clipboard, 'readText')" });
+    check("...and nothing is left on navigator.clipboard once the call is over", (own as unknown) === false, String(own));
+    const mention = await timed(() => h.act("run_js", { code: "(() => { const read = () => navigator.clipboard.readText(); return typeof read; })()" }));
+    check("code that only mentions the clipboard read still runs", mention.out.ok && /function/.test(mention.out.note), mention.out.note.slice(0, 120));
+
     await driver.close();
   } finally {
+    site.close();
     chrome.cleanup();
   }
 
