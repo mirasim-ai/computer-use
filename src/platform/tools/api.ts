@@ -58,7 +58,7 @@ export function createComputerUseApi(
   const specs = new Map(verbs.map((v) => [v.kind, v.schema]));
   const extras = [...specs.keys()];
   // How a target argument becomes a ref — one job, its own file (api-target.ts).
-  const { findWithMiss, missNote, asPoint, resolve, requireFocus } = createTargeting(driver, ledger, hooks, firstLine);
+  const { findWithMiss, missNote, asPoint, resolve, requireFocus, whereNow } = createTargeting(driver, ledger, hooks, firstLine);
 
   /** The controls nearest a name nothing carried, in find()'s miss wording — what a wait or an
    *  expect that gave up on a control says instead of only "it did not appear". */
@@ -147,7 +147,11 @@ export function createComputerUseApi(
       if (kind === "set_text") { round.fields += 1; if (res.verified === true) round.verified += 1; }
       else round.ended = `${kind}${args.chord ? ` ${String(args.chord)}` : ""}${target ? ` ${target}` : ""}`;
     }
-    if (!res.ok) throw new Error(`${kind}${target ? ` ${target}` : ""} failed: ${res.note ?? "no reason given"}`);
+    if (!res.ok) {
+      // A ref that named nothing any more: say where that control is now (api-target.ts).
+      const moved = res.targetGone && typeof args.ref === "string" ? await whereNow(args.ref) : "";
+      throw new Error(`${kind}${target ? ` ${target}` : ""} failed: ${res.note ?? "no reason given"}${moved ? `.${moved}` : ""}`);
+    }
     if (mismatch) {
       const error = new Error(`${kind === "type" ? "type" : "setText"} ${target}: ${res.note ?? "the field did not retain the requested text"}. `
         + "The write was dispatched, but verification failed; subsequent actions were not run. "
@@ -395,7 +399,7 @@ export function createComputerUseApi(
       // the one route that dispatches onto whatever now carries a stale number.
       if (typeof args.ref === "string") {
         hooks.onTarget?.(args.ref);
-        if (!driver.knownRef(args.ref)) throw new Error(driver.staleRefNote(args.ref));
+        if (!driver.knownRef(args.ref)) throw new Error(driver.staleRefNote(args.ref) + await whereNow(args.ref));
       }
       return acted(String(kind ?? ""), { ...args }, String(args.ref ?? ""));
     },

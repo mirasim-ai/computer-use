@@ -184,6 +184,15 @@ async function main() {
     try { afterReload = await h.api.value(kept); } catch (e) { afterReload = `threw: ${(e as Error).message}`; }
     check("a handle survives a reload made in the same run", afterReload === "2026-11-21", afterReload.slice(0, 200));
 
+    // ── a bare ref from before a reload ───────────────────────────────────────
+    const before = await open(FIXTURE_RERENDER);
+    const dueRef = refOf(before, "Due date");
+    await h.act("reload", {});
+    const stale = await h.act("click", { ref: dueRef });
+    const now = (await h.api.observe()).elements.find((e) => e.name === "Due date")?.ref;
+    check("a ref from before a reload is still refused", !stale.ok && /reload/.test(stale.note), stale.note.slice(0, 200));
+    check("...and the refusal names what it was and its ref now", /Due date/.test(stale.note) && !!now && stale.note.includes(now), `${now}: ${stale.note.slice(0, 300)}`);
+
     await driver.close();
   } finally {
     site.close();

@@ -66,6 +66,31 @@ export function createTargeting(
   };
 
   /**
+   * Where the control a dead ref named is NOW, as a sentence to end a refusal with — or "" when
+   * the ref was never listed or the surface cannot be read. A bare ref carries no name to find
+   * again by, so it is never re-targeted; saying its ref of today saves the observe the refusal
+   * would otherwise cost.
+   */
+  const whereNow = async (ref: string): Promise<string> => {
+    const was = driver.refWas(ref);
+    if (!was?.name.trim()) return "";
+    try {
+      const { elements } = await driver.readElements();
+      hooks.onRefs?.(elements.map((e) => e.ref));
+      const same = elements.filter((e) => e.role === was.role && e.name === was.name && e.ref !== ref);
+      const what = `${ref} was ${was.role} "${was.name.slice(0, 60)}"`;
+      if (same.length === 1) return ` ${what}, which is ${same[0]!.ref} now.`;
+      if (same.length > 1) {
+        return ` ${what}; ${same.length} controls carry that role and name now (${same.slice(0, 4).map((e) => e.ref).join(", ")}`
+          + `${same.length > 4 ? ", …" : ""}), so tell them apart by position before acting.`;
+      }
+      return ` ${what}, and no control carries that name now.`;
+    } catch {
+      return "";
+    }
+  };
+
+  /**
    * A POINT the model read off a screenshot — `{x, y}`, in that screenshot's own coordinates.
    *
    * The last resort, which every driver implements (both click paths branch on `hasPoint`): the
@@ -91,7 +116,7 @@ export function createTargeting(
   const resolve = async (t: unknown, opts: { write?: boolean } = {}): Promise<{ ref: string; name?: string }> => {
     if (typeof t === "string") {
       hooks.onTarget?.(t);
-      if (!driver.knownRef(t)) throw new Error(driver.staleRefNote(t));
+      if (!driver.knownRef(t)) throw new Error(driver.staleRefNote(t) + await whereNow(t));
       return { ref: t };
     }
     if (t == null) {
@@ -173,5 +198,5 @@ export function createTargeting(
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   };
-  return { findByName, findWithMiss, missNote, asPoint, resolve, requireFocus };
+  return { findByName, findWithMiss, missNote, asPoint, resolve, requireFocus, whereNow };
 }
