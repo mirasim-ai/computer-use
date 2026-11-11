@@ -28,7 +28,7 @@ const PAGE_TAB_ACTIVATION_MS = 5000;
 
 /**
  * What new_tab says when the session already had a tab. Scripts wrote `const tab = await
- * w.newTab(...)` and then `tab.expect(...)` ("tab.expect is not a function", twice in the v3
+ * w.newTab(...)` and then `tab.expect(...)` ("tab.expect is not a function", twice in one
  * benchmark), and the handle they called it on stays on ITS tab: say both, and how to bind the new one.
  */
 const secondTabNote = (id: string) =>
