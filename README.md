@@ -5,21 +5,20 @@
 [![Dataset on Hugging Face](https://img.shields.io/badge/dataset-devbrowse--bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
 [![Benchmark: DevBrowse Bench](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-2ea44f)](https://github.com/mirasim-ai/devbrowse-bench)
 
-Computer use for any agent: an MCP server that lets the agent you already use (Claude Code,
-Codex, or any MCP host) operate browsers, macOS apps, Windows apps and Electron apps.
+Open-source computer use for any agent, faster and more efficient than ChatGPT Computer Use on
+[DevBrowse Bench v1](#benchmark): 26% less time, 45% fewer model requests and half the input
+tokens (2026-11-06 and 2026-11-07).
 
-Think of how a person checks an account balance on a website they use every day. They know the
-steps before the page opens, so they just go through them quickly. Someone new to the site has
-to take one step, look, and only then work out the next one. Capable models now work like the
-experienced person: they plan several GUI steps at once. Mirasim Computer Use is tuned for
-exactly that. It runs a multi-step plan reliably and gives the model accurate feedback on every
-step, so the model can trust the result instead of checking the screen after each click. With a
-strong model, the same task takes fewer model requests and finishes sooner.
+An MCP server that lets the agent you already use (Claude Code, Codex, or any MCP host) operate
+browsers, macOS apps, Windows apps and Electron apps. It runs no model of its own and needs no
+API key. The [Mirasim](https://mirasim.ai) desktop app ships the same tools built in
+(Settings → Computer Use).
 
+Capable models plan several GUI steps at once, the way a person goes through a website they use
+every day. So the agent writes a short script, one call runs the whole chain of steps, and every
+step reports back exactly what happened: the model does not check the screen after each click.
 The screen reads back as text, a numbered list of elements from the accessibility tree, and
-pixels are used only when text is not enough. It runs no model of its own and needs no API key:
-the host's agent calls the tools with its own model. The [Mirasim](https://mirasim.ai) desktop
-app ships the same tools built in (Settings → Computer Use).
+pixels are used only when text is not enough.
 
 ## Benchmark
 
