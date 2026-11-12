@@ -121,7 +121,7 @@ function topUsage(): never {
   const table = Object.entries(COMMANDS)
     .map(([name, c]) => `  ${name.padEnd(width)}  ${c.summary}`)
     .join("\n");
-  emitUsage(`mirasim-cu ${ownVersion()} — Computer Use tools over MCP (browser, electron, macos).
+  emitUsage(`mirasim-cu ${ownVersion()} — Computer Use tools over MCP (browser, electron, macos, windows).
 
 Usage:
   mirasim-cu <command> [args]   one of the commands below
