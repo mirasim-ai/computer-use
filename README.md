@@ -154,7 +154,7 @@ codex mcp add mirasim-cu --env COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @m
 
 - `macos` drives native macOS apps through their accessibility tree in the background. Grant
   Accessibility (and Screen Recording, for screenshots) to the app that runs your agent;
-  `mirasim-cu setup macos` checks both.
+  `npx -y @mirasim/computer-use setup macos` checks both.
 - `electron` drives any app started with `--remote-debugging-port=<port>`
   (`COMPUTER_USE_ELECTRON_CDP_URL`, default `http://127.0.0.1:9333`).
 
@@ -181,6 +181,11 @@ setting, the state directory and the host protocol are documented in
 [docs/embedding.md](docs/embedding.md).
 
 ## Use
+
+The commands in this section are written as `mirasim-cu`, the command a global install
+(`npm install -g @mirasim/computer-use`) puts on your PATH. Registering the server through `npx`
+installs no such command: write `npx -y @mirasim/computer-use` in its place, as in
+`npx -y @mirasim/computer-use setup macos`.
 
 ```sh
 mirasim-cu mcp                   # MCP stdio server — the runtime
