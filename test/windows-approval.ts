@@ -1,7 +1,7 @@
 /** Hermetic coverage of the Windows per-app consent — no helper process, no desktop. A canned
  * transport answers the helper's protocol (`windows`, `apps`, `appinfo`, `launch`, …) and records
  * the order of the calls, because the order is the point: the user is asked about an app BEFORE
- * it is started.
+ * it is started, and about the app itself, never about the frame every Store app's window shares.
  *
  * What the real helper answers on a real desktop (which program a Start-menu entry runs, how
  * long a Store app takes to attach to its frame) is `windows-live`'s to show, not this suite's.
@@ -129,17 +129,52 @@ async function main() {
     check("...and its window is not asked about a second time", a.asked.length === 2, a.asked.map((q) => q.app).join());
   }
 
+  // ── A Store app's window is the frame's for a moment: wait for the app, never ask about the frame ──
+  {
+    const s = stub();
+    s.exe["计算器"] = "CalculatorApp";
+    s.opens = { row: calcRow(), frameReads: 4 };
+    const a = asker(s, () => ({ allowed: true, persist: "session" }));
+    const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, consent: a.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: storeFile() } });
+    const bound = await drv.focusTarget(CALC);
+    check("a launch waits for the window to name its app, and binds it under that name",
+      bound.ok && /\(CalculatorApp\)/.test(bound.note ?? ""), bound.note ?? "");
+    check("...and nobody is asked about ApplicationFrameHost", a.asked.map((q) => q.app).join() === "CalculatorApp", a.asked.map((q) => q.app).join());
+  }
+
   // ── Allowed ahead of time under the executable's name: starts with no question ───────────
   {
     const s = stub();
     s.exe["计算器"] = "CalculatorApp";
-    s.opens = { row: calcRow(), frameReads: 0 };
+    s.opens = { row: calcRow(), frameReads: 3 };
     const file = storeFile();
     writeFileSync(file, JSON.stringify({ approvedApps: ["calculatorapp"] }));
     const a = asker(s, () => ({ allowed: false }));
     const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, consent: a.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: file } });
     const bound = await drv.focusTarget(CALC);
     check("`approvals add CalculatorApp` covers the launch and the window: no question at all", bound.ok && a.asked.length === 0, `${bound.note} | asked ${a.asked.length}`);
+  }
+
+  // ── The frame is no app: a stored yes to it clears nothing, and it is never the question ──
+  {
+    const s = stub();
+    s.rows.push(row(9, "ApplicationFrameHost", "设置", { class: "ApplicationFrameWindow" }));
+    const file = storeFile();
+    writeFileSync(file, JSON.stringify({ approvedApps: ["applicationframehost"] }));
+    const a = asker(s, () => ({ allowed: true, persist: "always" }));
+    const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, consent: a.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: file } });
+    const listed = (await drv.listTargets()).find((t) => t.id === "9")!.title;
+    check("a frame with no app attached is listed as a Store app still starting, title unread", /a Store app that is still starting/.test(listed) && !/设置/.test(listed), listed);
+    const started = Date.now();
+    const refused = await thrown(drv.focusTarget("9"));
+    check("binding it waits for the app, then refuses without asking — the stored ApplicationFrameHost clears nothing",
+      /cannot be bound yet/.test(refused) && a.asked.length === 0 && Date.now() - started >= 2500, `${refused.slice(0, 90)} | asked ${a.asked.length} | ${Date.now() - started} ms`);
+    s.rows.find((r) => r.hwnd === 9)!.process = "SystemSettings";
+    const bound = await drv.focusTarget("9");
+    check("once the app is attached it is asked about by its own name", bound.ok && a.asked.map((q) => q.app).join() === "SystemSettings", a.asked.map((q) => q.app).join());
+    check("...and \"always\" keeps that name, not the frame's", /systemsettings/.test(readFileSync(file, "utf8")), readFileSync(file, "utf8").trim());
+    const named = await thrown(drv.focusTarget("app:ApplicationFrameHost"));
+    check("starting the frame's program by name is refused before anything is started", /not an app to start/.test(named) && !s.log.includes("launch"), named);
   }
 
   // ── An entry whose program cannot be told ahead: asked by its Start-menu name, once ───────
@@ -174,7 +209,7 @@ async function main() {
   {
     const s = stub();
     s.oldHelper = true;
-    s.opens = { row: calcRow(), frameReads: 0 };
+    s.opens = { row: calcRow(), frameReads: 2 };
     const a = asker(s, () => ({ allowed: true, persist: "session" }));
     const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, consent: a.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: storeFile() } });
     const bound = await drv.focusTarget(CALC);
@@ -203,7 +238,7 @@ async function main() {
   // ── No client to ask: every app is cleared, as before, and nothing waits ─────────────────
   {
     const s = stub();
-    s.opens = { row: calcRow(), frameReads: 0 };
+    s.opens = { row: calcRow(), frameReads: 2 };
     const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, env: { COMPUTER_USE_WINDOWS_APPROVALS: storeFile() } });
     const bound = await drv.focusTarget(CALC);
     check("a client that cannot ask starts and binds the app unasked", bound.ok && s.log.includes("launch"), bound.note ?? "");

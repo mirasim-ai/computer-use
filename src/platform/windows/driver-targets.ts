@@ -8,7 +8,7 @@
 import { ComputerUseDriver } from "../driver.ts";
 import type { ActResult, OwnershipResource, TargetInfo } from "../types.ts";
 import { SurfaceGoneError, SurfaceUnreadableError } from "../types.ts";
-import { AppRefused, type WindowsAppGate } from "./app-gate.ts";
+import { AppRefused, isSharedFrameHost, type WindowsAppGate } from "./app-gate.ts";
 import type { RefTarget } from "./elements.ts";
 import type { UiaTransport } from "./uia-client.ts";
 
@@ -24,6 +24,13 @@ export interface WindowRow {
 }
 
 export type Frame = { x: number; y: number; w: number; h: number };
+
+/** How long a bind waits for a Store app's window to say which app it is (see {@link WindowsDriverTargets.identified}). */
+const IDENTITY_WAIT_MS = 3000;
+
+/** A Store app's frame with no app attached to it, worded for whoever has to wait for it. */
+export const NOT_IDENTIFIED_YET = "the app inside this window is not attached to it right now (a Store app is like that for a moment while it starts), "
+  + "so there is no telling which app it is, and nothing was read or sent. Wait a moment and bind it again with computer.surface(…)";
 
 export abstract class WindowsDriverTargets extends ComputerUseDriver {
   protected abstract readonly uia: UiaTransport;
@@ -61,6 +68,24 @@ export abstract class WindowsDriverTargets extends ComputerUseDriver {
   }
 
   /**
+   * `row`, once it names its app. A Store app's top-level window belongs to ApplicationFrameHost,
+   * and the helper names the app inside it — which is attached only some hundreds of
+   * milliseconds after the frame shows. Until then the row carries the frame's own program,
+   * which is no app's identity (app-gate.ts `isSharedFrameHost`): asking the user about it, or
+   * checking it against their allow-list, would be about every Store app at once. So this waits
+   * for the real name, up to `until`, and answers the row as it is then — still the frame's when
+   * the app never attached — or null when the window closed meanwhile.
+   */
+  protected async identified(row: WindowRow, until: number = Date.now() + IDENTITY_WAIT_MS): Promise<WindowRow | null> {
+    let now: WindowRow | undefined = row;
+    while (now && isSharedFrameHost(now.process) && !now.minimized && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 150));
+      now = (await this.windows()).find((r) => r.hwnd === row.hwnd);
+    }
+    return now ?? null;
+  }
+
+  /**
    * The bound window, still there. Never a default: the window in front is whatever the user is
    * working in, and reading it unasked is exactly what the app gate exists to prevent — the macOS
    * platform's rule too (macos/driver-apps.ts `ensure`).
@@ -86,9 +111,10 @@ export abstract class WindowsDriverTargets extends ComputerUseDriver {
    */
   protected async authorized(): Promise<WindowRow> {
     const row = await this.ensure();
-    if (row.minimized && row.process.toLowerCase() === "applicationframehost") {
+    if (row.minimized && isSharedFrameHost(row.process)) {
       throw new SurfaceUnreadableError("This minimized app no longer exposes its UIA app identity. Restore it and bind again; no input was sent. The shared ApplicationFrameHost is not an app-access substitute");
     }
+    if (isSharedFrameHost(row.process) && !this.gate.cleared(row.process)) throw new SurfaceUnreadableError(`This window cannot be used yet: ${NOT_IDENTIFIED_YET}`);
     if (!this.gate.cleared(row.process || "?")) {
       this.permissionRefusal = `mirasim-cu: ${row.process || "this app"} is not allowed for this session (any more) — `
         + "bind it again with computer.surface(…) to ask the user, or continue without it";
@@ -123,7 +149,9 @@ export abstract class WindowsDriverTargets extends ComputerUseDriver {
       kind: "window" as const,
       title: this.gate.cleared(r.process || "?")
         ? `${r.title} — ${r.process || "?"}${r.minimized ? " (minimized)" : ""}`
-        : `${r.process || "?"} — not cleared in this session yet; binding it checks the user's allow-list or asks them`,
+        : isSharedFrameHost(r.process)
+          ? `a Store app ${r.minimized ? "that is minimized" : "that is still starting"} — which app it is shows once it is ${r.minimized ? "restored" : "up"}`
+          : `${r.process || "?"} — not cleared in this session yet; binding it checks the user's allow-list or asks them`,
       active: r.hwnd === this.hwnd,
       // These are the user's windows: readable and actable with permission, never this session's to close.
       own: false,
@@ -138,11 +166,15 @@ export abstract class WindowsDriverTargets extends ComputerUseDriver {
       if (!r.ok) throw new Error(`mirasim-cu: ${r.note}`);
       return r;
     }
-    const row = (await this.windows()).find((r) => String(r.hwnd) === id.trim());
+    const listed = (await this.windows()).find((r) => String(r.hwnd) === id.trim());
+    // Which app it is comes first: the question below is about that app, by name.
+    const row = listed && !this.gate.cleared(listed.process || "?") ? await this.identified(listed) : listed;
     if (!row) return { ok: false, note: `no window ${id} — list them with computer.surfaces()` };
-    if (row.minimized && row.process.toLowerCase() === "applicationframehost") {
+    if (row.minimized && isSharedFrameHost(row.process)) {
       return { ok: false, note: "This minimized app no longer exposes its UIA app identity. Restore it and bind again; no input was sent" };
     }
+    // Thrown, not answered: a refused bind reads as "the surface is gone", and this one is not.
+    if (isSharedFrameHost(row.process) && !this.gate.cleared(row.process)) throw new Error(`mirasim-cu: "${row.title}" cannot be bound yet: ${NOT_IDENTIFIED_YET}`);
     // Binding is where the user is asked about an app not cleared yet (app-gate.ts): before any
     // read of it, and outside every read's time bound.
     try {

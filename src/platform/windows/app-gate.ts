@@ -4,7 +4,9 @@
  *
  * An app is named by its executable's stem (`WINWORD`, `CalculatorApp`), compared case-insensitively:
  * it is what the helper reports for every window and what a person can type into an allow-list,
- * while window titles are localised and change with the document.
+ * while window titles are localised and change with the document. A Store app is named by its
+ * own program too, never by `ApplicationFrameHost`: that one process frames every Store app's
+ * window, so a yes to it would be a yes to all of them ({@link isSharedFrameHost}).
  *
  * Every read and every action on a window passes {@link WindowsAppGate.authorize} first, and so
  * does starting an app, before it is started. A cleared app costs a set lookup; any other is put
@@ -24,6 +26,16 @@ import { computerUseHome } from "../home.ts";
 import { approvalsAddCommand } from "../cli-command.ts";
 
 const key = (app: string) => app.trim().toLowerCase();
+
+/**
+ * Is this "program" the frame every Store (UWP) app's window sits in? The helper names the app
+ * inside the frame (`CalculatorApp`); it can only name the frame while that app is not attached
+ * to it — for a moment as it starts, and for as long as it is minimized. It is never an app's
+ * identity: nothing is asked about it, and no answer, stored or given, clears it.
+ */
+export function isSharedFrameHost(process: string): boolean {
+  return key(process) === "applicationframehost";
+}
 
 /** "Always" answers this platform keeps itself, for a host that keeps none. */
 export class WindowsApprovals {
@@ -107,7 +119,7 @@ export class WindowsAppGate {
     if (this.hostApps.has(k)) return false;
     if (this.approved.has(k) || this.approvedThisCall.has(k)) return true;
     if (this.consent?.available() !== true) return true;
-    return this.stored.has(k);
+    return !isSharedFrameHost(k) && this.stored.has(k);
   }
 
   endCall(): void {
@@ -124,7 +136,7 @@ export class WindowsAppGate {
    */
   extend(from: string, to: string): void {
     const [f, t] = [key(from), key(to)];
-    if (f === t || this.hostApps.has(t) || this.cleared(t)) return;
+    if (f === t || isSharedFrameHost(t) || this.hostApps.has(t) || this.cleared(t)) return;
     if (this.approved.has(f) || this.stored.has(f)) this.approved.add(t);
     else if (this.approvedThisCall.has(f)) this.approvedThisCall.add(t);
     else return;

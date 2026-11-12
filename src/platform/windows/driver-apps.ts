@@ -5,8 +5,8 @@
  */
 
 import type { ActResult, TargetInfo } from "../types.ts";
-import { AppRefused } from "./app-gate.ts";
-import type { WindowRow } from "./driver-targets.ts";
+import { AppRefused, isSharedFrameHost } from "./app-gate.ts";
+import { NOT_IDENTIFIED_YET, type WindowRow } from "./driver-targets.ts";
 import { WindowsDriverYield } from "./driver-yield.ts";
 import { filterApps, LAUNCH_NEEDS_DESKTOP, LAUNCH_WAIT_MS, launchConsent, launchedBy, pickAppeared, startAppTarget, type AppInfo, type StartApp, type Started } from "./launch.ts";
 import { UiaRequestError } from "./uia-client.ts";
@@ -55,6 +55,8 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
       if (e.code !== "unknown_op") return { note: e.message };
     }
     const { app: askedAs, shown } = launchConsent(app, info, await this.startMenu().catch(() => [] as StartApp[]));
+    // The frame every Store app shares is no app, and no answer about it clears anything.
+    if (isSharedFrameHost(askedAs)) return { note: `${askedAs} frames the windows of Store apps and is not an app to start; name the app itself. Nothing was started` };
     const asked = !this.gate.cleared(askedAs);
     try {
       this.waitedOnUserMs += await this.gate.authorize(askedAs, shown, this.consentPurpose, true);
@@ -89,7 +91,8 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
     const named = launchedBy(app, started, consent.exe);
     let pick: WindowRow | undefined;
     let fresh = true;
-    for (const deadline = Date.now() + LAUNCH_WAIT_MS; !pick && Date.now() < deadline;) {
+    const deadline = Date.now() + LAUNCH_WAIT_MS;
+    while (!pick && Date.now() < deadline) {
       const appeared = (await this.windows()).filter((r) => !before.has(r.hwnd));
       pick = pickAppeared(appeared, named);
       if (!pick) await new Promise((r) => setTimeout(r, 250));
@@ -103,9 +106,17 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
       return { ok: false, mayHaveActed: true, note: `started ${started.name}, but no window of it appeared within ${LAUNCH_WAIT_MS / 1000} s — it may still be loading, `
         + "be waiting behind a prompt, or run without a window. Do not start it again: computer.surfaces() lists the windows" };
     }
+    // A Store app's frame shows before the app is attached to it, and only then says which app
+    // it is: binding it sooner would ask the user about the frame's program instead of the app's.
+    const up = await this.identified(pick, Math.max(deadline, Date.now() + 3000));
+    if (!up || (isSharedFrameHost(up.process) && !this.gate.cleared(up.process))) {
+      return { ok: false, mayHaveActed: true, note: `started ${started.name}, but ${up ? `its window "${up.title}" cannot be bound yet: ${NOT_IDENTIFIED_YET}` : "its window closed again at once"}. `
+        + "Do not start it again: computer.surfaces() lists the windows" };
+    }
     // The user was asked about this launch; the window it opened is what they answered about,
     // also when it belongs to another program than the one the question could name.
-    if (named(pick)) this.gate.extend(consent.askedAs, pick.process || "?");
+    if (named(up)) this.gate.extend(consent.askedAs, up.process || "?");
+    pick = up;
     const bound = await this.focusTarget(String(pick.hwnd));
     if (!bound.ok) return { ...bound, mayHaveActed: true };
     this.leftFront = { pid: pick.pid, at: Date.now() };

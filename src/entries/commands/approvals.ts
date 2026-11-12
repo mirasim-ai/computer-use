@@ -27,7 +27,9 @@ const USAGE = `Usage: mirasim-cu approvals [list] [--json] [--platform P]
   app, or only COMPUTER_USE_MACOS_FALLBACK_APPS when that is set.
 
   <app>    macOS: a bundle id (com.apple.TextEdit; find one with
-           \`osascript -e 'id of app "TextEdit"'\`). Windows: the executable's stem (WINWORD).
+           \`osascript -e 'id of app "TextEdit"'\`). Windows: the executable's name without
+           .exe (WINWORD; CalculatorApp for Calculator — a Store app goes by its own program,
+           never ApplicationFrameHost). A refusal names the exact command to run.
   --platform P   macos | windows (default: this machine's)
   --json         print the result as JSON`;
 
