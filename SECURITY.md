@@ -18,13 +18,7 @@ A report is easiest to act on when it says:
   Electron) and the operating system;
 - the steps that reproduce it, and what someone could do with it.
 
-We answer in the advisory itself, work on the fix there with you, and credit you in the
-published advisory unless you ask us not to.
-
-## Supported versions
-
-Fixes are released in a new version of `@mirasim/computer-use` on npm. Earlier versions are not
-patched, so check a report against the newest release first.
+We answer in the advisory itself and work on the fix there with you.
 
 ## What to report
 
