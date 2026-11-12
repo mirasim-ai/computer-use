@@ -50,8 +50,10 @@ export const RUN_JS_CODE_DESC =
 
 /**
  * A top-level `return` or `await` is a SyntaxError for a script, but `computer_repl`'s own `code`
- * is an async function body and the model writes both in one call; on either error the source is
- * re-run inside an async function. Safe: a SyntaxError means the page ran NOTHING. Narrow on
+ * is an async function body and the model writes both in one call. Such a source is run inside
+ * an async function from the start ({@link needsAsyncFunction}); this is the backstop for one
+ * the page refuses all the same (its engine is not the one that compiled it here): on either
+ * error the source is re-run wrapped. Safe: a SyntaxError means the page ran NOTHING. Narrow on
  * purpose — any other failure is the answer.
  */
 const NEEDS_ASYNC_FUNCTION = /Illegal return statement|await is only valid in async functions/;
@@ -82,6 +84,21 @@ function parses(js: string): boolean {
 /** Source the page refused as a script, inside an async function: as its returned expression
  *  when it is one, else as its body. */
 const inAsyncFunction = (src: string) => (parses(asAsyncExpression(src)) ? asAsyncExpression(src) : asFunctionBody(src));
+
+/** The source as a class static block: the one place a script's statements compile with `await`
+ *  and `return` both refused at their top level and both left alone inside nested functions. */
+const asStaticBlock = (src: string) => ["(class { static {", src, "} })"].join("\n");
+
+/**
+ * Does the source use `await` or `return` at its top level — outside every function of its own?
+ * Asked before anything runs, because the page's answer comes too late for one of them: a script
+ * reads `await (x)` and `await [x]` as a call and an index on a variable NAMED await, so it runs
+ * every statement before that one and only then throws "await is not defined". Compiled here,
+ * never run. False for code that does not compile wrapped either: the page says what is wrong.
+ */
+function needsAsyncFunction(src: string): boolean {
+  return !parses(asStaticBlock(src)) && parses(inAsyncFunction(src));
+}
 
 /** Code that READS the clipboard — the one page API measured to hang a run: the browser asks
  *  the person for permission, and in a tab nobody is watching nobody answers. */
@@ -142,11 +159,11 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
     && await Promise.race([page().evaluate(CLIPBOARD_GUARD_JS).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 1000))]) === "guarded";
   try {
     let result: unknown;
-    let wrapped = "";
+    let wrapped = needsAsyncFunction(src) ? inAsyncFunction(src) : "";
     try {
-      result = await race(src);
+      result = await race(wrapped || src);
     } catch (e) {
-      if (!NEEDS_ASYNC_FUNCTION.test((e as Error).message || "")) throw e;
+      if (wrapped || !NEEDS_ASYNC_FUNCTION.test((e as Error).message || "")) throw e;
       wrapped = inAsyncFunction(src);
       result = await race(wrapped);
     }

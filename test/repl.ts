@@ -344,6 +344,12 @@ async function main() {
     const noReturn = await run(`await w.runJs({ code: "const n = await Promise.resolve(4); n * 2" });`);
     check("...and awaiting statements with no return say why they answer undefined",
       /run_js: result: undefined — statements that use await hand a value back with `return`/.test(noReturn), line(noReturn, /run_js/));
+    const called = await run(`return await w.runJs({ code: "window.__before = (window.__before || 0) + 1; const xs = await (Promise.resolve([1, 2])); return [xs.length, window.__before];" });`);
+    check("await before a parenthesis or a bracket awaits, and nothing ran before it as a call to a variable named await",
+      /Returned: \[2,1\]/.test(called), line(called, /Returned|STOPPED|run_js/));
+    const nested = await run(`await w.runJs({ code: "var twice = async (x) => (await x) * 2; 0" }); return await w.runJs({ code: "twice(21)" });`);
+    check("code whose only await is inside its own function still runs as a script: its var stays in the page for the next call",
+      /Returned: 42/.test(nested), line(nested, /Returned|STOPPED|run_js/));
     const once = await run(`await w.runJs({ code: "window.__runs = (window.__runs || 0) + 1; await 0; return window.__runs;" }); return await w.runJs({ code: "window.__runs" });`);
     check("code refused as a script and re-run in a function has run once, not twice", /Returned: 1/.test(once), line(once, /Returned|STOPPED/));
 
