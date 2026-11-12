@@ -10,6 +10,7 @@
  * the channel is bounded, reported and opt-in, and the schema says so.
  */
 
+import { Script } from "node:vm";
 import type { Page } from "playwright-core";
 import type { ActResult } from "../types.ts";
 
@@ -38,7 +39,8 @@ const RESULT_PREVIEW_CHARS = 200;
 /** The shared description for the `code` property; each driver writes its own framing around it. */
 export const RUN_JS_CODE_DESC =
   "JavaScript evaluated in the page, like typing into the DevTools console — an expression, or a function body "
-  + "using `return` (either form works). An expression returning a Promise "
+  + "using `return` (either form works, and either may use `await`; statements that await hand a value back "
+  + "with `return`). An expression returning a Promise "
   + "is awaited. Only a JSON-safe value comes back — a string, number, array or plain object; a DOM node, a "
   + "function or a circular structure does not survive, so map what you want out of it in the expression. "
   + "READ, COMPUTE, DIAGNOSE with it: a whole table or list in one call, localStorage, the scroll position, a "
@@ -47,12 +49,12 @@ export const RUN_JS_CODE_DESC =
   + "was changed. If you do change state with it, say so in your report.";
 
 /**
- * A top-level `return` is a SyntaxError for an expression, but `computer_repl`'s own `code` is a
- * function body and the model writes both in one call; on this error the source is re-run
- * wrapped. Safe: a SyntaxError means the page ran NOTHING. Narrow on purpose — any other failure
- * is the answer.
+ * A top-level `return` or `await` is a SyntaxError for a script, but `computer_repl`'s own `code`
+ * is an async function body and the model writes both in one call; on either error the source is
+ * re-run inside an async function. Safe: a SyntaxError means the page ran NOTHING. Narrow on
+ * purpose — any other failure is the answer.
  */
-const ILLEGAL_RETURN = /Illegal return statement/;
+const NEEDS_ASYNC_FUNCTION = /Illegal return statement|await is only valid in async functions/;
 
 /**
  * The source as the body of an async function. Joined from pieces, not written as one template
@@ -61,6 +63,25 @@ const ILLEGAL_RETURN = /Illegal return statement/;
  * breaks statements — `(return 1)` is a SyntaxError of its own.
  */
 const asFunctionBody = (src: string) => ["(async () => {", src, "})()"].join("\n");
+
+/** The source as the one expression an async function returns: `await fetch(u).then((r) => r.json())`
+ *  has no `return` to hand its value back with, and as a body it would answer undefined. */
+const asAsyncExpression = (src: string) => ["(async () => (", src, "))()"].join("\n");
+
+/** Does `js` parse? Compiled here, by the same engine the page has, and never run: which
+ *  wrapping fits is decided without evaluating anything a second time in the page. */
+function parses(js: string): boolean {
+  try {
+    new Script(js);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Source the page refused as a script, inside an async function: as its returned expression
+ *  when it is one, else as its body. */
+const inAsyncFunction = (src: string) => (parses(asAsyncExpression(src)) ? asAsyncExpression(src) : asFunctionBody(src));
 
 /** Code that READS the clipboard — the one page API measured to hang a run: the browser asks
  *  the person for permission, and in a tab nobody is watching nobody answers. */
@@ -121,11 +142,13 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
     && await Promise.race([page().evaluate(CLIPBOARD_GUARD_JS).catch(() => ""), new Promise((r) => setTimeout(() => r(""), 1000))]) === "guarded";
   try {
     let result: unknown;
+    let wrapped = "";
     try {
       result = await race(src);
     } catch (e) {
-      if (!ILLEGAL_RETURN.test((e as Error).message || "")) throw e;
-      result = await race(asFunctionBody(src));
+      if (!NEEDS_ASYNC_FUNCTION.test((e as Error).message || "")) throw e;
+      wrapped = inAsyncFunction(src);
+      result = await race(wrapped);
     }
     if (result === timedOut) {
       return { ok: false, note: `run_js gave no result within ${limit / 1000}s — `
@@ -138,7 +161,10 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
         + "copied, replace navigator.clipboard.writeText with a recorder before the click and read what it was handed" };
     }
     const json = result === undefined ? "undefined" : JSON.stringify(result) ?? String(result);
-    return { ok: true, value: result, note: `result: ${clipResult(json, RESULT_PREVIEW_CHARS)}` };
+    // Statements that await run as a function body, where the last expression is not the value.
+    const noValue = result === undefined && wrapped === asFunctionBody(src) && !/\breturn\b/.test(src)
+      ? " — statements that use await hand a value back with `return`" : "";
+    return { ok: true, value: result, note: `result: ${clipResult(json, RESULT_PREVIEW_CHARS)}${noValue}` };
   } catch (e) {
     return { ok: true, note: `threw: ${clipResult(((e as Error).message || String(e)).split("\n")[0] ?? "")}` };
   } finally {

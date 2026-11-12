@@ -337,6 +337,15 @@ async function main() {
     check("runJs({code, ms}) reaches the page with its wait", /Returned: 7/.test(waited), line(waited, /Returned|STOPPED/));
     const body = await run(`return await w.runJs({ code: "const n = document.querySelectorAll('html').length; return n * 20;" });`);
     check("runJs takes a function body with return as well as an expression", /Returned: 20/.test(body), line(body, /Returned|STOPPED/));
+    const awaited = await run(`return await w.runJs({ code: "await new Promise((r) => setTimeout(() => r(3), 50))" });`);
+    check("runJs takes an expression that awaits", /Returned: 3/.test(awaited), line(awaited, /Returned|STOPPED|run_js/));
+    const awaitedBody = await run(`return await w.runJs({ code: "const n = await Promise.resolve(4); return [n, n * 2];" });`);
+    check("runJs takes a function body that awaits and returns", /Returned: \[4,8\]/.test(awaitedBody), line(awaitedBody, /Returned|STOPPED|run_js/));
+    const noReturn = await run(`await w.runJs({ code: "const n = await Promise.resolve(4); n * 2" });`);
+    check("...and awaiting statements with no return say why they answer undefined",
+      /run_js: result: undefined — statements that use await hand a value back with `return`/.test(noReturn), line(noReturn, /run_js/));
+    const once = await run(`await w.runJs({ code: "window.__runs = (window.__runs || 0) + 1; await 0; return window.__runs;" }); return await w.runJs({ code: "window.__runs" });`);
+    check("code refused as a script and re-run in a function has run once, not twice", /Returned: 1/.test(once), line(once, /Returned|STOPPED/));
 
     // ── Handles: two tabs, one run ────────────────────────────────────────────
     const opened = await run(`
