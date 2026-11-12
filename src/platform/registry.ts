@@ -39,13 +39,36 @@ const REGISTRY: Record<string, (opts: DriverOptions) => ComputerUseDriver> = {
   // Native macOS apps through Accessibility, via a resident Swift helper (macos/driver.ts).
   macos: (opts) => new MacosDriver({ bundle: opts.bundle, env: opts.env, consent: opts.consent }),
   // Native Windows apps through UI Automation, via a resident Rust helper (windows/driver.ts).
+  // Not offered in this release: mounted only for a host that opts in (windowsAppsOptedIn).
   windows: (opts) => new WindowsDriver({ env: opts.env, consent: opts.consent }),
   // future: linux, ios
 };
 
+/**
+ * Whether the `windows` platform may be mounted. Native Windows apps are not part of this
+ * release: the driver and its helper stay in the tree and keep being published, but nothing
+ * says so to users, and a session that names the platform is refused. A host that ships the
+ * driver at its own risk sets `COMPUTER_USE_UNSUPPORTED_WINDOWS=1`, which is deliberately
+ * absent from README and docs/embedding.md. The browser and Electron platforms on Windows are
+ * unaffected: neither goes through this driver or its helper.
+ */
+export function windowsAppsOptedIn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.COMPUTER_USE_UNSUPPORTED_WINDOWS === "1";
+}
+
+/** The platforms a session may name: what the errors and the help list. */
+function offered(env: NodeJS.ProcessEnv): string[] {
+  return Object.keys(REGISTRY).filter((id) => id !== "windows" || windowsAppsOptedIn(env));
+}
+
 export function createDriver(id: string, opts: DriverOptions = {}): ComputerUseDriver {
+  const env = opts.env ?? process.env;
+  if (id === "windows" && !windowsAppsOptedIn(env)) {
+    throw new Error(`the "windows" platform (native Windows apps) is not part of this release (available: ${offered(env).join(", ")}; `
+      + "on Windows, \"browser\" and \"electron\" work as on any other system)");
+  }
   const create = REGISTRY[id];
-  if (!create) throw new Error(`unknown driver "${id}" (available: ${Object.keys(REGISTRY).join(", ")})`);
+  if (!create) throw new Error(`unknown driver "${id}" (available: ${offered(env).join(", ")})`);
   return create(opts);
 }
 

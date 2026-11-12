@@ -49,7 +49,7 @@ Serves the computer_repl tools over MCP on stdin/stdout, for an agent to start:
   claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
 
 It takes no arguments; the environment picks what it drives:
-  COMPUTER_USE_PLATFORMS          browser (default), macos, windows, electron; comma-separated
+  COMPUTER_USE_PLATFORMS          browser (default), macos, electron; comma-separated
   COMPUTER_USE_BROWSER=extension  the browser you are signed into, through the Mirasim extension
   COMPUTER_USE_CDP_URL            drive this Chromium endpoint instead of a browser of its own
   COMPUTER_USE_ELECTRON_CDP_URL   the Electron app's endpoint (default http://127.0.0.1:9333)
@@ -121,7 +121,7 @@ function topUsage(): never {
   const table = Object.entries(COMMANDS)
     .map(([name, c]) => `  ${name.padEnd(width)}  ${c.summary}`)
     .join("\n");
-  emitUsage(`mirasim-cu ${ownVersion()} — Computer Use tools over MCP (browser, electron, macos, windows).
+  emitUsage(`mirasim-cu ${ownVersion()} — Computer Use tools over MCP (browser, electron, macos).
 
 Usage:
   mirasim-cu <command> [args]   one of the commands below

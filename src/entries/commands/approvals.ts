@@ -5,18 +5,22 @@
  * prompt; this command only reads, adds and removes entries in them, so revoking an app no longer
  * means hand-editing JSON. A host that keeps its own list (`COMPUTER_USE_*_APPROVALS=""`) has no
  * store here, and the command says so rather than editing a file nobody reads.
+ *
+ * Windows apps are not part of this release (registry.ts `windowsAppsOptedIn`): their store is
+ * reachable, and named in the usage, only where a host opted in.
  */
 
 import { parseArgs } from "node:util";
 import { MacosApprovals } from "../../platform/macos/approvals.ts";
+import { windowsAppsOptedIn } from "../../platform/registry.ts";
 import { WindowsApprovals } from "../../platform/windows/app-gate.ts";
 import { emitUsage, wantsHelp } from "./help.ts";
 
 type Platform = "macos" | "windows";
 
-const USAGE = `Usage: mirasim-cu approvals [list] [--json] [--platform P]
-       mirasim-cu approvals add <app> [--platform P]
-       mirasim-cu approvals remove <app> [--platform P]
+const usage = (windowsApps: boolean) => `Usage: mirasim-cu approvals [list] [--json]${windowsApps ? " [--platform P]" : ""}
+       mirasim-cu approvals add <app>${windowsApps ? " [--platform P]" : ""}
+       mirasim-cu approvals remove <app>${windowsApps ? " [--platform P]" : ""}
 
   list     the apps answered "always allow" (default)
   add      allow an app ahead of its first prompt
@@ -26,11 +30,14 @@ const USAGE = `Usage: mirasim-cu approvals [list] [--json] [--platform P]
   Only a client that can ask (MCP elicitation) consults this list. One that cannot drives every
   app, or only COMPUTER_USE_MACOS_FALLBACK_APPS when that is set.
 
-  <app>    macOS: a bundle id (com.apple.TextEdit; find one with
+  <app>    ${windowsApps
+    ? `macOS: a bundle id (com.apple.TextEdit; find one with
            \`osascript -e 'id of app "TextEdit"'\`). Windows: the executable's name without
            .exe (WINWORD; CalculatorApp for Calculator — a Store app goes by its own program,
            never ApplicationFrameHost). A refusal names the exact command to run.
-  --platform P   macos | windows (default: this machine's)
+  --platform P   macos | windows (default: this machine's)`
+    : `a macOS bundle id (com.apple.TextEdit; find one with
+           \`osascript -e 'id of app "TextEdit"'\`). A refusal names the exact command to run.`}
   --json         print the result as JSON`;
 
 interface Store {
@@ -44,13 +51,15 @@ function store(platform: Platform): Store {
   return platform === "macos" ? new MacosApprovals(process.env) : new WindowsApprovals(process.env);
 }
 
-function hostPlatform(): Platform | null {
-  return process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : null;
+function hostPlatform(windowsApps: boolean): Platform | null {
+  return process.platform === "darwin" ? "macos" : process.platform === "win32" && windowsApps ? "windows" : null;
 }
 
 const envKey = (platform: Platform) => (platform === "macos" ? "COMPUTER_USE_MACOS_APPROVALS" : "COMPUTER_USE_WINDOWS_APPROVALS");
 
 export async function runApprovalsCommand(argv: string[]): Promise<void> {
+  const windowsApps = windowsAppsOptedIn();
+  const USAGE = usage(windowsApps);
   if (wantsHelp(argv)) emitUsage(USAGE, true);
   const { values, positionals } = parseArgs({
     args: argv,
@@ -58,8 +67,13 @@ export async function runApprovalsCommand(argv: string[]): Promise<void> {
     options: { platform: { type: "string" }, json: { type: "boolean", default: false } },
   });
   const [verb = "list", app, ...extra] = positionals;
-  const platform = (values.platform ?? hostPlatform()) as Platform | null;
-  if (platform !== "macos" && platform !== "windows") emitUsage(USAGE, false);
+  const platform = (values.platform ?? hostPlatform(windowsApps)) as Platform | null;
+  if (platform === null) {
+    // No usage dump: the command was typed right, on a system whose apps this release does not drive.
+    console.error("approvals are for native apps, which this release drives on macOS only: there is no list on this system.");
+    process.exit(1);
+  }
+  if (platform !== "macos" && !(platform === "windows" && windowsApps)) emitUsage(USAGE, false);
   if (verb !== "list" && verb !== "add" && verb !== "remove") emitUsage(USAGE, false);
   if (extra.length || (verb === "list") !== !app?.trim()) emitUsage(USAGE, false);
 

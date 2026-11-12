@@ -21,7 +21,7 @@ import { spec, text, type ComputerUseToolSpec, type TargetInfo, type ToolResult 
 import { MAX_ACTIONS, MAX_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
-import { apiReference, platformReference, REPL_DESCRIPTION, RESET_DESCRIPTION } from "./repl-docs.ts";
+import { apiReference, platformReference, replDescription, RESET_DESCRIPTION } from "./repl-docs.ts";
 import { ComputerUseOwnership, IDLE_RELEASE_MS, OwnershipBusyError, type OwnershipProvider } from "../ownership.ts";
 import type { MountedTarget, PlatformSlice, Slice, SurfaceHandle } from "./repl-state.ts";
 
@@ -38,6 +38,8 @@ export function createReplTools(
   opts: { docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number } = {},
 ): ComputerUseToolSpec[] {
   if (!mounted.length) throw new Error("createReplTools needs at least one platform");
+  /** Windows apps are named in the tool's own text only where they are mounted (repl-docs.ts). */
+  const windowsApps = mounted.some((m) => m.driver.platform === "windows");
   // ── Session state ─────────────────────────────────────────────────────────
   let sandbox: Context | null = null;
   const ownership = opts.ownership ?? new ComputerUseOwnership();
@@ -445,7 +447,7 @@ export function createReplTools(
     surface: async (want?: unknown) => (want === undefined ? await emptyHandle() : null) ?? handleFor(await resolve(want)),
     // Touches no surface, which is why it is the one member that never belonged on a handle.
     log: raw.log,
-    help: () => requestedHelp = slices.map((sl) => apiReference(sl.driver)).join("\n\n"),
+    help: () => requestedHelp = slices.map((sl) => apiReference(sl.driver, windowsApps)).join("\n\n"),
   });
 
   /**
@@ -488,7 +490,7 @@ export function createReplTools(
   const repl = spec({
     name: "computer_repl",
     label: "Computer REPL",
-    description: REPL_DESCRIPTION,
+    description: replDescription(windowsApps),
     promptSnippet: "computer_repl runs JavaScript over the GUI in a persistent session: verbs, surface handles, one observation per call.",
     promptGuidelines: [
       "Plan several actions per computer_repl call — one call costs one step and one observation whatever it does inside.",
@@ -509,13 +511,13 @@ export function createReplTools(
         description: "Briefly describe the intended task when requesting app access. Shown to the user as the agent's stated purpose; it does not narrow the app permission. Do not include secrets.",
       })),
       interaction: Type.Optional(Type.Union([Type.Literal("background"), Type.Literal("desktop")], {
-        description: "Native apps default to background — macOS: driver mouse/activation/clipboard routes are blocked, including fallback; "
-          + "Windows: limited UIA setText/click/scroll by ref, with automatic focus and real-input fallback disabled; unsupported routes are refused. "
+        description: "Native apps default to background — macOS: driver mouse/activation/clipboard routes are blocked, including fallback"
+          + (windowsApps ? "; Windows: limited UIA setText/click/scroll by ref, with automatic focus and real-input fallback disabled; unsupported routes are refused. " : ". ")
           + "Use desktop only after explaining effects and obtaining permission covering this call. This option is not user consent.",
       })),
       platform: Type.Optional(Type.String({
         description: "For a HOST that mounts several platforms in one session: the platform this call is about "
-          + "(\"browser\", \"electron\", \"macos\", \"windows\"). computer.surfaces() and computer.surface() then see only its surfaces, and the "
+          + `("browser", "electron", "macos"${windowsApps ? ', "windows"' : ""}). computer.surfaces() and computer.surface() then see only its surfaces, and the `
           + "observation is of it; the other platforms stay mounted and untouched.",
       })),
       target: Type.Optional(Type.String({
@@ -646,7 +648,7 @@ export function createReplTools(
           // The FIRST platform carries the whole reference; a later one only its own part.
           const whole = !coreSent;
           coreSent = true;
-          const body = whole ? apiReference(sl.driver) : platformReference(sl.driver);
+          const body = whole ? apiReference(sl.driver, windowsApps) : platformReference(sl.driver, windowsApps);
           return { type: "text" as const, text: `\n${body}`, pinned: true as const };
         });
       if (respawnNoteDue) {

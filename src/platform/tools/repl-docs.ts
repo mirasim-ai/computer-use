@@ -11,11 +11,14 @@ import type { ComputerUseDriver } from "../driver.ts";
 import { fnName } from "./api.ts";
 import { IDLE_RELEASE_MS } from "../ownership.ts";
 
-export const REPL_DESCRIPTION =
+/** `windowsApps`: the session mounts the `windows` platform. Windows apps are named only then:
+ *  they are not part of this release (registry.ts `windowsAppsOptedIn`), and a description that
+ *  promised them would send the model after a surface the session does not have. */
+export const replDescription = (windowsApps: boolean): string =>
   // The first sentence names the surfaces in plain words: a client that finds tools by keyword
   // (Claude Code's tool search for "browser") matches on this text, not on the tool's name.
   "Run JavaScript in this session's PERSISTENT runtime to look at and act on the GUI — web pages in a browser, "
-  + "Electron apps and native macOS / Windows apps, whichever this server mounts — the one tool for both. "
+  + `Electron apps and native ${windowsApps ? "macOS / Windows" : "macOS"} apps, whichever this server mounts — the one tool for both. `
   + "The code is an async function body: `await` every verb, `return` a value to get it back as JSON, and "
   + "top-level const/let/function declarations SURVIVE to later calls — keep handles and collected data in "
   + "them instead of re-reading. Surfaces (tabs / windows / apps) are HANDLES and EVERY verb lives on one — "
@@ -69,8 +72,9 @@ function extraSignature(kind: string, schema: TSchema): string {
  * universal actions, the verdict and the rules are said ONCE per session, and a second platform
  * is told only what is its own — what it can READ and the verbs it adds.
  */
-function parts(driver: ComputerUseDriver) {
+function parts(driver: ComputerUseDriver, windowsApps: boolean) {
   const extras = driver.extraVerbs();
+  const nativeApps = windowsApps ? "macOS and Windows" : "macOS";
   const target = "a find() handle, a ref string, or a point {x, y} read off a screenshot";
   return {
     head: [
@@ -82,7 +86,7 @@ function parts(driver: ComputerUseDriver) {
     "another session — a fresh session re-mints them, so the same e12 names a different element. A target `t` is " + target + ".",
     "",
     "Bind a surface first — every verb below is a method on the handle it returns, never a name of its own:",
-    "  await computer.surfaces()     → [handle] — every surface (tab / window / app) as {id, kind, title, active}; `id` is an opaque key, what the platform knows the surface by lives in `title` (macOS: \"TextEdit (com.apple.TextEdit) — Untitled\"; Windows: the window title, then the program name — \"Untitled - Notepad — Notepad\")",
+    "  await computer.surfaces()     → [handle] — every surface (tab / window / app) as {id, kind, title, active}; `id` is an opaque key, what the platform knows the surface by lives in `title` (macOS: \"TextEdit (com.apple.TextEdit) — Untitled\"" + (windowsApps ? "; Windows: the window title, then the program name — \"Untitled - Notepad — Notepad\"" : "") + ")",
     "  await computer.surface(name)  → handle — by id, by whole title, or by a piece of the title; several matches or none is a refusal that lists the candidates, never a guess",
     "  await computer.surface()      → handle — the ONE surface, when there is only one. Not \"whatever is in front\": with more than one open it refuses and lists them, so a script always says which it meant",
     "  Bind once per surface and keep the handle in a top-level declaration — it stays valid for later calls, and re-binding costs a read each time.",
@@ -123,7 +127,7 @@ function parts(driver: ComputerUseDriver) {
       + "the text you are about to edit. The listing shows a value cut to what a line holds; this is the rest of it, for one element, "
       + "where text() re-reads the entire surface"] : []),
     ...(driver.readPage ? ["  w.page({ref?, depth?, node?}) → the content tree as text, with a completeness receipt on its first line"] : []),
-    "  w.screenshot({ref?, padding?|region:{x,y,width,height}?|fullPage?, path?}) → {path, host, width, height, note, capture?} — the image is attached to this result for you to see AND written to a file the code can keep: to `path` (absolute, never overwrites an existing file, extension must match the surface's format — .jpg on web surfaces, .png on macOS and Windows) or else to a rolling temp directory; `host` names the machine the path is on; no image → {path: null, note: why}. ref is a ref string and crops to a visible element's box; padding keeps its surroundings. fullPage is web-only. On macOS and Windows, ref/region preserve native detail; region uses FULL screenshot pixels, so take a full screenshot first. Windows padding and crop bounds use physical pixels; macOS padding uses full-screenshot pixels when available, otherwise window points. capture reports the window, crop, units, pointsPerPixel, and toFullScreenshot (null without a full screenshot or when window geometry changed). Windows refuses a region based on old window geometry; take a new full screenshot. Convert crop pixel p to full screenshot coordinates with toFullScreenshot.origin + p * toFullScreenshot.scale on each axis. A crop never changes point-action coordinates; use a current mapping or act by ref.",
+    "  w.screenshot({ref?, padding?|region:{x,y,width,height}?|fullPage?, path?}) → {path, host, width, height, note, capture?} — the image is attached to this result for you to see AND written to a file the code can keep: to `path` (absolute, never overwrites an existing file, extension must match the surface's format — .jpg on web surfaces, .png on " + nativeApps + ") or else to a rolling temp directory; `host` names the machine the path is on; no image → {path: null, note: why}. ref is a ref string and crops to a visible element's box; padding keeps its surroundings. fullPage is web-only. On " + nativeApps + ", ref/region preserve native detail; region uses FULL screenshot pixels, so take a full screenshot first. " + (windowsApps ? "Windows padding and crop bounds use physical pixels; " : "") + "macOS padding uses full-screenshot pixels when available, otherwise window points. capture reports the window, crop, units, pointsPerPixel, and toFullScreenshot (null without a full screenshot or when window geometry changed). " + (windowsApps ? "Windows refuses a region based on old window geometry; take a new full screenshot. " : "") + "Convert crop pixel p to full screenshot coordinates with toFullScreenshot.origin + p * toFullScreenshot.scale on each axis. A crop never changes point-action coordinates; use a current mapping or act by ref.",
     // Worded by the PLATFORM: console and failed requests on a page, the accessibility helper's
     // own complaints on macOS.
     ...(driver.supportsDiagnostics ? [`  w.diagnostics({id?})     → ${driver.diagnosticsAbout.empty} — the newest 20, with the ones new since your last read marked "new"`] : []),
@@ -223,14 +227,16 @@ function parts(driver: ComputerUseDriver) {
 }
 
 /** The whole reference — what a session's FIRST platform is told, and what computer.help() answers. */
-export function apiReference(driver: ComputerUseDriver): string {
-  const p = parts(driver);
+/** `windowsApps`: the session mounts the `windows` platform — what is said of Windows apps is
+ *  said only then (@see replDescription). A Windows driver's own reference always says it. */
+export function apiReference(driver: ComputerUseDriver, windowsApps = driver.platform === "windows"): string {
+  const p = parts(driver, windowsApps);
   return [...p.head, ...p.reads, ...p.actions, ...p.extras, ...p.tail].join("\n");
 }
 
 /** Only what THIS platform adds — for a session that already has the rest. */
-export function platformReference(driver: ComputerUseDriver): string {
-  const p = parts(driver);
+export function platformReference(driver: ComputerUseDriver, windowsApps = driver.platform === "windows"): string {
+  const p = parts(driver, windowsApps);
   return [
     `Reaching a second platform: ${driver.platform} — everything else in the reference above still holds, `
       + "and these are the reads and verbs that are its own.",
