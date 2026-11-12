@@ -33,9 +33,46 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
     return filterApps(list, query);
   }
 
-  /** An exact Start-menu name with no window open: binding it starts the app (launch.ts). */
+  /**
+   * An exact Start-menu name that matched nothing listed: binding it starts the app (launch.ts)
+   * — unless the app has a window open after all. One not cleared yet is listed by its program
+   * only (`CalculatorApp — not cleared…`), so its name ("计算器") matches no listed title; binding
+   * the name then binds that window ({@link launchAndBind}), and the row says so.
+   */
   override async unlistedTarget(query: string): Promise<TargetInfo | null> {
-    return query.trim() ? startAppTarget(await this.startMenu().catch(() => [] as StartApp[]), query) : null;
+    const list = query.trim() ? await this.startMenu().catch(() => [] as StartApp[]) : [];
+    const target = startAppTarget(list, query);
+    if (!target) return null;
+    const open = await this.openWindowOf(target.id, await this.appInfo(target.id.slice(4)).catch(() => null)).catch(() => null);
+    if (!open) return target;
+    const name = list.find((a) => `app:${a.id}` === target.id)?.name ?? query.trim();
+    return { ...target, title: `${name} — open (${open.row.process}), not cleared in this session yet; binding it checks the user's allow-list or asks them` };
+  }
+
+  /** What the helper says `app` would start, nothing started; null from a helper that predates
+   *  the question. Throws the helper's refusal (an ambiguous name). */
+  private async appInfo(app: string): Promise<AppInfo | null> {
+    try { return await this.call<AppInfo>("appinfo", { app }); }
+    catch (e) {
+      if (e instanceof UiaRequestError && e.code === "unknown_op") return null;
+      throw e;
+    }
+  }
+
+  /**
+   * The window an app NAMED by `handle` already has open: the one this handle's own launch
+   * opened, else one of the program the Start-menu entry runs. Never by title — a browser tab
+   * can be titled "Calculator" — and never the frame every Store app shares, so a Store app
+   * that is minimized or still starting is not found here.
+   */
+  private async openWindowOf(handle: string, info: AppInfo | null): Promise<{ row: WindowRow; others: number } | null> {
+    const rows = await this.windows();
+    const mine = this.launched?.id === handle ? rows.find((r) => r.hwnd === this.launched!.hwnd) : undefined;
+    if (mine) return { row: mine, others: 0 };
+    const exe = info?.exe?.trim().toLowerCase();
+    if (!exe || isSharedFrameHost(exe)) return null;
+    const same = rows.filter((r) => r.process.toLowerCase() === exe);
+    return same.length ? { row: same[0]!, others: same.length - 1 } : null;
   }
 
   /**
@@ -46,14 +83,8 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
    * user refuses is never started. Resolves with what {@link launchAndBind} needs of it; throws
    * the refusal.
    */
-  private async clearLaunch(app: string): Promise<{ note: string } | { askedAs: string; shown: string; exe: string | null; asked: boolean }> {
-    let info: AppInfo | null = null;
-    try { info = await this.call<AppInfo>("appinfo", { app }); }
-    catch (e) {
-      if (!(e instanceof UiaRequestError)) throw e;
-      // A helper that predates `appinfo` still starts apps: the question is then about the name.
-      if (e.code !== "unknown_op") return { note: e.message };
-    }
+  private async clearLaunch(app: string, info: AppInfo | null): Promise<{ note: string } | { askedAs: string; shown: string; exe: string | null; asked: boolean }> {
+    // A helper that predates `appinfo` still starts apps: the question is then about the name.
     const { app: askedAs, shown } = launchConsent(app, info, await this.startMenu().catch(() => [] as StartApp[]));
     // The frame every Store app shares is no app, and no answer about it clears anything.
     if (isSharedFrameHost(askedAs)) return { note: `${askedAs} frames the windows of Store apps and is not an app to start; name the app itself. Nothing was started` };
@@ -73,11 +104,34 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
    * started: a Store app's window belongs to another process, and `calc.exe` exits after handing
    * over. So it is the window that APPEARED — the launched pid's, one titled with the app's name,
    * or the only new one — and failing that, a single-instance app that answered by coming forward.
+   *
+   * With a `handle` the caller bound a NAME (computer.surface('Calculator')), which means the
+   * app, not "another instance of it": when the app already has a window open, that window is
+   * bound and nothing is started — which needs no desktop interaction either. It is how a handle
+   * whose clearance ran out (an answer for one call) comes back to its own window, where
+   * starting the app again would put a second one in front of the user on every call.
+   * `launchApp({app})` passes no handle and always starts.
    */
   protected async launchAndBind(app: string, handle?: string): Promise<ActResult> {
     if (!app.trim()) return { ok: false, note: "launch_app needs an app: a Start-menu name or id from listApps(), or a program name (notepad, mspaint)" };
+    let info: AppInfo | null;
+    try { info = await this.appInfo(app); }
+    catch (e) {
+      if (!(e instanceof UiaRequestError)) throw e;
+      return { ok: false, note: e.message };
+    }
+    const open = handle ? await this.openWindowOf(handle, info) : null;
+    if (open) {
+      // Asked about as any open window is: by its program and title, with no word of starting it.
+      const bound = await this.focusTarget(String(open.row.hwnd));
+      if (!bound.ok) return bound;
+      this.launched = { id: handle!, hwnd: open.row.hwnd };
+      return { ok: true, note: `"${open.row.title}" (${open.row.process}) was already open, so it is the target and nothing was started`
+        + (open.others ? ` — ${open.others} more ${open.row.process} window${open.others > 1 ? "s are" : " is"} open, computer.surfaces() lists them` : "")
+        + "; reads and supported background UIA actions do not activate it; desktop actions do" };
+    }
     if (this.interactionMode !== "desktop") return { ok: false, note: LAUNCH_NEEDS_DESKTOP };
-    const consent = await this.clearLaunch(app);
+    const consent = await this.clearLaunch(app, info);
     if ("note" in consent) return { ok: false, note: consent.note };
     const refused = await this.yieldToHuman("launch_app", consent.shown, consent.asked);
     if (refused) return refused;

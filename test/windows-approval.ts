@@ -236,6 +236,66 @@ async function main() {
     check("a user who keeps typing still stops the launch, named as they know the app", /launch_app was NOT sent/.test(busy) && /"计算器"/.test(busy), busy.slice(0, 150));
   }
 
+  // ── A name whose app already has a window open binds that window; nothing is started ─────
+  {
+    const s = stub();
+    s.exe["计算器"] = "CalculatorApp";
+    s.rows.push(calcRow());
+    s.opens = { row: row(8, "CalculatorApp", "计算器", { class: "ApplicationFrameWindow" }), frameReads: 0 };
+    let allowed = true;
+    const a = asker(s, () => ({ allowed, persist: "session" }));
+    const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, consent: a.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: storeFile() } });
+    const unlisted = await drv.unlistedTarget("计算器");
+    check("an app that is open but not cleared is not offered as \"no window open\"",
+      unlisted?.id === CALC && /^计算器 — open \(CalculatorApp\), not cleared/.test(unlisted.title), unlisted?.title ?? "null");
+
+    allowed = false;
+    const refused = await thrown(drv.focusTarget(CALC));
+    check("declining it starts nothing", /permission to use CalculatorApp was not granted/.test(refused) && !s.log.includes("launch"), refused.slice(0, 80));
+    allowed = true;
+    const bound = await drv.focusTarget(CALC);
+    check("binding the name binds the open window instead of starting a second one",
+      bound.ok && /was already open, so it is the target and nothing was started/.test(bound.note ?? "") && !s.log.includes("launch") && await drv.isActiveTarget(CALC), bound.note ?? "");
+    check("...and it is asked about as an open window, with no word of starting it",
+      a.asked.at(-1)!.message === 'Allow Computer Use to see and control CalculatorApp ("计算器")?' && !a.asked.at(-1)!.launch, a.asked.at(-1)!.message);
+
+    const explicit = await drv.perform("launch_app", { app: "计算器" });
+    check("launchApp still starts another one on purpose", explicit.ok && s.log.filter((op) => op === "launch").length === 1, explicit.note ?? "");
+
+    const bg = stub();
+    bg.exe["计算器"] = "CalculatorApp";
+    bg.rows.push(calcRow());
+    const b = asker(bg, () => ({ allowed: true, persist: "session" }));
+    const quiet = new WindowsDriver({ interaction: "background", transport: bg.transport, consent: b.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: storeFile() } });
+    const inBack = await quiet.focusTarget(CALC);
+    check("an open window is bound by name in background mode too", inBack.ok && !bg.log.includes("launch"), inBack.note ?? "");
+    bg.rows = bg.rows.filter((r) => r.hwnd !== 7);
+    const none = await thrown(quiet.focusTarget(CALC));
+    check("...while a name with no window open still needs desktop interaction to be started", /needs interaction:'desktop'/.test(none) && !bg.log.includes("launch"), none.slice(0, 90));
+  }
+
+  // ── A handle whose one-call clearance ran out comes back to its own window ───────────────
+  {
+    const s = stub();
+    s.exe["计算器"] = "CalculatorApp";
+    s.opens = { row: calcRow(), frameReads: 0 };
+    const a = asker(s, () => ({ allowed: true }));
+    const drv = new WindowsDriver({ interaction: "desktop", transport: s.transport, consent: a.consent, env: { COMPUTER_USE_WINDOWS_APPROVALS: storeFile() } });
+    await drv.focusTarget(CALC);
+    drv.endCall();
+    const lapsed = !(await drv.isActiveTarget(CALC));
+    drv.interactionMode = "background";
+    const again = await drv.focusTarget(CALC);
+    check("the next call asks again and binds the same window: one launch in all, none in background mode",
+      lapsed && again.ok && s.log.filter((op) => op === "launch").length === 1 && a.asked.length === 2 && !a.asked[1]!.launch && await drv.isActiveTarget(CALC),
+      `${again.note} | asked ${a.asked.map((q) => q.launch ? "launch" : "window").join()}`);
+    s.rows = s.rows.filter((r) => r.hwnd !== 7);
+    drv.endCall();
+    drv.interactionMode = "desktop";
+    await drv.focusTarget(CALC);
+    check("once that window is closed, binding the name starts the app again", s.log.filter((op) => op === "launch").length === 2);
+  }
+
   // ── No client to ask: every app is cleared, as before, and nothing waits ─────────────────
   {
     const s = stub();
