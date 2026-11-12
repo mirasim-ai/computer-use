@@ -2,8 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/@mirasim/computer-use)](https://www.npmjs.com/package/@mirasim/computer-use)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Dataset on Hugging Face](https://img.shields.io/badge/dataset-devbrowse--bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
-[![Benchmark: DevBrowse Bench](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-2ea44f)](https://github.com/mirasim-ai/devbrowse-bench)
+[![Benchmark: DevBrowse Bench on Hugging Face](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
 
 Open-source computer use for any agent, faster and more efficient than ChatGPT Computer Use on
 [DevBrowse Bench v1](#benchmark): 26% less time, 45% fewer model requests and half the input
@@ -24,7 +23,7 @@ pixels are used only when text is not enough.
 
 ![DevBrowse Bench v1 core results: time −26%, model requests −45%, input tokens −50%, failed runs 4 : 8](docs/benchmark/devbrowse-v1.png)
 
-[DevBrowse Bench](https://github.com/mirasim-ai/devbrowse-bench) measures browser use in
+[DevBrowse Bench](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench) measures browser use in
 development work: a coding agent changes a web app, then checks its own work in a browser. v1 has
 60 tasks in three parts, the three panels of the figure. 51 are on Team Tasks, a simulated React +
 Vite task manager written for the benchmark: 44 classic and extended tasks (features, bug fixes,
@@ -69,11 +68,9 @@ run. When 39 of the 60 tasks were run again the same way on 2026-11-10 and 2026-
 later release of Mirasim Computer Use, the time saving on them was about −16%, against −25% for
 the same tasks here. That rerun is not part of v1.
 
-Tasks, judges, every run and the full report are in the
-[DevBrowse Bench repository](https://github.com/mirasim-ai/devbrowse-bench)
-([v1 report](https://github.com/mirasim-ai/devbrowse-bench/blob/main/results/v1/REPORT.md)). The
-runs and the tasks are also on Hugging Face as the
-[devbrowse-bench dataset](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench).
+Tasks, judges, every run and the full report are on Hugging Face, in the
+[devbrowse-bench dataset](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
+([v1 report](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench/blob/main/results/v1/REPORT.md)).
 
 ## Install
 
