@@ -82,6 +82,13 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
 
 or install the `mirasim-cu` command once with `npm install -g @mirasim/computer-use`.
 
+`claude mcp add` registers the server for the current project only; add `-s user` to have it in
+every project. In an interactive session Claude Code's permission mode decides whether it asks
+before a call, and when it asks you can allow the tool for that project from then on. A
+non-interactive run (`claude -p`) cannot ask and refuses the call unless the server is allowed
+ahead of time: `claude -p "…" --allowedTools mcp__mirasim-cu`, with the option after the prompt,
+or `mcp__mirasim-cu` in `permissions.allow` of your settings.
+
 In Codex, register it the same way:
 
 ```sh
