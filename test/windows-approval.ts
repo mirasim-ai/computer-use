@@ -11,6 +11,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { consentAnswer, consentForm } from "../src/entries/consent.ts";
 import { approvalsAddCommand } from "../src/platform/cli-command.ts";
 import { WindowsDriver } from "../src/platform/windows/driver.ts";
 import { launchConsent } from "../src/platform/windows/launch.ts";
@@ -252,6 +253,24 @@ async function main() {
       && launchConsent(START_MENU[0]!.id, null, list).app === "计算器" && launchConsent("mspaint", null, list).app === "mspaint");
     check("the approvals command quotes a name with a space in it",
       approvalsAddCommand("Some Tool", "/x/bin/mirasim-cu.mjs") === 'mirasim-cu approvals add "Some Tool"' && approvalsAddCommand("WINWORD", "/x/bin/mirasim-cu.mjs") === "mirasim-cu approvals add WINWORD");
+
+    const form = consentForm({ persist: ["session", "always"] });
+    const field = form.properties.persist!;
+    check("the question's form offers once / session / always as a standard choice, opening on the session",
+      field.enum.join() === "once,session,always" && field.enumNames.join() === "This call only,This session,Always" && field.default === "session", JSON.stringify(field));
+    check("a question that offers no duration is an empty form", Object.keys(consentForm({}).properties).length === 0);
+    const answer = (r: Parameters<typeof consentAnswer>[0]) => JSON.stringify(consentAnswer(r));
+    check("a plain client's pick comes back as form content",
+      answer({ action: "accept", content: { persist: "session" } }) === '{"allowed":true,"persist":"session"}'
+      && answer({ action: "accept", content: { persist: "always" } }) === '{"allowed":true,"persist":"always"}');
+    check("\"once\", an empty accept and an unknown value all hold for this call only",
+      [{ persist: "once" }, {}, { persist: "forever" }].every((content) => answer({ action: "accept", content }) === '{"allowed":true}'));
+    check("a host's _meta.persist wins over the form's content",
+      answer({ action: "accept", content: { persist: "once" }, _meta: { persist: "always" } }) === '{"allowed":true,"persist":"always"}'
+      && answer({ action: "accept", content: {}, _meta: { persist: "session" } }) === '{"allowed":true,"persist":"session"}');
+    check("a decline carries the host's reason and no duration",
+      answer({ action: "decline", content: { persist: "always" }, _meta: { persist: "always", "mirasim-computer-use/reason": "nobody answered in time" } }) === '{"allowed":false,"reason":"nobody answered in time"}'
+      && answer({ action: "cancel" }) === '{"allowed":false}');
   }
 
   console.log(failures ? `\n${failures} FAILED` : "\nall passed");

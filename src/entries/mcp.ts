@@ -18,6 +18,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import { resolveProfile, type Profile } from "../platform/profile.ts";
 import { SurfaceGoneError, type UserConsent } from "../platform/types.ts";
 import { ownVersion } from "./version.ts";
+import { consentAnswer, consentForm } from "./consent.ts";
 import { PreviewService, type TargetRef } from "../platform/preview.ts";
 
 /**
@@ -79,9 +80,8 @@ const ASK_TIMEOUT_MS = 15 * 60_000;
  * to put it to its person and where "always" is kept. Without client elicitation support the
  * platform falls back to its static list (macos/driver.ts).
  *
- * An empty form, so `accept` IS the yes; `_meta.persist` (`session` | `always`) says how long it
- * holds — absent, this one action. A host's `_meta` `mirasim-computer-use/reason` travels with a
- * non-accept, because "declined" misreports a prompt nobody saw.
+ * `accept` IS the yes. How long it holds is the form's one field, `persist`, or the answer's
+ * `_meta.persist` (`session` | `always`) — neither, this one call (consent.ts).
  */
 function consentChannel(): { consent: UserConsent; attach: (server: Server) => void } {
   // Late-bound: the profile must exist before the server (its `instructions` are read off the
@@ -93,17 +93,10 @@ function consentChannel(): { consent: UserConsent; attach: (server: Server) => v
       available: () => server?.getClientCapabilities()?.elicitation?.form !== undefined,
       ask: async (message, meta) => {
         const r = await server!.elicitInput(
-          { mode: "form", message, requestedSchema: { type: "object", properties: {} }, _meta: meta },
+          { mode: "form", message, requestedSchema: consentForm(meta), _meta: meta },
           { timeout: ASK_TIMEOUT_MS },
         );
-        const m = r._meta as Record<string, unknown> | undefined;
-        const reason = m?.["mirasim-computer-use/reason"];
-        const persist = m?.persist === "session" || m?.persist === "always" ? m.persist : undefined;
-        return {
-          allowed: r.action === "accept",
-          ...(persist ? { persist } : {}),
-          ...(typeof reason === "string" && reason ? { reason } : {}),
-        };
+        return consentAnswer(r);
       },
       onRevoke: (cb) => { revokes.push(cb); },
     },
