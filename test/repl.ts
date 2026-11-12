@@ -64,6 +64,12 @@ const PAGE_DETOURS = `<!doctype html><title>Detours</title>
 <button onclick="if (confirm('Delete Fix login redirect?')) document.getElementById('row')?.remove()">Delete</button>
 <button onclick="setTimeout(() => { const b = document.createElement('button'); b.textContent = 'Later'; document.body.appendChild(b); }, 1500)">Load more</button>
 <script>addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('veil')?.remove(); });</script>`;
+/** What the reference's own examples act on: a select, and an Update that fills in a total. */
+const PAGE_CART = `<!doctype html><title>Cart</title>
+<select aria-label="Priority"><option>Low</option><option>High</option></select>
+<input aria-label="Quantity" value="3"><input aria-label="Total" value="" readonly>
+<button onclick="document.querySelector('[aria-label=Total]').value = '$' + (10 * document.querySelector('[aria-label=Quantity]').value).toFixed(2); document.getElementById('said').textContent = 'Cart updated'">Update</button>
+<p id="said"></p>`;
 /** Two named fields — the shape that shows what two interleaved callers do to one caret. */
 const PAGE_FIELDS = `<!doctype html><title>Fields</title><input aria-label="Field A"><br><input aria-label="Field B">`;
 
@@ -74,7 +80,7 @@ function serve(): Promise<{ base: string; close: () => void }> {
       return;
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(req.url === "/pay.html" ? PAGE_PAY : req.url === "/b.html" ? PAGE_B : req.url === "/churn.html" ? PAGE_CHURN : req.url === "/fields.html" ? PAGE_FIELDS : req.url === "/detours.html" ? PAGE_DETOURS : PAGE_A);
+    res.end(req.url === "/pay.html" ? PAGE_PAY : req.url === "/b.html" ? PAGE_B : req.url === "/churn.html" ? PAGE_CHURN : req.url === "/fields.html" ? PAGE_FIELDS : req.url === "/detours.html" ? PAGE_DETOURS : req.url === "/cart.html" ? PAGE_CART : PAGE_A);
   });
   return new Promise((resolve) => srv.listen(0, "127.0.0.1", () => {
     const { port } = srv.address() as { port: number };
@@ -175,20 +181,33 @@ async function main() {
     // The examples are copied from repl-docs.ts; a model copies them too, so they must work.
     {
       const ref = await run(`return computer.help();`);
-      check("the reference says to assert and go on in the same call", /Go on in the same call/.test(ref) && /if \(!await w\.wait/.test(ref));
+      check("the reference says to state what the next stage needs and go on in the same call", /Go on in the same call/.test(ref) && /state it with w\.expect/.test(ref));
+      check("…and to return what is being verified instead of asserting it", /Verify by returning, not by asserting/.test(ref) && /Do not compare such values in code and throw/.test(ref));
+      check("…and its examples no longer wrap a find in a hand-written throw", !/throw new Error\(m\.note\)/.test(ref) && !/is missing or ambiguous/.test(ref));
       check("…and keeps confirms, deletes, submits and payments out of branches", /Never let code decide a confirm, delete, submit, send or payment/.test(ref));
       check("…and, where the dialog verb exists, says not to arm accept before reading", /never arm it before the click that raises one/.test(ref));
 
       // The reference's example, verbatim but for the name: once for a control under a layer,
       // once for one the page has not drawn yet.
-      const detour = (name: string) => `let m = await w.find('${name}', {role:'button', why:true}); const first = m.reason; if (m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); } else if (m.reason === 'absent') await w.wait({control:'${name}'}); if (!m.ref) m = await w.find('${name}', {role:'button', why:true}); if (!m.ref) throw new Error(m.note); await w.click(m);`;
+      const detour = (name: string) => `let m = await w.find('${name}', {role:'button', why:true}); const first = m.reason; if (m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); } else if (m.reason === 'absent') await w.wait({control:'${name}'}); if (!m.ref) m = await w.find('${name}', {role:'button', why:true}); await w.click(m);`;
       const menu = await run(`await w.openUrl({ url: '${fixtures.base}/detours.html' }); await w.wait({}); ${detour("Menu")} await w.expect({text: 'menu opened'}); return first;`);
       check("the detour example closes the layer over a covered control, then goes on in the same call",
         /Returned: "?covered"?$/m.test(menu), line(menu, /Returned|STOPPED|FAILED/));
       const later = await run(`await w.click(await w.find('Load more', {role:'button'})); ${detour("Later")} return first;`);
       check("…and waits out one that is not there yet", /Returned: "?absent"?$/m.test(later), line(later, /Returned|STOPPED|FAILED/));
 
-      const toggle = await run(`const toggle = await w.find('Light mode', {role:'button'}) ?? await w.find('Dark mode', {role:'button'}); return toggle?.name;`);
+      // Verify by returning: the example reads the outcome and hands it back, with no check in code.
+      const returned = await run(`await w.openUrl({ url: '${fixtures.base}/cart.html' }); await w.wait({}); await w.click(await w.find('Update', {role:'button'})); await w.wait({}); return {total: await w.value(await w.find('Total')), url: (await w.observe()).url, list: (await w.text()).slice(0, 400)};`);
+      check("the verify-by-returning example hands the values back for the model to judge",
+        /"total":\s*"\$30\.00"/.test(returned) && /cart\.html/.test(returned) && /Cart updated/.test(returned), line(returned, /Returned|STOPPED|FAILED/));
+      // selectOption takes the handle itself, so the example needs no check around the find.
+      const selected = await run(`await w.selectOption({ref: await w.find('Priority', {role:'combobox'}), option:'High'}); return (await w.observe()).elements.find(e => e.name === 'Priority').state;`);
+      check("the selectOption example picks through the find() handle", /Returned: .*High/.test(selected), line(selected, /Returned|STOPPED|FAILED/));
+      const noSelect = await run(`await w.selectOption({ref: await w.find('Severity', {role:'combobox'}), option:'High'});`);
+      check("…and a find that matched nothing stops it with find's own reason, no hand-written check",
+        /STOPPED/.test(noSelect) && /target is null/.test(noSelect) && /find Severity/.test(noSelect), line(noSelect, /STOPPED/));
+
+      const toggle = await run(`await w.openUrl({ url: '${fixtures.base}/detours.html' }); await w.wait({}); await w.keys('Escape'); const toggle = await w.find('Light mode', {role:'button'}) ?? await w.find('Dark mode', {role:'button'}); return toggle?.name;`);
       check("the toggle example finds the button by whichever name it has", /Returned: "?Dark mode"?$/m.test(toggle), line(toggle, /Returned|STOPPED/));
 
       const unarmed = await run(`await w.click(await w.find('Delete', {role:'button'})); return await w.text();`);

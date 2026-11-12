@@ -121,7 +121,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
       ].join(", ")
       + (driver.readsCovered ? "" : ". This platform's read never reports what an overlay covers, so a covered control reads as 'absent'")
       + ". `note` is the journal's line; `partial` (a reason) says the read stopped early, so even 'absent' is not proof. "
-      + "e.g. let m = await w.find('Menu', {role: 'button', why: true}); if (!m.ref && m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); m = await w.find('Menu', {role: 'button', why: true}); } if (!m.ref) throw new Error(m.note); await w.click(m);",
+      + "e.g. let m = await w.find('Menu', {role: 'button', why: true}); if (!m.ref && m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); m = await w.find('Menu', {role: 'button', why: true}); } await w.click(m); — a miss passed to a verb is refused with its own note, so no check is written around it.",
     "  w.text()                 → the surface's full readable text",
     // Offered only where a driver can answer for one element: promising it elsewhere would send
     // the model at a name that throws, and text() is the honest answer there.
@@ -167,12 +167,13 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "    updates at once, the content a beat later, so a read straight after the click can pair the new button with the old view.",
     "    Every condition takes ms as its OWN polling budget (default 16s): w.wait({text:'Done', ms:3000}) gives up in three seconds,",
     "    give or take the one read already in flight when it runs out — on a heavy surface a single read is seconds, and the result says so when that happened.",
-    "    wait() returns true/false; awaiting it alone does NOT stop on timeout. Use expect() for a required postcondition, or check the result: if (!await w.wait({...})) throw new Error('condition not met');",
+    "    wait() returns true/false; awaiting it alone does NOT stop on timeout. When the NEXT step needs the condition use expect(), which stops the run;",
+    "    for a condition expect() does not take (text_gone, control_gone, url_gone) check the wait — if (!await w.wait({control_gone:'Saving…'})) throw new Error('still saving') — and when you only want to know, return it.",
     "    which is what a GUESS at the wording is worth — an unguarded guess that no page ever matches costs the full 16s.",
     "    A wait that gave up on a control or on text APPEARING says, in its journal line, which control names or lines of text come closest.",
     "  w.focus() — select w as the target for this runtime; target selection is not an OS-activation guarantee (see platform interaction notes)",
     `  w.release() — release this target and its input resources for other sessions. Claims span calls until release, reset, turn end, process exit or ${IDLE_RELEASE_MS / 60_000} minutes with no call (the next call takes the target back unless another session has it by then). Observe again before acting after handoff; old refs are invalidated. Separate windows can still share app/account/document state; ownership does not isolate those or a human editor.`,
-    "  w.expect({text, control, url, value, equals, ms}) — verify exactly ONE condition; value takes a ref/find handle and equals:string. Read-only polling, default 3000 ms, maximum 16000 ms. Returns true when verified; otherwise throws before subsequent steps, and the reason says what was there instead — the value the field holds, the closest control names, the closest lines of text, the address — so the next call can act on it without observing first. It never repeats the preceding action. Use it to verify save/submit results, not screen-change verdicts.",
+    "  w.expect({text, control, url, value, equals, ms}) — verify exactly ONE condition; value takes a ref/find handle and equals:string. Read-only polling, default 3000 ms, maximum 16000 ms. Returns true when verified; otherwise throws before subsequent steps, and the reason says what was there instead — the value the field holds, the closest control names, the closest lines of text, the address — so the next call can act on it without observing first. It never repeats the preceding action. Use it for what the NEXT step depends on (the save went through, the list is back), not for the outcome you are checking: return that (see \"Verify by returning\" below).",
     "  w.setText(t, text, {ifValue:previousValue}) — optional precondition: refuse before writing if the field changed or cannot be read. This is a checked precondition, not an atomic transaction with a human or another app.",
     "Action journal evidence: [verified] confirms the stated value/condition; [dispatched] only confirms delivery; [blocked] means no dispatch; [uncertain] may already have acted. Never replay an uncertain send/submit/delete; inspect its actual result first.",
     ],
@@ -183,7 +184,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
       ...extras.map((v) => extraSignature(v.kind, v.schema)),
     ] : []),
     ...(extras.some((v) => v.kind === "select_option") ? [
-      "    selectOption example: const choice = await w.find('Priority', {role:'combobox'}); if (!choice || choice.matches !== 1 || choice.incidental) throw new Error('Priority is missing or ambiguous'); await w.selectOption({ref:choice.ref, option:'High'});",
+      "    selectOption example: await w.selectOption({ref: await w.find('Priority', {role:'combobox'}), option:'High'}); — ref takes the find() handle itself: a miss is refused with find's own reason and a same-name tie with its candidates, so no check is written around it.",
     ] : []),
     // The one verb that computes rather than acts answers with its result, so say so where it is listed.
     ...(extras.some((v) => v.kind === "run_js") ? ["    runJs is the exception: it returns the VALUE the code produced, whole (the journal shows a short preview); an exception thrown in the page comes back as the string \"threw: …\" instead of stopping the run. It waits 10s for that value; runJs({code, ms}) waits up to 45s for code meant to run longer, within the call's 60s."] : []),
@@ -206,12 +207,19 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "Persistence: top-level const/let/var/function/class declarations live until computer_repl_reset. Keep a",
     "handle in one and reuse it; collect results in a variable across calls; return only what you need.",
     "Batch at verified task boundaries, with room for observation and recovery. A helper's nested verbs also count: a loop of 35 find/setText/expect sequences exceeds 100 actions. Split it into smaller calls.",
-    "Go on in the same call: a check that only decides whether the plan continues is an assertion, not a reason to stop and look.",
-    "Write it as if (!await w.wait({…})) throw new Error('…'), or w.expect({…}), then do the next stage in the same code — a failed check",
-    "stops the run with its reason, which is what you would have read; a passed one costs no round trip. Return a check's result only to decide something it cannot.",
+    "Go on in the same call: when the NEXT stage needs a condition to hold — the save went through, the list is back — state it with w.expect({…})",
+    "and do the next stage in the same code. A failed expect stops the run and says what was there instead, which is what you would have read; a passed one costs no round trip.",
+    "A find() that matched nothing needs no check either: the verb it is passed to refuses the null, and its journal line says why.",
+    "Verify by returning, not by asserting: what you want to SEE — the outcome the task asked you to check, a value to report — is not a condition for the code to judge.",
+    "Read it and return it, then judge it from the result:",
+    "  await w.click(await w.find('Update', {role:'button'})); await w.wait({}); return {total: await w.value(await w.find('Total')), url: (await w.observe()).url, list: (await w.text()).slice(0, 400)};",
+    "Do not compare such values in code and throw (if (total !== '$30.00') throw new Error(…)): a comparison that fails ends the call before `return`, so the values",
+    "you needed are gone and the script is written again — and these checks fail often, on a guess at wording, a count or a format. Returned values cost nothing when they are",
+    "as expected and show what is wrong when they are not; in a QA task the unexpected value IS the finding. The observation that ends every result already shows the surface",
+    "after the last action: do not expect() again what it will show.",
     "Branch on the page only for a KNOWN detour with no side effect — a layer to close, a control still to come, a toggle named by its state —",
     "and let find's why say which way out applies:",
-    "  let m = await w.find('Menu', {role:'button', why:true}); if (m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); } else if (m.reason === 'absent') await w.wait({control:'Menu'}); if (!m.ref) m = await w.find('Menu', {role:'button', why:true}); if (!m.ref) throw new Error(m.note); await w.click(m);",
+    "  let m = await w.find('Menu', {role:'button', why:true}); if (m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); } else if (m.reason === 'absent') await w.wait({control:'Menu'}); if (!m.ref) m = await w.find('Menu', {role:'button', why:true}); await w.click(m);",
     "  const toggle = await w.find('Light mode', {role:'button'}) ?? await w.find('Dark mode', {role:'button'});",
     "  A load needs no branch: w.wait({control_gone:'Loading…'}) returns at once when nothing is loading.",
     "  An unexpected sign-in page is not such a detour: the session was lost, maybe by the change under test, maybe as the bug itself.",
