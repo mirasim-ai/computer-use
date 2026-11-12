@@ -149,7 +149,8 @@ export function createComputerUseApi(
     }
     if (!res.ok) {
       // A ref that named nothing any more: say where that control is now (api-target.ts).
-      const moved = res.targetGone && typeof args.ref === "string" ? await whereNow(args.ref) : "";
+      const gone = typeof args.ref === "string" ? args.ref : typeof args.into === "string" ? args.into : "";
+      const moved = res.targetGone && gone ? await whereNow(gone) : "";
       throw new Error(`${kind}${target ? ` ${target}` : ""} failed: ${res.note ?? "no reason given"}${moved ? `.${moved}` : ""}`);
     }
     if (mismatch) {

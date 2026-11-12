@@ -95,6 +95,13 @@ interface Measure {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const fail = (note: string): ScrollOutcome => ({ res: { ok: false, note }, point: null, moved: null });
+/** The ref names no element any more: flagged, so the tool layer can say which ref that control
+ *  carries now (`ActResult.targetGone`). */
+const gone = (ref: unknown): ScrollOutcome => ({
+  res: { ok: false, targetGone: true, note: `no element for ref ${String(ref)} on the page any more — re-observe and use a current ref` },
+  point: null,
+  moved: null,
+});
 
 /** Human name of the scrolled thing, for notes. */
 const where = (probe: Probe): string => (probe.kind === "doc" ? "the page" : `«${probe.name}»`);
@@ -132,7 +139,7 @@ export async function performScroll(
       for (const f of readableFrames(page)) {
         try { if (await f.locator(selector).count()) { hit = f; break; } } catch { /* unreadable frame */ }
       }
-      if (!hit) return fail(`no element for ref ${a.ref} on the page any more — re-observe and use a current ref`);
+      if (!hit) return gone(a.ref);
       frame = hit;
     }
   }
@@ -154,9 +161,8 @@ export async function performScroll(
   if (probe.kind === "none") {
     if (probe.reason === "modal") return fail("an open modal dialog blocks scrolling the background — choose a scrollable region inside the dialog; nothing scrolled");
     // An explicit target cannot silently fall back to scrolling something else.
-    return fail(probe.reason === "gone"
-      ? `no element for ref ${a.ref} on the page any more — re-observe and use a current ref`
-      : `ref ${a.ref} has no scrollable ancestor — that part of the page does not scroll; pick a ref inside the list you want to scroll, or scroll without ref`);
+    if (probe.reason === "gone") return gone(a.ref);
+    return fail(`ref ${a.ref} has no scrollable ancestor — that part of the page does not scroll; pick a ref inside the list you want to scroll, or scroll without ref`);
   }
 
   // The wheel needs page coordinates; the probe's are frame-relative.
@@ -311,7 +317,7 @@ export async function performScrollInto(page: Page, ref: string): Promise<Scroll
   for (const f of readableFrames(page)) {
     try { const l = f.locator(selector); if (await l.count()) { el = l.first(); break; } } catch { /* unreadable frame */ }
   }
-  if (!el) return fail(`no element for ref ${ref} on the page any more — re-observe and use a current ref`);
+  if (!el) return gone(ref);
   let out: { moved: number; inView: boolean };
   try {
     // 'instant': a page's scroll-behavior:smooth would leave the read below mid-glide.

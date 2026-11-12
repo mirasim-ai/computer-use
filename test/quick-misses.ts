@@ -223,13 +223,23 @@ async function main() {
     check("a ref from before a reload is still refused", !stale.ok && /reload/.test(stale.note), stale.note.slice(0, 200));
     check("...and the refusal names what it was and its ref now", /Due date/.test(stale.note) && !!now && stale.note.includes(now), `${now}: ${stale.note.slice(0, 300)}`);
 
-    // ── a handle given to scroll({into}) ───────────────────────────────────────
+    // ── a handle given to scroll({into}), and a bare ref given to scroll ─────
     await open(FIXTURE_LATE);
     const far = await h.api.find("Far away");
+    const farRef = (far as { ref: string }).ref;
     await h.api.act("reload", {});
     let into = "";
     try { into = await h.api.scroll({ into: far }); } catch (e) { into = `threw: ${(e as Error).message}`; }
     check("scroll({into}) follows a handle across a reload", !/threw/.test(into), into.slice(0, 200));
+    const farNow = (await h.api.observe()).elements.find((e) => e.name === "Far away")?.ref;
+    let bareInto = "";
+    try { bareInto = await h.api.scroll({ into: farRef }); } catch (e) { bareInto = (e as Error).message; }
+    check("a bare ref from before the reload is still refused by scroll({into})…", /no element for ref/.test(bareInto), bareInto.slice(0, 200));
+    check("...and the refusal says which ref the control carries now", !!farNow && bareInto.includes(`which is ${farNow} now`), `${farNow}: ${bareInto.slice(0, 300)}`);
+    let bareScroll = "";
+    try { bareScroll = await h.api.scroll({ direction: "down", ref: farRef }); } catch (e) { bareScroll = (e as Error).message; }
+    check("...and so does scroll({ref})", !!farNow && bareScroll.includes(`which is ${farNow} now`), bareScroll.slice(0, 300));
+
     await driver.close();
   } finally {
     site.close();
