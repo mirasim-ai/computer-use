@@ -9,7 +9,7 @@
 
 import { parseArgs } from "node:util";
 import { MacosApprovals } from "../../platform/macos/approvals.ts";
-import { WindowsApprovals } from "../../platform/windows/app-gate.ts";
+import { isSharedFrameHost, WindowsApprovals } from "../../platform/windows/app-gate.ts";
 import { emitUsage, wantsHelp } from "./help.ts";
 
 type Platform = "macos" | "windows";
@@ -66,6 +66,12 @@ export async function runApprovalsCommand(argv: string[]): Promise<void> {
   const s = store(platform);
   if (!s.file) {
     console.error(`${platform} approvals are kept by the host (${envKey(platform)}=""): change them in its own settings.`);
+    process.exit(1);
+  }
+  // Accepted, it would sit in the list and allow nothing (windows/app-gate.ts), with no word of why.
+  if (verb === "add" && platform === "windows" && isSharedFrameHost(app!)) {
+    console.error(`${app!.trim()} frames the window of every Store app and is never an app's name here, so allowing it allows nothing. `
+      + "Add the app's own program instead (CalculatorApp for Calculator); the refusal an agent is given names it.");
     process.exit(1);
   }
   const before = s.list();
