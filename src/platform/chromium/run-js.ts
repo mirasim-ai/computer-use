@@ -38,9 +38,9 @@ const RESULT_PREVIEW_CHARS = 200;
 
 /** The shared description for the `code` property; each driver writes its own framing around it. */
 export const RUN_JS_CODE_DESC =
-  "JavaScript evaluated in the page, like typing into the DevTools console — an expression, or a function body "
-  + "using `return` (either form works, and either may use `await`; statements that await hand a value back "
-  + "with `return`). An expression returning a Promise "
+  "JavaScript evaluated in the page, like typing into the DevTools console — an expression, several statements "
+  + "(the value is the last expression's), or a function body using `return`; any of them may use `await`. "
+  + "An expression returning a Promise "
   + "is awaited. Only a JSON-safe value comes back — a string, number, array or plain object; a DOM node, a "
   + "function or a circular structure does not survive, so map what you want out of it in the expression. "
   + "READ, COMPUTE, DIAGNOSE with it: a whole table or list in one call, localStorage, the scroll position, a "
@@ -81,9 +81,43 @@ function parses(js: string): boolean {
   }
 }
 
+/** A line that starts like this continues the expression on the line before it (`f\n(3)` calls
+ *  f), so the line break before it ends no statement. */
+const CONTINUES_LINE = /^(?:[([`+\-*/%.,<>=&|^?:]|!=)/;
+
+/** How many cuts {@link asBodyReturningLast} tries: each is a compile of the whole source. */
+const LAST_EXPRESSION_TRIES = 200;
+
+/**
+ * The source as an async function's body that returns its LAST expression — what a script
+ * answers with, and so what the same statements answered before an `await` was written into
+ * them. Found without a parser: cut at a `;` or a line break, from the end, and take the first
+ * cut whose head compiles as a function body and whose tail compiles as an expression. A cut
+ * inside a string, a template or a `for (;;)` leaves a head that does not compile. Null when
+ * the code does not end in an expression (a declaration, a block, a comment after the last `;`).
+ */
+function asBodyReturningLast(src: string): string | null {
+  let tries = 0;
+  for (let i = src.length - 1; i >= 0 && tries < LAST_EXPRESSION_TRIES; i--) {
+    const at = src[i];
+    if (at !== ";" && at !== "\n") continue;
+    const head = src.slice(0, i + 1);
+    const tail = src.slice(i + 1).trim().replace(/;+$/, "").trim();
+    if (!tail || (at === "\n" && CONTINUES_LINE.test(tail))) continue;
+    tries++;
+    if (!parses(asFunctionBody(head)) || !parses(asAsyncExpression(tail))) continue;
+    const js = ["(async () => {", head, "return (", tail, ");", "})()"].join("\n");
+    if (parses(js)) return js;
+  }
+  return null;
+}
+
 /** Source the page refused as a script, inside an async function: as its returned expression
- *  when it is one, else as its body. */
-const inAsyncFunction = (src: string) => (parses(asAsyncExpression(src)) ? asAsyncExpression(src) : asFunctionBody(src));
+ *  when it is one, else as a body that returns its last expression, else as its body. */
+function inAsyncFunction(src: string): string {
+  if (parses(asAsyncExpression(src))) return asAsyncExpression(src);
+  return asBodyReturningLast(src) ?? asFunctionBody(src);
+}
 
 /** The source as a class static block: the one place a script's statements compile with `await`
  *  and `return` both refused at their top level and both left alone inside nested functions. */
@@ -178,9 +212,9 @@ export async function performRunJs(page: () => Page, code: unknown, ms?: unknown
         + "copied, replace navigator.clipboard.writeText with a recorder before the click and read what it was handed" };
     }
     const json = result === undefined ? "undefined" : JSON.stringify(result) ?? String(result);
-    // Statements that await run as a function body, where the last expression is not the value.
-    const noValue = result === undefined && wrapped === asFunctionBody(src) && !/\breturn\b/.test(src)
-      ? " — statements that use await hand a value back with `return`" : "";
+    // Run as a plain function body: no last expression was found to return for it.
+    const noValue = result === undefined && wrapped !== "" && wrapped === asFunctionBody(src)
+      ? " — this code does not end in an expression, so it has no value; end it with `return <value>` if you wanted one" : "";
     return { ok: true, value: result, note: `result: ${clipResult(json, RESULT_PREVIEW_CHARS)}${noValue}` };
   } catch (e) {
     return { ok: true, note: `threw: ${clipResult(((e as Error).message || String(e)).split("\n")[0] ?? "")}` };
