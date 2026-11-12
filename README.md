@@ -102,9 +102,10 @@ approval_mode = "approve"
 approval_mode = "approve"
 ```
 
-**Browser** works out of the box: computer-use drives a Chrome of its own (installed Google
-Chrome is required), keeping its profile under `~/.mirasim-computer-use` so logins carry over
-between sessions. To drive the browser you are signed into instead, install the
+**Browser** works out of the box on macOS, Windows and Linux: computer-use drives a Chrome of
+its own (installed Google Chrome is required), keeping its profile under
+`~/.mirasim-computer-use` so logins carry over between sessions. To drive the browser you are
+signed into instead, install the
 [Mirasim extension](https://chromewebstore.google.com/detail/mirasim/khflooofmndpmafhofjdcpjfgnlpikhg)
 and add `-e COMPUTER_USE_BROWSER=extension`. By default the agent sees only the tabs it opens and
 the ones you hand it: click the extension's toolbar icon on a tab to hand that tab over, and use
@@ -141,8 +142,7 @@ claude mcp add mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mir
 
 - `macos` drives native macOS apps through their accessibility tree in the background. Grant
   Accessibility (and Screen Recording, for screenshots) to the app that runs your agent;
-  `mirasim-cu setup macos` checks both. Native Windows apps are not driven in this release;
-  the browser works on Windows as it does on macOS.
+  `mirasim-cu setup macos` checks both.
 - `electron` drives any app started with `--remote-debugging-port=<port>`
   (`COMPUTER_USE_ELECTRON_CDP_URL`, default `http://127.0.0.1:9333`).
 
