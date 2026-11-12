@@ -1,5 +1,10 @@
 # Mirasim Computer Use
 
+[![npm](https://img.shields.io/npm/v/@mirasim/computer-use)](https://www.npmjs.com/package/@mirasim/computer-use)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Dataset on Hugging Face](https://img.shields.io/badge/dataset-devbrowse--bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
+[![Benchmark: DevBrowse Bench](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-2ea44f)](https://github.com/mirasim-ai/devbrowse-bench)
+
 Computer use for any agent: an MCP server that lets the agent you already use (Claude Code,
 Codex, or any MCP host) operate browsers, macOS apps, Windows apps and Electron apps.
 
