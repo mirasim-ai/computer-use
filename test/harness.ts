@@ -34,8 +34,8 @@ export interface ComputerUseApi {
     elements: Array<{ ref: string; role: string; name: string; state?: string; offscreen?: boolean; rect: Box }>;
     headings?: Array<{ name: string; level: number; rect: Box }> }>;
   /** With `why`, a miss answers {@link FindMiss} instead of null. */
-  find(name: string, scope: { role?: string; within?: unknown; visible?: boolean; near?: string; why: true }): Promise<{ ref: string; name: string } | FindMiss>;
-  find(name: string, scope?: { role?: string; within?: unknown; visible?: boolean; near?: string }): Promise<{ ref: string; name: string } | null>;
+  find(name: string, scope: { role?: string; within?: unknown; visible?: boolean; near?: unknown; why: true }): Promise<{ ref: string; name: string } | FindMiss>;
+  find(name: string, scope?: { role?: string; within?: unknown; visible?: boolean; near?: unknown }): Promise<{ ref: string; name: string } | null>;
   text(): Promise<string>;
   value(t: unknown): Promise<string>;
   page(opts?: { ref?: string; depth?: number; node?: string }): Promise<string>;

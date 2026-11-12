@@ -89,6 +89,14 @@ const FIXTURE_LATE = page(`
   draw();
 </script>`);
 
+/** Three cards, each with its own Share button, told apart only by what is NOT a control: a
+ *  heading, a region's label, and a line of plain text split across two elements. */
+const FIXTURE_CARDS = page(`
+<style>section { height: 200px; position: relative } section button { position: absolute; right: 20px; top: 20px }</style>
+<section><h3>Orders by region</h3><button>Share</button></section>
+<section aria-label="Revenue by day"><canvas width="300" height="100"></canvas><button>Share</button></section>
+<section><p><b>QA</b> entry 85</p><button>Share</button></section>`);
+
 /** The clipboard exists only in a secure context, which a data: URL is not: one page on localhost. */
 function serve(): Promise<{ url: string; close: () => void }> {
   return new Promise((resolve) => {
@@ -266,6 +274,31 @@ async function main() {
     let coveredNote = "";
     try { await h.api.click(hidden); } catch (e) { coveredNote = (e as Error).message; }
     check("a handle whose re-drawn control is under a dialog says what covers it", /Unsaved changes/.test(coveredNote) && /covers it/.test(coveredNote), coveredNote.slice(0, 300));
+
+    // ── near: what it names is a heading, a region's label, or plain text ────
+    await open(FIXTURE_CARDS);
+    const shares = (await h.api.observe()).elements.filter((e) => e.name === "Share").sort((a, b) => a.rect.y - b.rect.y).map((e) => e.ref);
+    const nearOf = async (near: unknown) => {
+      try { return (await h.api.find("Share", { role: "button", near }))?.ref ?? "null"; }
+      catch (e) { return `threw: ${(e as Error).message}`; }
+    };
+    check("three same-named buttons to tell apart", shares.length === 3, JSON.stringify(shares));
+    const byHeading = await nearOf("Orders by region");
+    check("near a heading picks the button in that card", byHeading === shares[0], byHeading.slice(0, 200));
+    const byLabel = await nearOf("Revenue by day");
+    check("near a region's label picks the button in that region", byLabel === shares[1], byLabel.slice(0, 200));
+    const byText = await nearOf("QA entry 85");
+    check("near a line of plain text picks the button beside it", byText === shares[2], byText.slice(0, 200));
+    const nowhere = await nearOf("Refunds by week");
+    check("near a name nothing shows is still refused, listing the matches",
+      /nothing on the surface is named/.test(nowhere) && shares.every((r) => nowhere.includes(r)), nowhere.slice(0, 400));
+    // The handle keeps the name, not the box: after the page is drawn again it is found afresh.
+    const kept85 = await h.api.find("Share", { role: "button", near: "QA entry 85" });
+    await h.api.act("reload", {});
+    let keptClick = "";
+    try { keptClick = await h.api.click(kept85); } catch (e) { keptClick = `threw: ${(e as Error).message}`; }
+    const third = (await h.api.observe()).elements.filter((e) => e.name === "Share").sort((a, b) => a.rect.y - b.rect.y)[2]?.ref;
+    check("a handle found near text is found again there after a reload", !!third && keptClick.includes(third), `${third}: ${keptClick.slice(0, 200)}`);
 
     await driver.close();
   } finally {

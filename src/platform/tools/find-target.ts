@@ -68,7 +68,15 @@ export interface FindScope {
    * stays in `matches`, ordered by distance.
    */
   near?: string;
+  /**
+   * Where `near` IS, when what it names is not a control's name or a group's label: a ref, a
+   * heading, a labelled region or a piece of the page's text ({@link anchorBox}). Resolved
+   * against each read by the caller and never kept on a handle — a box is a fact about one read.
+   */
+  nearBox?: Box;
 }
+
+type Box = { x: number; y: number; w: number; h: number };
 
 /**
  * Why a `find` matched nothing, as one word a script can branch on — each names a different next
@@ -175,7 +183,7 @@ function nearGroup(groups: NamedGroup[], near?: string, elements: Named[] = []):
 /** The pick, plus what else carried the name. Pure, so the tiers reproduce without a surface. */
 export function rankByName(elements: Named[], name: string, scope: FindScope = {}, groups: NamedGroup[] = []): Handle | null {
   const want = name.trim().toLowerCase();
-  const group = nearGroup(groups, scope.near, elements);
+  const group = scope.nearBox ? undefined : nearGroup(groups, scope.near, elements);
   const members = group ? new Set(group.members) : null;
   const searched = narrow(elements, scope).filter((e) => !members || members.has(e.ref));
   // The developer id counts as an EXACT name, never a partial one: it does not move when the UI is
@@ -215,9 +223,11 @@ export function rankByName(elements: Named[], name: string, scope: FindScope = {
     : valuedPartial.length ? valuedPartial
     : partial;
   const controls = pool.filter((e) => e.role !== "text");
-  const ranked = dedupeNested(nearestFirst(controls.length ? controls : pool, elements, group ? undefined : scope.near));
+  const ranked = dedupeNested(nearestFirst(controls.length ? controls : pool, elements, group ? undefined : scope.near, scope.nearBox));
   const hit = ranked[0];
   if (!hit) return null;
+  // The box stays behind: the handle re-resolves against a later read, where it is found again.
+  const { nearBox: _box, ...kept } = scope;
   return {
     ref: hit.ref,
     name: hit.name,
@@ -229,7 +239,7 @@ export function rankByName(elements: Named[], name: string, scope: FindScope = {
     ...(incidental ? { incidental: true } : {}),
     ...(byValue ? { byValue: true } : {}),
     ...(byShortName ? { byShortName: true } : {}),
-    ...(scope.role || scope.within || scope.visible || scope.near ? { scope } : {}),
+    ...(scope.role || scope.within || scope.visible || scope.near ? { scope: kept } : {}),
   };
 }
 
@@ -256,24 +266,59 @@ function narrow<T extends { ref: string; role: string; offscreen?: boolean; rect
   return list;
 }
 
-/** Candidates ordered by distance to the element named `near`. A missing anchor throws: falling
- *  back to "the first one" is what `near` was passed to prevent. */
-function nearestFirst<T extends { name: string; rect: { x: number; y: number; w: number; h: number } }>(
+/** Candidates ordered by distance to what `near` names: `box` when the caller resolved one
+ *  ({@link anchorBox}), else the control with that name. A missing anchor throws: falling back
+ *  to "the first one" is what `near` was passed to prevent — and it names the matches it could
+ *  not pick between, with where each one is, so the next call can take one by ref. */
+function nearestFirst<T extends { ref: string; name: string; role: string; rect: Box }>(
   ranked: T[],
   all: T[],
   near: string | undefined,
+  box?: Box,
 ): T[] {
   if (!near) return ranked;
   const want = near.trim().toLowerCase();
-  const anchor = all.find((e) => e.name.trim().toLowerCase() === want) ?? all.find((e) => e.name.toLowerCase().includes(want));
-  if (!anchor) throw new Error(`near: nothing on the surface is named "${near}", so it cannot pick between the matches — `
-    + "read the surface with text() and name something that is really beside the one you mean");
-  const centre = (r: { x: number; y: number; w: number; h: number }) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
-  const a = centre(anchor.rect);
+  const anchor = box ?? (all.find((e) => e.name.trim().toLowerCase() === want) ?? all.find((e) => e.name.toLowerCase().includes(want)))?.rect;
+  if (!anchor) {
+    const shown = ranked.slice(0, 4)
+      .map((e) => `${e.ref} ${e.role} "${e.name.trim().slice(0, 30)}" at x ${Math.round(e.rect.x)}, y ${Math.round(e.rect.y)}`).join("; ");
+    throw new Error(`near: nothing on the surface is named "${near}", so it cannot pick between the matches`
+      + (ranked.length > 1 ? ` (${shown}${ranked.length > 4 ? `; +${ranked.length - 4} more` : ""}) — act on one by its ref, or ` : " — ")
+      + "read the surface with text() and name something that is really beside the one you mean");
+  }
+  const centre = (r: Box) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+  const a = centre(anchor);
   return [...ranked].sort((p, q) => {
     const cp = centre(p.rect), cq = centre(q.rect);
     return Math.hypot(cp.x - a.x, cp.y - a.y) - Math.hypot(cq.x - a.x, cq.y - a.y);
   });
+}
+
+/**
+ * Where `near` is, when it does not name a control or a group — so that "the Share next to
+ * Revenue by day" works when "Revenue by day" is a card's heading and not a control.
+ *
+ * In the order a caller means them: a ref (or the handle it came from) is that element; a
+ * control or a group carrying the name exactly is left to the ranking ("named"); then a heading
+ * of that name; then a control or a heading that only contains it. `null` means none of these —
+ * the caller may still ask the surface for the text itself.
+ */
+export function anchorBox(
+  elements: Array<{ ref: string; name: string; rect: Box }>,
+  groups: NamedGroup[],
+  headings: Array<{ name: string; rect: Box }>,
+  near: string,
+): Box | "named" | null {
+  const byRef = elements.find((e) => e.ref === near);
+  if (byRef) return byRef.rect;
+  const want = near.trim().toLowerCase();
+  const is = (name: string) => name.trim().toLowerCase() === want;
+  const has = (name: string) => name.toLowerCase().includes(want);
+  if (groups.some((g) => is(g.label)) || elements.some((e) => is(e.name))) return "named";
+  const heading = headings.find((h) => is(h.name));
+  if (heading) return heading.rect;
+  if (groups.some((g) => has(g.label)) || elements.some((e) => has(e.name))) return "named";
+  return headings.find((h) => has(h.name))?.rect ?? null;
 }
 
 /** `find`'s second argument, as the script may write it: a plain object, `within` either a ref
@@ -286,6 +331,11 @@ export function findScope(opts: unknown, readsOffscreen: boolean): FindScope {
     : o.within && typeof o.within === "object" && typeof (o.within as Handle).ref === "string" ? (o.within as Handle).ref
       : undefined;
   if (o.within !== undefined && within === undefined) throw new Error("find's `within` must be a ref string or a find() handle");
+  // A name, a ref, or the handle of the control meant — which says WHICH one where a name is shared.
+  const near = typeof o.near === "string" ? o.near.trim()
+    : o.near && typeof o.near === "object" && typeof (o.near as Handle).ref === "string" ? (o.near as Handle).ref
+      : undefined;
+  if (o.near != null && near === undefined) throw new Error("find's `near` must be a name, a ref string or a find() handle");
   // Refused, not dropped: where reads never contain off-screen controls it would narrow nothing
   // while reading as though it had.
   if (o.visible && !readsOffscreen) {
@@ -296,7 +346,7 @@ export function findScope(opts: unknown, readsOffscreen: boolean): FindScope {
     ...(typeof o.role === "string" && o.role.trim() ? { role: o.role.trim() } : {}),
     ...(within ? { within } : {}),
     ...(o.visible ? { visible: true } : {}),
-    ...(typeof (o as { near?: unknown }).near === "string" && (o as { near: string }).near.trim() ? { near: (o as { near: string }).near.trim() } : {}),
+    ...(near ? { near } : {}),
   };
 }
 
@@ -365,7 +415,7 @@ export function coveredMiss(
  */
 export function nearMiss(elements: Named[], name: string, scope: FindScope = {}, inText = false, groups: NamedGroup[] = []): Omit<FindMiss, "ref"> {
   const want = name.trim().toLowerCase();
-  const group = nearGroup(groups, scope.near, elements);
+  const group = scope.nearBox ? undefined : nearGroup(groups, scope.near, elements);
   const unseen: MissReason = inText ? "text" : "absent";
   // What the filters cost: the name found again with ONLY `visible` dropped is off screen; found
   // only with every filter dropped, a filter excluded it.

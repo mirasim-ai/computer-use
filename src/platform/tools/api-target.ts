@@ -8,7 +8,7 @@
 
 import type { ComputerUseDriver } from "../driver.ts";
 import type { ToolResult } from "../types.ts";
-import { coveredMiss, type FindMiss, type FindScope, type Handle, nearMiss, rankByName, tiedOthers } from "./find-target.ts";
+import { anchorBox, coveredMiss, type FindMiss, type FindScope, type Handle, nearMiss, rankByName, tiedOthers } from "./find-target.ts";
 import type { RunLedger, ApiHooks } from "./api-contract.ts";
 
 /** How long a handle whose ref died keeps looking for its control by name, and how often: long
@@ -29,8 +29,15 @@ export function createTargeting(
   /** The same search, keeping what the READ knew for the journal line a miss writes, and the
    *  same knowledge as data (`why`) for `find(…, {why: true})`. */
   const findWithMiss = async (name: string, scope: FindScope = {}): Promise<{ h: Handle | null; miss: string; why: FindMiss | null }> => {
-    const { elements, groups, partial, covered } = await driver.readElements();
+    const { elements, groups, partial, covered, headings } = await driver.readElements();
     hooks.onRefs?.(elements.map((e) => e.ref));
+    // `near` may name something that is not a control: find where that is in THIS read.
+    if (scope.near) {
+      let box = anchorBox(elements, groups ?? [], headings ?? [], scope.near);
+      if (box === null) box = await driver.locateAnchor?.(scope.near).catch(() => null) ?? null;
+      const { nearBox: _stale, ...rest } = scope;
+      scope = box && box !== "named" ? { ...rest, nearBox: box } : rest;
+    }
     const h = rankByName(elements, name, scope, groups);
     if (h) return { h, miss: "", why: null };
     // The control IS here, under an overlay (an ad bar, a banner) — asked first: the text

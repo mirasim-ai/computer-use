@@ -226,6 +226,12 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
    * cannot answer without a walk leaves it undefined and its handles keep trusting a known ref. */
   refLive?(ref: string): Promise<boolean>;
 
+  /** Optional: the box, in element `rect` coordinates, of something on the surface that is NOT a
+   * listed control and that `find(…, {near})` may still name — a labelled region, or the smallest
+   * element showing that text. Null when nothing on screen carries it. Asked only after controls,
+   * groups and headings were tried; a driver that cannot answer leaves it undefined. */
+  locateAnchor?(name: string): Promise<{ x: number; y: number; w: number; h: number } | null>;
+
   /** Compare a read-back value using the platform's text representation. */
   valueMatches(actual: string, expected: string): boolean { return actual === expected; }
 

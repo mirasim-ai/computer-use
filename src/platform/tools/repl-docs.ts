@@ -106,7 +106,9 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
       + (driver.readsOffscreen ? "whole surface" : "everything the window shows — NOT what is scrolled out of it, which this platform's read does not contain")
       + " (an exact name beats a partial one, a partial the query is most of beats one it is only a fragment of, and a control beats a text label); a handle that re-resolves itself when used, so a loop survives a re-render; `matches` says how many controls carried the name and `others` names the runners-up, so an ambiguous name is visible BEFORE you act on the pick; `incidental: true` says NOTHING here is NAMED that and the pick is only a long name that happens to contain the word — the one `matches: 1` not to trust; narrow it with role (button / textbox / …), within (a ref or handle — matches inside that element's box, e.g. one sheet or one message)"
       + (driver.readsOffscreen ? " visible (on screen only)" : "")
-      + " and near (a labelled group restricts candidates to its members; otherwise prefer the control closest to the named element). Duplicate group labels or same-named controls within a group still need disambiguation",
+      + " and near (a labelled group restricts candidates to its members; otherwise prefer the control closest to what it names — another control by name, ref or handle"
+      + (driver.locateAnchor ? ", a heading, a labelled region, or any text the page shows, so near:'Revenue by day' picks that card's Share" : "")
+      + "). Duplicate group labels or same-named controls within a group still need disambiguation",
     // `why` is opt-in so every `if (!el)` already written keeps meaning "no match". Each reason
     // is offered only where this platform can answer it (find-target.ts `MissReason`).
     "    why: true — a miss answers {ref: null, reason, note, match?, by?, partial?} instead of null, so code can pick the way out in the SAME run (test `el.ref`, not `el`); a match answers the same handle as without it. "

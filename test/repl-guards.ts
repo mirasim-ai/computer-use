@@ -14,7 +14,7 @@
 import { createHarness } from "./harness.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
-import { coveredMiss, nearMiss, nearMissNote } from "../src/platform/tools/find-target.ts";
+import { anchorBox, coveredMiss, nearMiss, nearMissNote, rankByName } from "../src/platform/tools/find-target.ts";
 import { apiReference } from "../src/platform/tools/repl-docs.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ElectronDriver } from "../src/platform/electron/driver.ts";
@@ -170,6 +170,39 @@ async function main() {
   try { await h.api.find("control", { near: "nothing is called this" }); } catch (e) { badNear = (e as Error).message; }
   check("an anchor that is nowhere is refused rather than falling back to the first match",
     /nothing on the surface is named/.test(badNear), badNear);
+
+  check("...and names the matches it could not pick between, each with its ref and where it is",
+    /e8 button "control 0" at x \d+, y \d+/.test(badNear) && /\+76 more/.test(badNear) && /by its ref/.test(badNear), badNear.slice(0, 400));
+  // `near` also takes the control itself — a ref, or the handle a find answered with.
+  const nearRef = await h.api.find("control", { near: far.ref }) as { ref: string } | null;
+  check("find near a ref measures from that element", nearRef?.ref === far.ref, JSON.stringify(nearRef));
+  const nearHandle = await h.api.find("control", { near: nearFar }) as { ref: string; scope?: { near?: string; nearBox?: unknown } } | null;
+  check("find near a handle measures from the control the handle names",
+    nearHandle?.ref === far.ref && nearHandle?.scope?.near === far.ref && !nearHandle?.scope?.nearBox, JSON.stringify(nearHandle));
+  let badNearKind = "";
+  try { await h.api.find("control", { near: { nope: true } }); } catch (e) { badNearKind = (e as Error).message; }
+  check("a near that is none of them is named, not ignored", /must be a name, a ref string or a find\(\) handle/.test(badNearKind), badNearKind);
+  {
+    // What `near` names when it is not a control: a heading of that name, found in the read.
+    const at = (x: number, y: number) => ({ x, y, w: 10, h: 10 });
+    const cards = [
+      { ref: "e1", name: "Share", role: "button", rect: at(300, 0) },
+      { ref: "e2", name: "Share", role: "button", rect: at(300, 400) },
+      { ref: "e3", name: "Export revenue by day", role: "button", rect: at(0, 800) },
+    ];
+    const titles = [{ name: "Orders by region", rect: at(0, 0) }, { name: "Revenue by day", rect: at(0, 400) }];
+    const box = anchorBox(cards, [], titles, "Revenue by day");
+    check("near resolves to a heading of that name, ahead of a control that only contains it",
+      box !== null && box !== "named" && box.y === 400, JSON.stringify(box));
+    const picked = box && box !== "named" ? rankByName(cards, "Share", { near: "Revenue by day", nearBox: box }) : null;
+    check("...and the ranking measures from it", picked?.ref === "e2" && picked?.matches === 2, JSON.stringify(picked));
+    check("...without keeping the box on the handle", !!picked?.scope?.near && !picked?.scope?.nearBox, JSON.stringify(picked?.scope));
+    check("a control or a group of that exact name is left to the ranking",
+      anchorBox(cards, [], titles, "Export revenue by day") === "named"
+        && anchorBox(cards, [{ label: "Revenue by day", members: ["e2"] }], titles, "Revenue by day") === "named");
+    check("a ref is that element's box", (anchorBox(cards, [], titles, "e2") as { y: number }).y === 400);
+    check("a name nothing carries resolves to nothing", anchorBox(cards, [], titles, "Refunds") === null);
+  }
 
   let badScope = "";
   try { await h.api.find("control", { within: { nope: true } }); } catch (e) { badScope = (e as Error).message; }

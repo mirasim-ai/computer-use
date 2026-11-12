@@ -15,6 +15,7 @@ import { MAX_REFS, ROW_CONTEXT_BUDGET, pageFn } from "./collect.ts";
 import { VIEWPORT_JS } from "./collect-viewport.ts";
 import { EXCERPT_JS, FULL_TEXT_JS, WAIT_TEXT_JS, type FullTextResult } from "./page-text.ts";
 import { unreachedFacts } from "./unreached.ts";
+import { ANCHOR_BOX_JS } from "./anchor.ts";
 import { readPage as readPageImpl } from "./read-page.ts";
 import { JPEG_SHOT, scopedShot, withPageCapture } from "./shot.ts";
 import { POST_NAV_QUIET_MS } from "./page-base.ts";
@@ -269,6 +270,25 @@ export abstract class ChromiumPageDriver extends ChromiumPageWaits {
       if ("value" in el && typeof el.value === "string" && !/^(button|submit|reset)$/i.test(el.type || "")) return el.value;
       return el.innerText || el.textContent || "";
     }));
+  }
+
+  /** Where a name that is no control sits — a labelled region, or the smallest element showing
+   *  that text (anchor.ts) — in the top-level coordinates the element rects use. First frame
+   *  that carries it, in reading order. */
+  override async locateAnchor(name: string): Promise<{ x: number; y: number; w: number; h: number } | null> {
+    const want = name.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!want) return null;
+    for (const frame of readableFrames(this.page())) {
+      let ox = 0, oy = 0;
+      if (frame.parentFrame()) {
+        const at = await (await frame.frameElement()).boundingBox().catch(() => null);
+        if (!at) continue;
+        ox = at.x; oy = at.y;
+      }
+      const box = await frame.evaluate(pageFn(ANCHOR_BOX_JS) as any, want).catch(() => null) as { x: number; y: number; w: number; h: number } | null;
+      if (box) return { x: box.x + ox, y: box.y + oy, w: box.w, h: box.h };
+    }
+    return null;
   }
 
   /** A wait searches the whole document (page-text.ts WAIT_TEXT_JS), not the region text() reads. */
