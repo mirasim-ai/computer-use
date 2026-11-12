@@ -67,7 +67,9 @@ the same tasks here. That rerun is not part of v1.
 
 Tasks, judges, every run and the full report are in the
 [DevBrowse Bench repository](https://github.com/mirasim-ai/devbrowse-bench)
-([v1 report](https://github.com/mirasim-ai/devbrowse-bench/blob/main/results/v1/REPORT.md)).
+([v1 report](https://github.com/mirasim-ai/devbrowse-bench/blob/main/results/v1/REPORT.md)). The
+runs and the tasks are also on Hugging Face as the
+[devbrowse-bench dataset](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench).
 
 ## Install
 
