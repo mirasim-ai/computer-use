@@ -85,16 +85,19 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
 
 or install the `mirasim-cu` command once with `npm install -g @mirasim/computer-use`.
 
-In Codex, add it to `~/.codex/config.toml`, and approve both tools: Codex asks before every
-MCP call by default, and when it is set never to ask (`approval_policy = "never"`) a tool
-without `approval_mode = "approve"` is refused outright — `computer_repl_reset` included,
-which is the call a stuck session reaches for:
+In Codex, register it the same way:
+
+```sh
+codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
+```
+
+That writes a `[mcp_servers.mirasim-cu]` table into `~/.codex/config.toml`. The command has no
+option for tool approvals, so approve both tools in that file as a second step: Codex asks
+before every MCP call by default, and when it is set never to ask (`approval_policy = "never"`)
+a tool without `approval_mode = "approve"` is refused outright — `computer_repl_reset`
+included, which is the call a stuck session reaches for. Append:
 
 ```toml
-[mcp_servers.mirasim-cu]
-command = "npx"
-args = ["-y", "@mirasim/computer-use", "mcp"]
-
 [mcp_servers.mirasim-cu.tools.computer_repl]
 approval_mode = "approve"
 
@@ -102,15 +105,19 @@ approval_mode = "approve"
 approval_mode = "approve"
 ```
 
+`codex mcp add` under a name that is already registered rewrites the entry, and
+`codex mcp remove` deletes it; both drop these two tables, so append them again afterwards.
+
 **Browser** works out of the box on macOS, Windows and Linux: computer-use drives a Chrome of
 its own (installed Google Chrome is required), keeping its profile under
 `~/.mirasim-computer-use` so logins carry over between sessions. To drive the browser you are
 signed into instead, install the
 [Mirasim extension](https://chromewebstore.google.com/detail/mirasim/khflooofmndpmafhofjdcpjfgnlpikhg)
-and add `-e COMPUTER_USE_BROWSER=extension`. By default the agent sees only the tabs it opens and
-the ones you hand it: click the extension's toolbar icon on a tab to hand that tab over, and use
-its panel to take tabs back, pause the agent, widen what it may reach or block sites. The icon is
-in colour on tabs the agent may use and grey on the rest.
+and add `-e COMPUTER_USE_BROWSER=extension` (`--env COMPUTER_USE_BROWSER=extension` with
+`codex mcp add`, which has no `-e`). By default the agent sees only the tabs it opens and the
+ones you hand it: click the extension's toolbar icon on a tab to hand that tab over, and use its
+panel to take tabs back, pause the agent, widen what it may reach or block sites. The icon is in
+colour on tabs the agent may use and grey on the rest.
 
 In extension mode the first browser call starts a bridge in the background and registers it as
 the extension's native-messaging host: a record under `~/.mirasim-computer-use/native-host/`
@@ -138,6 +145,7 @@ own copy.
 
 ```sh
 claude mcp add mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mirasim/computer-use mcp
+codex mcp add mirasim-cu --env COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mirasim/computer-use mcp
 ```
 
 - `macos` drives native macOS apps through their accessibility tree in the background. Grant
