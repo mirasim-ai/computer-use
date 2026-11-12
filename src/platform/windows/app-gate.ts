@@ -6,12 +6,14 @@
  * it is what the helper reports for every window and what a person can type into an allow-list,
  * while window titles are localised and change with the document.
  *
- * Every read and every action on a window passes {@link WindowsAppGate.authorize} first. A cleared
- * app costs a set lookup; any other is put to the user through the host (MCP elicitation, `_meta`
- * `mirasim-computer-use/windowsApp`), offering `persist: ["session", "always"]`: none = this call, `session` = this
- * session, `always` = kept on disk too — unless the host keeps approvals itself and turns that store
- * off with `COMPUTER_USE_WINDOWS_APPROVALS=""` (e.g. a host that keeps an allow-list in its own settings). A host that cannot
- * ask leaves every app cleared: the standalone CLI, where the user IS the operator.
+ * Every read and every action on a window passes {@link WindowsAppGate.authorize} first, and so
+ * does starting an app, before it is started. A cleared app costs a set lookup; any other is put
+ * to the user through the host (MCP elicitation, `_meta` `mirasim-computer-use/windowsApp`),
+ * offering `persist: ["session", "always"]`: none = this call, `session` = this session, `always`
+ * = kept on disk too — unless the host keeps approvals itself and turns that store off with
+ * `COMPUTER_USE_WINDOWS_APPROVALS=""` (e.g. a host that keeps an allow-list in its own settings).
+ * A host that cannot ask leaves every app cleared: the standalone CLI, where the user IS the
+ * operator.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -75,6 +77,9 @@ export class WindowsAppGate {
   private readonly approved = new Set<string>();
   /** Cleared for the current computer_repl call only (an answer with no `persist`). */
   private readonly approvedThisCall = new Set<string>();
+  /** A program cleared because the app asked about turned out to run as it ({@link extend}),
+   *  mapped to the name that was asked about: taking that one back takes this one back. */
+  private readonly extended = new Map<string, string>();
   private readonly stored: WindowsApprovals;
   /** The programs this agent runs inside (`COMPUTER_USE_HOST_APPS`): never driven, whatever the answer. */
   private readonly hostApps: ReadonlySet<string>;
@@ -85,8 +90,12 @@ export class WindowsAppGate {
     // A clearance the host takes back is gone at the next read or action: every one re-checks.
     consent?.onRevoke((apps) => {
       for (const app of apps) {
-        this.approved.delete(key(app));
-        this.approvedThisCall.delete(key(app));
+        const gone = [key(app), ...[...this.extended].filter(([, from]) => from === key(app)).map(([to]) => to)];
+        for (const k of gone) {
+          this.approved.delete(k);
+          this.approvedThisCall.delete(k);
+          this.extended.delete(k);
+        }
         this.stored.remove(app);
       }
     });
@@ -102,20 +111,40 @@ export class WindowsAppGate {
   }
 
   endCall(): void {
+    for (const k of this.approvedThisCall) this.extended.delete(k);
     this.approvedThisCall.clear();
   }
 
   /**
-   * Clear `app` or throw the refusal. `title` is shown only in the question, to the person who is
-   * deciding whether the agent may see it. Resolves with the milliseconds spent waiting on them —
-   * a person deciding is not a slow surface, so the run's time cap must not count it.
+   * The app cleared as `from` runs as `to`: a launch is asked about before anything is started,
+   * under the best name there is for it then, and the window it opens can belong to another
+   * program (a launcher that hands over; an entry whose program could not be told ahead). The
+   * answer about the launch covers that program for as long as it holds — this call or this
+   * session; only what the user was actually asked about is ever written to disk.
    */
-  async authorize(app: string, title: string, purpose: string | null): Promise<number> {
+  extend(from: string, to: string): void {
+    const [f, t] = [key(from), key(to)];
+    if (f === t || this.hostApps.has(t) || this.cleared(t)) return;
+    if (this.approved.has(f) || this.stored.has(f)) this.approved.add(t);
+    else if (this.approvedThisCall.has(f)) this.approvedThisCall.add(t);
+    else return;
+    this.extended.set(t, f);
+  }
+
+  /**
+   * Clear `app` or throw the refusal. `title` is shown only in the question, to the person who is
+   * deciding whether the agent may see it: the window's title, or for a `launch` — the question
+   * that comes BEFORE an app is started — the name it is started by. Resolves with the
+   * milliseconds spent waiting on them — a person deciding is not a slow surface, so the run's
+   * time cap must not count it.
+   */
+  async authorize(app: string, title: string, purpose: string | null, launch = false): Promise<number> {
     if (this.hostApps.has(key(app))) throw new AppRefused(`${app} is the app this agent runs inside; Computer Use never drives it`);
     if (this.cleared(app)) return 0;
     const started = Date.now();
-    const answer = await this.consent!.ask(`Allow Computer Use to see and control ${app} ("${title}")?`, {
-      "mirasim-computer-use/windowsApp": { app, title, ...(purpose ? { purpose } : {}) },
+    const shown = key(title) === key(app) ? app : `${app} ("${title}")`;
+    const answer = await this.consent!.ask(`Allow Computer Use to ${launch ? "start, " : ""}see and control ${shown}?`, {
+      "mirasim-computer-use/windowsApp": { app, title, ...(launch ? { launch: true } : {}), ...(purpose ? { purpose } : {}) },
       persist: ["session", "always"],
     });
     const waited = Date.now() - started;

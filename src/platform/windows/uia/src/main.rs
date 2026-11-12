@@ -21,6 +21,7 @@ mod background_guard;
 mod hmenu;
 mod human;
 mod input;
+mod manifest;
 mod shot;
 mod typing;
 mod uia;
@@ -54,7 +55,7 @@ pub type Reply = Result<Value, Fail>;
 
 const OPS: &[&str] = &[
     "capabilities", "windows", "foreground", "tree", "activate", "press", "setvalue", "value", "focus",
-    "click", "move", "scroll", "key", "type", "shot", "shotscoped", "humanidle", "background", "pattern", "apps", "launch", "drag", "selectrange", "paste", "hmenu", "hmenucmd", "setdate",
+    "click", "move", "scroll", "key", "type", "shot", "shotscoped", "humanidle", "background", "pattern", "apps", "appinfo", "launch", "drag", "selectrange", "paste", "hmenu", "hmenucmd", "setdate",
 ];
 
 fn main() {
@@ -115,6 +116,7 @@ fn dispatch(engine: Option<&mut uia::Engine>, r: &Value) -> Reply {
         "apps" => return apps::list(),
         "hmenu" => return hmenu::list(param_hwnd(r)?),
         "hmenucmd" => return hmenu::command(param_hwnd(r)?, r["item"].as_u64().unwrap_or(0) as u32),
+        "appinfo" => return apps::info(text(r, "app")?),
         "launch" => return apps::launch(text(r, "app")?),
         "drag" => return input::drag(int(r, "x")?, int(r, "y")?, int(r, "toX")?, int(r, "toY")?, r["steps"].as_u64().unwrap_or(20) as u32),
         _ => {}

@@ -50,7 +50,8 @@ export const WINDOWS_INTERACTION_NOTES: readonly string[] = [
   "Open menus, dropdown lists and context menus are read with the window: their items are listed last.",
   "An app with no window open is started by binding its Start-menu name (computer.surface('Calculator')) or, from a bound window, "
     + "launchApp({app}); listApps({query}) gives the names, which are in the system language. Starting one opens its window in "
-    + "front of the user, so both need interaction:'desktop' and the user's permission; the app itself is cleared like any bind.",
+    + "front of the user, so both need interaction:'desktop' and the user's permission; the app itself is cleared like any bind, "
+    + "before it is started — one the user declines is never started.",
   "A menu-bar command runs by its path: menu({path:'File › Save As'}) — names in the system language, so list them first with "
     + "menu({}); the last segment alone works when unique, and a path ending at a submenu lists it. A classic Win32 menu bar runs "
     + "the command directly; others are opened level by level. Prefer it to clicking through menus yourself.",

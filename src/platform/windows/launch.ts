@@ -18,6 +18,24 @@ export interface StartApp { name: string; id: string }
 /** What the helper's `launch` answers. `pid` is 0 when the shell started it without a handle. */
 export interface Started { name: string; via: string; pid: number }
 
+/**
+ * What the helper's `appinfo` answers: what `launch` WOULD start for a name, nothing started.
+ * `exe` is the program's stem — the name its window will be listed under, and so the name the
+ * user is asked about — or null when the entry does not say which program it runs.
+ */
+export interface AppInfo { name: string; via: string; exe: string | null }
+
+/**
+ * The name a launch is asked about BEFORE anything is started (app-gate.ts): the program, when
+ * the helper could tell it ahead; else the Start-menu name the app goes by; else what was typed.
+ * `shown` is that app as a person knows it, for the question.
+ */
+export function launchConsent(app: string, info: AppInfo | null, list: StartApp[]): { app: string; shown: string } {
+  const q = app.trim().toLowerCase();
+  const shown = info?.name ?? list.find((a) => a.id.toLowerCase() === q)?.name ?? app.trim();
+  return { app: info?.exe?.trim() || shown, shown };
+}
+
 interface Row { hwnd: number; pid: number; process: string; title: string }
 
 export function filterApps(list: StartApp[], query: string): ActResult {
@@ -42,12 +60,15 @@ export function startAppTarget(list: StartApp[], query: string): TargetInfo | nu
 /**
  * Does this window belong to what was started? Not by the started process alone: a Store app's
  * window belongs to another process, and `calc.exe` exits after handing over. So also by program
- * name, or a title carrying the app's name.
+ * name — the one typed, or the one the entry was known to run (`exe`) — or a title carrying the
+ * app's name.
  */
-export function launchedBy(app: string, started: Started): (r: Row) => boolean {
+export function launchedBy(app: string, started: Started, exe: string | null = null): (r: Row) => boolean {
   const stem = app.trim().toLowerCase().split(/[\\/]/).pop()!.replace(/\.exe$/, "");
   const name = started.name.toLowerCase();
-  return (r) => (started.pid !== 0 && r.pid === started.pid) || r.process.toLowerCase() === stem || r.title.toLowerCase().includes(name);
+  const program = exe?.trim().toLowerCase();
+  return (r) => (started.pid !== 0 && r.pid === started.pid) || r.process.toLowerCase() === stem || (!!program && r.process.toLowerCase() === program)
+    || r.title.toLowerCase().includes(name);
 }
 
 /** Among the windows that APPEARED since the launch: the launched app's, or the only new one. */

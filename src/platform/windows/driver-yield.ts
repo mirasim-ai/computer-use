@@ -57,9 +57,14 @@ export abstract class WindowsDriverYield extends WindowsDriverRead {
     };
   }
 
-  /** Every desktop action takes the foreground, so every one waits for the user to pause first. */
-  protected async yieldToHuman(kind: string, title: string): Promise<ActResult | null> {
-    const deadline = Date.now() + HUMAN_WAIT_MS;
+  /**
+   * Every desktop action takes the foreground, so every one waits for the user to pause first.
+   * `justAnswered`: the user has this moment answered a question of ours, with the same keyboard
+   * or pointer this listens to — so the wait is long enough for that answer to stop counting as
+   * them being busy, and only input after it refuses the action.
+   */
+  protected async yieldToHuman(kind: string, title: string, justAnswered = false): Promise<ActResult | null> {
+    const deadline = Date.now() + HUMAN_WAIT_MS + (justAnswered ? HUMAN_QUIET_MS : 0);
     for (;;) {
       const idle = await this.humanIdleSeconds();
       if (idle === null || idle * 1000 >= HUMAN_QUIET_MS) return null;

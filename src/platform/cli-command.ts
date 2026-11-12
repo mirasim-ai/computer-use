@@ -8,5 +8,6 @@
 /** `mirasim-cu approvals add <app>`, spelled the way this process was started. */
 export function approvalsAddCommand(app: string, argv1: string = process.argv[1] ?? ""): string {
   const viaNpx = /[\\/]_npx[\\/]/.test(argv1);
-  return `${viaNpx ? "npx -y @mirasim/computer-use" : "mirasim-cu"} approvals add ${app}`;
+  // A name with a space in it (an app asked about by its Start-menu name) is one argument.
+  return `${viaNpx ? "npx -y @mirasim/computer-use" : "mirasim-cu"} approvals add ${/\s/.test(app) ? `"${app}"` : app}`;
 }
