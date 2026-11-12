@@ -14,7 +14,7 @@ A report is easiest to act on when it says:
 
 - the version (`npx -y @mirasim/computer-use --version`) and how it runs: the MCP server on its
   own, or built into the Mirasim desktop app;
-- the surface (the managed browser, your own browser through the extension, macOS, Windows or
+- the surface (the managed browser, your own browser through the extension, macOS apps or
   Electron) and the operating system;
 - the steps that reproduce it, and what someone could do with it.
 

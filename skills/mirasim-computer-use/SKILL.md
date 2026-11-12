@@ -1,6 +1,6 @@
 ---
 name: mirasim-computer-use
-description: Read before operating a browser tab, macOS/Windows app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
+description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
 ---
 
 # Mirasim Computer Use
@@ -108,7 +108,7 @@ Where code must not choose:
   maybe that is the bug you are looking for. Stop and look; signing in from code hides it. The
   one exception: the task or the user gave the account and said a sign-in may come up again.
 - **What `why` cannot settle.** `filtered` and `text` mean your query is wrong, not the page;
-  on macOS and Windows a covered control reads as `absent`. Fix the query or look.
+  on macOS a covered control reads as `absent`. Fix the query or look.
 - **An option that is not there.** When a select lacks the option you expected, read the
   options and report it; do not quietly pick another — in a QA task that is the finding.
 

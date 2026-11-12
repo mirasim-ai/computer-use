@@ -1,7 +1,7 @@
 # AGENTS.md
 
-`@mirasim/computer-use`: an MCP server (and Node library) that drives browsers, macOS apps,
-Windows apps and Electron apps through their accessibility trees. README covers what it does;
+`@mirasim/computer-use`: an MCP server (and Node library) that drives browsers, macOS apps
+and Electron apps through their accessibility trees. README covers what it does;
 [docs/embedding.md](docs/embedding.md) covers how a host drives it and every `COMPUTER_USE_*`
 variable; [docs/releasing.md](docs/releasing.md) covers publishing.
 
@@ -33,6 +33,11 @@ variable; [docs/releasing.md](docs/releasing.md) covers publishing.
   double quotes, semicolons.
 - Comments and docs are in English. Non-English text appears only as data or examples
   (localized app names such as `文本编辑`).
+- Native Windows apps (`src/platform/windows`) are in the tree and their helper is still
+  published, but they are not part of the release: the platform mounts only under
+  `COMPUTER_USE_UNSUPPORTED_WINDOWS=1`. README, docs/embedding.md, the skill, the help and the
+  tool descriptions do not mention them; what a host needs is in
+  `src/platform/windows/README.md`. Keep it that way until they are released.
 - A Rust crate linked into the Windows helper must be listed in `THIRD_PARTY_NOTICES`; the
   platform-package build fails otherwise.
 

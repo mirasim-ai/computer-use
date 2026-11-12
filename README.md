@@ -10,7 +10,7 @@ Open-source computer use for any agent, faster and more efficient than ChatGPT C
 tokens (2026-11-06 and 2026-11-07).
 
 An MCP server that lets the agent you already use (Claude Code, Codex, or any MCP host) operate
-browsers, macOS apps, Windows apps and Electron apps. It runs no model of its own and needs no
+browsers, macOS apps and Electron apps. It runs no model of its own and needs no
 API key. The [Mirasim](https://mirasim.ai) desktop app ships the same tools built in
 (Settings → Computer Use).
 
@@ -139,9 +139,10 @@ own copy.
 claude mcp add mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mirasim/computer-use mcp
 ```
 
-- `macos` and `windows` drive native apps through their accessibility tree in the background.
-  On macOS, grant Accessibility (and Screen Recording, for screenshots) to the app that runs
-  your agent; `mirasim-cu setup macos` checks both.
+- `macos` drives native macOS apps through their accessibility tree in the background. Grant
+  Accessibility (and Screen Recording, for screenshots) to the app that runs your agent;
+  `mirasim-cu setup macos` checks both. Native Windows apps are not driven in this release;
+  the browser works on Windows as it does on macOS.
 - `electron` drives any app started with `--remote-debugging-port=<port>`
   (`COMPUTER_USE_ELECTRON_CDP_URL`, default `http://127.0.0.1:9333`).
 
@@ -157,17 +158,15 @@ on the client:
   and the next call asks again. Allow the app ahead of time (next item) to stop the questions.
 - A non-interactive run (`claude -p`, CI) declines every question unseen, so an app nobody
   allowed is refused. Allow it ahead of time with
-  `npx -y @mirasim/computer-use approvals add com.apple.TextEdit` (a macOS bundle id; on Windows
-  the executable's name without `.exe`, e.g. `WINWORD` — or `CalculatorApp` for Calculator: a
-  Store app goes by its own program, never by `ApplicationFrameHost`). The refusal names the
-  exact command. `approvals` lists them; `approvals remove` revokes one.
+  `npx -y @mirasim/computer-use approvals add com.apple.TextEdit` (a macOS bundle id). The
+  refusal names the exact command. `approvals` lists them; `approvals remove` revokes one.
 - A client without elicitation support cannot ask, so the server drives **every** app the agent
-  names. On macOS, `-e COMPUTER_USE_MACOS_FALLBACK_APPS=com.apple.TextEdit,…` narrows that to
-  the listed apps.
+  names. `-e COMPUTER_USE_MACOS_FALLBACK_APPS=com.apple.TextEdit,…` narrows that to the listed
+  apps.
 
-The macOS and Windows drivers use a small native helper that npm installs prebuilt for macOS
-arm64/x64 and Windows x64/arm64. Every setting, the state directory and the host protocol are
-documented in [docs/embedding.md](docs/embedding.md).
+The macOS driver uses a small native helper that npm installs prebuilt for arm64 and x64. Every
+setting, the state directory and the host protocol are documented in
+[docs/embedding.md](docs/embedding.md).
 
 ## Use
 

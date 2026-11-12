@@ -29,11 +29,10 @@ host passes the same values as `ProfileOptions` instead; the table is the mappin
 
 | Variable | Meaning |
 |---|---|
-| `COMPUTER_USE_PLATFORMS` | `browser` (default), `electron`, `macos` or `windows`; a comma-separated list mounts several in one session |
+| `COMPUTER_USE_PLATFORMS` | `browser` (default), `electron` or `macos`; a comma-separated list mounts several in one session |
 | `COMPUTER_USE_MACOS_FALLBACK_APPS` | macOS bundle ids a host that CANNOT ask (no MCP elicitation) may drive; unset = no limit. A host that declares elicitation is asked per app instead |
 | `COMPUTER_USE_MACOS_APPROVALS` | where computer-use keeps macOS "always allow" answers (`persist: "always"`) for a host that keeps none; default `<home>/macos-approvals.json`, `""` turns it off for a host that keeps its own |
-| `COMPUTER_USE_WINDOWS_APPROVALS` | the same for Windows apps (by executable stem); default `<home>/windows-approvals.json`, `""` turns it off |
-| `COMPUTER_USE_HOST_APPS` | apps this agent runs inside (macOS bundle ids, Windows program names; comma-separated): never listed, never driven — an observation of them would contain the session's own UI. Unset = none |
+| `COMPUTER_USE_HOST_APPS` | apps this agent runs inside (macOS bundle ids, comma-separated): never listed, never driven — an observation of them would contain the session's own UI. Unset = none |
 | `COMPUTER_USE_ELECTRON_CDP_URL` | the Electron app's renderer debugging endpoint (port or full URL) |
 | `COMPUTER_USE_BROWSER` | `extension`: the user's own browser through the Mirasim extension; with no `COMPUTER_USE_CDP_URL` the session finds or starts the bridge itself (`<home>/bridge.json`). A host that supervises its own bridge passes its endpoint in `COMPUTER_USE_CDP_URL` instead |
 | `COMPUTER_USE_CDP_URL` / `COMPUTER_USE_CHROME` / `COMPUTER_USE_PROFILE_DIR` / `COMPUTER_USE_WINDOW` | browser settings (Managed-browser settings below) |
@@ -56,8 +55,8 @@ that host does not get, never an error.
 **Handshake.** The client's `initialize` capabilities decide what is on:
 
 - `elicitation.form` — computer-use may ask the user before driving a native app (below). Without
-  it, macOS drives the apps in `COMPUTER_USE_MACOS_FALLBACK_APPS` (unset: every app) and Windows
-  drives every app: whoever started the server is then the operator.
+  it, macOS drives the apps in `COMPUTER_USE_MACOS_FALLBACK_APPS` (unset: every app): whoever
+  started the server is then the operator.
 - `experimental["mirasim-computer-use/preview"]` — live preview (next section).
 
 The server advertises `experimental["mirasim-computer-use/preview"] = { version: 1 }`, and its
@@ -70,14 +69,7 @@ the yes. Its `_meta` names the app:
 | `_meta` key | Platform | Value |
 |---|---|---|
 | `mirasim-computer-use/macosApp` | macOS | `{ bundle, name, purpose? }`: bundle id, display name |
-| `mirasim-computer-use/windowsApp` | Windows | `{ app, title, launch?, purpose? }`: executable stem (`WINWORD`), window title. `launch: true` when the app is about to be started: `title` is then the name it is started by, and `app` its program when the Start menu says which one that is, else that name |
-| `persist` | both | `["session", "always"]`: the durations the host may grant |
-
-A Windows Store app is named by its own program (`CalculatorApp`, `SystemSettings`), never by
-`ApplicationFrameHost`, the process that frames all of their windows: nothing is asked about
-that name and no answer or stored approval of it clears anything. While a Store app's window
-does not say which app it is (for a moment as it starts, and while minimized) it cannot be
-bound.
+| `persist` | macOS | `["session", "always"]`: the durations the host may grant |
 
 The form (`requestedSchema`) has one optional string field for a client that knows nothing of
 this `_meta`: `persist`, an enum of `once`, `session` and `always` (titled "This call only",
@@ -102,7 +94,7 @@ The answer is a normal elicitation result; its `_meta` says how long a yes holds
 A question waits up to 15 minutes; the host is expected to give up first and say so.
 
 **Taking a clearance back.** `notifications/mirasim-computer-use/revoke` with `{ ids: string[] }`
-(macOS bundle ids, Windows executable stems) drops every clearance of those apps at once (this
+(macOS bundle ids) drops every clearance of those apps at once (this
 call's, this session's and the stored "always") and removes them from the live preview. The next
 read or action in one of them asks again. A host that keeps its own allow-list sends it when an
 app leaves that list.
@@ -296,13 +288,11 @@ What the README's Install section leaves out.
 
 ### Native helpers
 
-The macOS and Windows drivers each run a small native helper. npm installs it prebuilt, as the
-platform package `@mirasim/computer-use-<platform>-<arch>` (macOS arm64/x64, Windows x64/arm64).
-The package itself carries no helper sources, so on any other target, or with
-`--omit=optional`, the macOS and Windows surfaces are unavailable until the helper is supplied:
-`COMPUTER_USE_MACOS_AX_BIN` / `COMPUTER_USE_WINDOWS_UIA_BIN` name a prebuilt one. A repository
-checkout instead builds it from its sources on first use (`swiftc` from the Xcode command line
-tools, or Rust's `cargo`) and caches it.
+The macOS driver runs a small native helper. npm installs it prebuilt, as the platform package
+`@mirasim/computer-use-darwin-<arch>` (arm64, x64). The package itself carries no helper
+sources, so with `--omit=optional` the macOS surface is unavailable until the helper is
+supplied: `COMPUTER_USE_MACOS_AX_BIN` names a prebuilt one. A repository checkout instead builds
+it from its sources on first use (`swiftc` from the Xcode command line tools) and caches it.
 
 ### Browser startup and state
 
@@ -467,15 +457,11 @@ Every driver connects lazily, so mounting one the run never touches costs nothin
   Under a host without elicitation, the apps listed in `COMPUTER_USE_MACOS_FALLBACK_APPS`
   (comma-separated bundle ids) may be driven — or any app when it is unset, since whoever
   started the server is then the operator.
-- **Windows** works the same way through UI Automation, with approvals in
-  `<home>/windows-approvals.json`, by executable stem (`WINWORD`; a Store app by its own
-  program, `CalculatorApp`). Starting an app that is not running needs `interaction: "desktop"`
-  and is asked about before the app is started; one the user declines is not started.
 - **Electron** drives any app started with `--remote-debugging-port=<port>`;
   `COMPUTER_USE_ELECTRON_CDP_URL` points at it (default `http://127.0.0.1:9333`).
 
 A host that keeps its own approval list turns the stored one off with
-`COMPUTER_USE_MACOS_APPROVALS=""` / `COMPUTER_USE_WINDOWS_APPROVALS=""`.
+`COMPUTER_USE_MACOS_APPROVALS=""`.
 
 ## Device lifecycle
 
