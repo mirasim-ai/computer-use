@@ -1,6 +1,6 @@
 # Mirasim Computer Use
 
-[![npm](https://img.shields.io/npm/v/@mirasim/computer-use)](https://www.npmjs.com/package/@mirasim/computer-use)
+[![npm](https://img.shields.io/npm/v/@mirasim/computer-use/next)](https://www.npmjs.com/package/@mirasim/computer-use)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Dataset on Hugging Face](https://img.shields.io/badge/dataset-devbrowse--bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
 [![Benchmark: DevBrowse Bench](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-2ea44f)](https://github.com/mirasim-ai/devbrowse-bench)
@@ -77,37 +77,97 @@ runs and the tasks are also on Hugging Face as the
 
 ## Install
 
-Needs Node.js 22.19 or later. Register the MCP server with your agent:
+Needs Node.js 22.19 or later and Google Chrome. Every release so far is a prerelease, published
+to npm's `next` tag, so the commands below ask for `@mirasim/computer-use@next`; a plain
+`@mirasim/computer-use` still resolves to an older build that lacks some of what this README
+describes.
 
-```sh
-claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp
-```
+### Claude Code
 
-or install the `mirasim-cu` command once with `npm install -g @mirasim/computer-use`.
+1. Register the MCP server for all your projects (leave out `-s user` to register it for the
+   current project only):
 
-In Codex, add it to `~/.codex/config.toml`, and approve both tools: Codex asks before every
-MCP call by default, and when it is set never to ask (`approval_policy = "never"`) a tool
-without `approval_mode = "approve"` is refused outright — `computer_repl_reset` included,
-which is the call a stuck session reaches for:
+   ```sh
+   claude mcp add -s user mirasim-cu -- npx -y @mirasim/computer-use@next mcp
+   ```
 
-```toml
-[mcp_servers.mirasim-cu]
-command = "npx"
-args = ["-y", "@mirasim/computer-use", "mcp"]
+2. Optionally, install the [agent skill](#agent-skill):
+   `npx -y @mirasim/computer-use@next setup skill`.
+3. Check the connection. `claude mcp list` should print
+   `mirasim-cu: npx -y @mirasim/computer-use@next mcp - ✔ Connected`.
+4. Start `claude` and ask, for example, *"Open https://example.com with mirasim-cu and tell me
+   the page title."* The first time, Claude Code asks before it calls `computer_repl`: allow
+   it, or allow the whole server ahead of time with the permission rule `mcp__mirasim-cu`
+   (`/permissions`, or `permissions.allow` in `settings.json`). A non-interactive run
+   (`claude -p`) cannot ask and refuses the call unless you pass
+   `--allowedTools mcp__mirasim-cu`.
 
-[mcp_servers.mirasim-cu.tools.computer_repl]
-approval_mode = "approve"
+The first browser call opens a Chrome window of computer-use's own (see **Browser** below).
 
-[mcp_servers.mirasim-cu.tools.computer_repl_reset]
-approval_mode = "approve"
-```
+### Codex
+
+1. Register the MCP server; this writes a `[mcp_servers.mirasim-cu]` table into
+   `~/.codex/config.toml`:
+
+   ```sh
+   codex mcp add mirasim-cu -- npx -y @mirasim/computer-use@next mcp
+   ```
+
+2. Approve both tools in the same file. Codex asks before every MCP call by default, and when
+   it is set never to ask (`approval_policy = "never"`, which is also what `codex exec` runs
+   with) a tool without `approval_mode = "approve"` is refused outright —
+   `computer_repl_reset` included, which is the call a stuck session reaches for. Append:
+
+   ```toml
+   [mcp_servers.mirasim-cu.tools.computer_repl]
+   approval_mode = "approve"
+
+   [mcp_servers.mirasim-cu.tools.computer_repl_reset]
+   approval_mode = "approve"
+   ```
+
+   Or skip step 1 and write the whole entry by hand:
+
+   ```toml
+   [mcp_servers.mirasim-cu]
+   command = "npx"
+   args = ["-y", "@mirasim/computer-use@next", "mcp"]
+
+   [mcp_servers.mirasim-cu.tools.computer_repl]
+   approval_mode = "approve"
+
+   [mcp_servers.mirasim-cu.tools.computer_repl_reset]
+   approval_mode = "approve"
+   ```
+
+3. Optionally, install the [agent skill](#agent-skill):
+   `npx -y @mirasim/computer-use@next setup skill`.
+4. Check the entry. `codex mcp list` should show `mirasim-cu` as `enabled`.
+5. Start a new Codex session (servers are read when a session starts) and ask, for example,
+   *"Open https://example.com with mirasim-cu and tell me the page title."* Codex names the
+   tools `mcp__mirasim_cu__computer_repl` and `mcp__mirasim_cu__computer_repl_reset`.
+
+### Settings
+
+Settings are environment variables of the server. Pass one with `-e NAME=value` to
+`claude mcp add` (before the `--`), with `--env NAME=value` to `codex mcp add`, or put it in an
+`[mcp_servers.mirasim-cu.env]` table in `~/.codex/config.toml`. To change the settings of a
+server you already registered, remove it (`claude mcp remove mirasim-cu -s user`,
+`codex mcp remove mirasim-cu`) and add it again; `codex mcp remove` drops the approval tables
+too, so append them again. Or edit `~/.codex/config.toml` directly.
+
+You can also install the `mirasim-cu` command once with
+`npm install -g @mirasim/computer-use@next` and register `mirasim-cu mcp` instead of the `npx`
+command.
+
+### Browser, agent skill and native apps
 
 **Browser** works out of the box on macOS, Windows and Linux: computer-use drives a Chrome of
 its own (installed Google Chrome is required), keeping its profile under
 `~/.mirasim-computer-use` so logins carry over between sessions. To drive the browser you are
 signed into instead, install the
 [Mirasim extension](https://chromewebstore.google.com/detail/mirasim/khflooofmndpmafhofjdcpjfgnlpikhg)
-and add `-e COMPUTER_USE_BROWSER=extension`. By default the agent sees only the tabs it opens and
+and set `COMPUTER_USE_BROWSER=extension`. By default the agent sees only the tabs it opens and
 the ones you hand it: click the extension's toolbar icon on a tab to hand that tab over, and use
 its panel to take tabs back, pause the agent, widen what it may reach or block sites. The icon is
 in colour on tabs the agent may use and grey on the rest.
@@ -117,18 +177,18 @@ the extension's native-messaging host: a record under `~/.mirasim-computer-use/n
 and a manifest in each Chromium-family browser's configuration folder. The record names the
 program that started it, which under `npx` is a path in npx's cache; a record whose program is
 gone is skipped, and every bridge start writes it again.
-`npx -y @mirasim/computer-use setup extension --remove` takes it back. The extension serves one
+`npx -y @mirasim/computer-use@next setup extension --remove` takes it back. The extension serves one
 bridge at a time, and the Mirasim desktop app's comes first: while browser control is on there,
 extension mode says so at once and does not connect.
 Details in [docs/embedding.md](docs/embedding.md#your-own-browser-extension).
 
-**Agent skill.** The package ships a skill for the agent, `mirasim-computer-use`: the mistakes
+<a id="agent-skill"></a>**Agent skill.** The package ships a skill for the agent, `mirasim-computer-use`: the mistakes
 agents make most with these tools (which browser, a tab it cannot see, the arguments of the tab
 verbs, what to do with tabs afterwards, recovering a stuck session). Copy it into Claude Code's
 (`~/.claude/skills`) and Codex's (`~/.agents/skills`) skill folders with
 
 ```sh
-npx -y @mirasim/computer-use setup skill
+npx -y @mirasim/computer-use@next setup skill
 ```
 
 and run it again after an upgrade; `--remove` takes it back. The Mirasim desktop app installs its
@@ -137,12 +197,14 @@ own copy.
 **Native apps** are opt-in with `COMPUTER_USE_PLATFORMS` (comma-separated, default `browser`):
 
 ```sh
-claude mcp add mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mirasim/computer-use mcp
+claude mcp add -s user mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mirasim/computer-use@next mcp
+codex mcp add mirasim-cu --env COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mirasim/computer-use@next mcp
 ```
 
 - `macos` drives native macOS apps through their accessibility tree in the background. Grant
-  Accessibility (and Screen Recording, for screenshots) to the app that runs your agent;
-  `mirasim-cu setup macos` checks both.
+  Accessibility (and Screen Recording, for screenshots) to the app that runs your agent (the
+  terminal app for Claude Code or the Codex CLI); `npx -y @mirasim/computer-use@next setup macos`
+  checks both and opens the missing pane in System Settings.
 - `electron` drives any app started with `--remote-debugging-port=<port>`
   (`COMPUTER_USE_ELECTRON_CDP_URL`, default `http://127.0.0.1:9333`).
 
@@ -158,7 +220,7 @@ on the client:
   and the next call asks again. Allow the app ahead of time (next item) to stop the questions.
 - A non-interactive run (`claude -p`, CI) declines every question unseen, so an app nobody
   allowed is refused. Allow it ahead of time with
-  `npx -y @mirasim/computer-use approvals add com.apple.TextEdit` (a macOS bundle id). The
+  `npx -y @mirasim/computer-use@next approvals add com.apple.TextEdit` (a macOS bundle id). The
   refusal names the exact command. `approvals` lists them; `approvals remove` revokes one.
 - A client without elicitation support cannot ask, so the server drives **every** app the agent
   names. `-e COMPUTER_USE_MACOS_FALLBACK_APPS=com.apple.TextEdit,…` narrows that to the listed
