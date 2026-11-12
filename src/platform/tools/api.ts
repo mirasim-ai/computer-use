@@ -358,10 +358,15 @@ export function createComputerUseApi(
       if (opts.into !== undefined) {
         // A ref or a handle. A covered control has no handle (find answers null), so it comes
         // as the ref its cover note named, or a find(…, {why}) miss's `match.ref`.
-        const into = typeof opts.into === "string" ? opts.into : (opts.into as { ref?: unknown } | null)?.ref;
         const missed = missNote(opts.into);
         if (missed) throw new Error(missed);
-        if (typeof into !== "string") throw new Error("scroll({into}) takes a ref string or a find() handle");
+        if (typeof opts.into !== "string" && typeof (opts.into as { ref?: unknown } | null)?.ref !== "string") {
+          throw new Error("scroll({into}) takes a ref string or a find() handle");
+        }
+        // A handle is followed to its control like any target's (a reload or a re-render in the
+        // same run left its ref dead); a ref string goes as written, since a covered control's
+        // ref is not among the listed ones and must still get through.
+        const into = typeof opts.into === "string" ? opts.into : (await resolve(opts.into)).ref;
         if (!driver.scrollsInto) throw new Error("scroll({into}) is not available on this platform — scroll by direction, count or to:");
         const extra = ["direction", "count", "to", "ref"].filter((k) => opts[k] !== undefined);
         if (extra.length) throw new Error(`scroll({into}) moves to one control and takes nothing else — drop ${extra.join(", ")}`);

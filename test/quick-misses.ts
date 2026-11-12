@@ -59,6 +59,36 @@ const FIXTURE_RERENDER = page(`
   render();
 </script>`);
 
+/** A tall page whose controls re-mount LATE: Save empties the form at once and draws it again
+ *  300 ms later, the way a list does while its request is out. "Rename" draws it under another
+ *  name, and "Cover" lays a dialog over everything. */
+const FIXTURE_LATE = page(`
+<div id="root"></div>
+<div style="height:3000px"></div>
+<button id="far">Far away</button>
+<script>
+  let label = 'Due date';
+  function draw() {
+    document.getElementById('root').innerHTML =
+      '<input aria-label="' + label + '" value="2026-11-21">'
+      + '<button onclick="save()">Save</button>'
+      + '<button onclick="rename()">Rename</button>'
+      + '<button onclick="cover()">Cover</button>';
+  }
+  function rename() { label = 'Deadline date'; save(); }
+  function save() { document.getElementById('root').innerHTML = ''; setTimeout(draw, 300); }
+  function cover() {
+    draw();
+    const veil = document.createElement('div');
+    veil.setAttribute('role', 'dialog');
+    veil.setAttribute('aria-label', 'Unsaved changes');
+    veil.style.cssText = 'position:fixed;inset:0;background:#fff';
+    veil.textContent = 'Unsaved changes';
+    document.body.appendChild(veil);
+  }
+  draw();
+</script>`);
+
 /** The clipboard exists only in a secure context, which a data: URL is not: one page on localhost. */
 function serve(): Promise<{ url: string; close: () => void }> {
   return new Promise((resolve) => {
@@ -193,6 +223,13 @@ async function main() {
     check("a ref from before a reload is still refused", !stale.ok && /reload/.test(stale.note), stale.note.slice(0, 200));
     check("...and the refusal names what it was and its ref now", /Due date/.test(stale.note) && !!now && stale.note.includes(now), `${now}: ${stale.note.slice(0, 300)}`);
 
+    // ── a handle given to scroll({into}) ───────────────────────────────────────
+    await open(FIXTURE_LATE);
+    const far = await h.api.find("Far away");
+    await h.api.act("reload", {});
+    let into = "";
+    try { into = await h.api.scroll({ into: far }); } catch (e) { into = `threw: ${(e as Error).message}`; }
+    check("scroll({into}) follows a handle across a reload", !/threw/.test(into), into.slice(0, 200));
     await driver.close();
   } finally {
     site.close();
