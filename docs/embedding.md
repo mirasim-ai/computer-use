@@ -64,14 +64,25 @@ The server advertises `experimental["mirasim-computer-use/preview"] = { version:
 `instructions` carry the grounding teaching (see the top of this document).
 
 **Asking before an app.** The first read of or action in a native app this session has not been
-cleared for sends `elicitation/create`, a form with an empty schema (accepting IS the yes), whose
-`_meta` names the app:
+cleared for — and starting one, before it is started — sends `elicitation/create`. Accepting IS
+the yes. Its `_meta` names the app:
 
 | `_meta` key | Platform | Value |
 |---|---|---|
 | `mirasim-computer-use/macosApp` | macOS | `{ bundle, name, purpose? }`: bundle id, display name |
-| `mirasim-computer-use/windowsApp` | Windows | `{ app, title, purpose? }`: executable stem (`WINWORD`), window title |
+| `mirasim-computer-use/windowsApp` | Windows | `{ app, title, launch?, purpose? }`: executable stem (`WINWORD`), window title. `launch: true` when the app is about to be started: `title` is then the name it is started by, and `app` its program when the Start menu says which one that is, else that name |
 | `persist` | both | `["session", "always"]`: the durations the host may grant |
+
+A Windows Store app is named by its own program (`CalculatorApp`, `SystemSettings`), never by
+`ApplicationFrameHost`, the process that frames all of their windows: nothing is asked about
+that name and no answer or stored approval of it clears anything. While a Store app's window
+does not say which app it is (for a moment as it starts, and while minimized) it cannot be
+bound.
+
+The form (`requestedSchema`) has one optional string field for a client that knows nothing of
+this `_meta`: `persist`, an enum of `once`, `session` and `always` (titled "This call only",
+"This session", "Always"), defaulting to `session`. A client that renders forms shows it as a
+choice and returns the pick as ordinary `content`.
 
 `purpose` is the agent's own description of its task (`computer_repl`'s `purpose` argument, ≤ 500
 characters): show it as the agent's claim; it does not narrow the permission. A host may answer
@@ -81,9 +92,11 @@ The answer is a normal elicitation result; its `_meta` says how long a yes holds
 
 | Answer | Meaning |
 |---|---|
-| `action: "accept"` | allowed for this call only |
-| … with `_meta.persist: "session"` | allowed until this server process ends |
-| … with `_meta.persist: "always"` | allowed in later sessions too: kept in the approvals file, unless the host turned that off (`COMPUTER_USE_*_APPROVALS=""`) |
+| `action: "accept"` | allowed for this call only (also with `content.persist: "once"`) |
+| … with `_meta.persist: "session"` or `content.persist: "session"` | allowed until this server process ends |
+| … with `_meta.persist: "always"` or `content.persist: "always"` | allowed in later sessions too: kept in the approvals file, unless the host turned that off (`COMPUTER_USE_*_APPROVALS=""`) |
+
+`_meta.persist` wins over `content.persist` when an answer carries both.
 | `action: "decline"` or `"cancel"` | refused; the agent is told not to ask again in this task. `_meta["mirasim-computer-use/reason"]` (a sentence) travels with it, which matters when nobody saw a prompt (timed out, no one at the computer): "declined" would misreport that |
 
 A question waits up to 15 minutes; the host is expected to give up first and say so.
@@ -455,7 +468,9 @@ Every driver connects lazily, so mounting one the run never touches costs nothin
   (comma-separated bundle ids) may be driven — or any app when it is unset, since whoever
   started the server is then the operator.
 - **Windows** works the same way through UI Automation, with approvals in
-  `<home>/windows-approvals.json`.
+  `<home>/windows-approvals.json`, by executable stem (`WINWORD`; a Store app by its own
+  program, `CalculatorApp`). Starting an app that is not running needs `interaction: "desktop"`
+  and is asked about before the app is started; one the user declines is not started.
 - **Electron** drives any app started with `--remote-debugging-port=<port>`;
   `COMPUTER_USE_ELECTRON_CDP_URL` points at it (default `http://127.0.0.1:9333`).
 

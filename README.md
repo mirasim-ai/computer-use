@@ -139,15 +139,22 @@ claude mcp add mirasim-cu -e COMPUTER_USE_PLATFORMS=browser,macos -- npx -y @mir
 - `electron` drives any app started with `--remote-debugging-port=<port>`
   (`COMPUTER_USE_ELECTRON_CDP_URL`, default `http://127.0.0.1:9333`).
 
-**Which apps the agent may drive.** Before the agent first touches a native app, the server asks
-you through your agent's MCP client (MCP elicitation): allow it once, for the session, or always.
-What that looks like depends on the client:
+**Which apps the agent may drive.** Before the agent first touches a native app — starting one
+that is not running included — the server asks you through your agent's MCP client (MCP
+elicitation): allow it for this call, for the session, or always. What that looks like depends
+on the client:
 
-- A client that shows the question (Claude Code in a terminal, for one): you answer it there.
+- A client that shows the question's form (Claude Code in a terminal, for one): you answer it
+  there. The form has one field, "Allow for", set to "This session"; change it to "This call
+  only" or "Always" before accepting.
+- A client that shows the question as a bare accept / decline: a yes holds for that one call,
+  and the next call asks again. Allow the app ahead of time (next item) to stop the questions.
 - A non-interactive run (`claude -p`, CI) declines every question unseen, so an app nobody
   allowed is refused. Allow it ahead of time with
   `npx -y @mirasim/computer-use approvals add com.apple.TextEdit` (a macOS bundle id; on Windows
-  the executable's name, e.g. `WINWORD`). `approvals` lists them; `approvals remove` revokes one.
+  the executable's name without `.exe`, e.g. `WINWORD` — or `CalculatorApp` for Calculator: a
+  Store app goes by its own program, never by `ApplicationFrameHost`). The refusal names the
+  exact command. `approvals` lists them; `approvals remove` revokes one.
 - A client without elicitation support cannot ask, so the server drives **every** app the agent
   names. On macOS, `-e COMPUTER_USE_MACOS_FALLBACK_APPS=com.apple.TextEdit,…` narrows that to
   the listed apps.
