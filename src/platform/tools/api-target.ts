@@ -11,6 +11,11 @@ import type { ToolResult } from "../types.ts";
 import { coveredMiss, type FindMiss, type FindScope, type Handle, nearMiss, rankByName, tiedOthers } from "./find-target.ts";
 import type { RunLedger, ApiHooks } from "./api-contract.ts";
 
+/** How long a handle whose ref died keeps looking for its control by name, and how often: long
+ *  enough for a list to be drawn again, short next to the call a stopped run costs. */
+const REFIND_BUDGET_MS = 600;
+const REFIND_INTERVAL_MS = 150;
+
 export function createTargeting(
   driver: ComputerUseDriver,
   ledger: () => RunLedger,
@@ -152,8 +157,17 @@ export function createTargeting(
     // after reload inside one run) still passes the gate, and the verb would miss by ref and then
     // look the name up among a few roles only. Ask the surface, and re-find like any gone ref.
     if (driver.knownRef(h.ref) && (!driver.refLive || await driver.refLive(h.ref))) return { ref: h.ref, name: h.name };
-    const again = await findByName(h.name, h.scope ?? {});
-    if (!again) throw new Error(`"${h.name}" is no longer on the surface (its ref ${h.ref} is gone)`);
+    // The ref is gone, which is what a re-render looks like from here — and a re-render is often
+    // still under way (a list emptied while its request is out, a page that just reloaded): the
+    // control is back a few frames later. Paid only by a handle whose ref died.
+    let { h: again, miss } = await findWithMiss(h.name, h.scope ?? {});
+    for (let waited = 0; !again && waited < REFIND_BUDGET_MS; waited += REFIND_INTERVAL_MS) {
+      await new Promise((r) => setTimeout(r, REFIND_INTERVAL_MS));
+      ({ h: again, miss } = await findWithMiss(h.name, h.scope ?? {}));
+    }
+    // What the search found instead goes into the reason — the control under a cover, the
+    // closest names, the controls there are — so the next call needs no look first.
+    if (!again) throw new Error(`"${h.name}" cannot be found again (its ref ${h.ref} is gone): ${miss}`);
     // UNAMBIGUOUS when found and ambiguous now: with the ref gone, "the same control" is a guess,
     // and the surface changed in exactly the way that makes it wrong (a new message, a second
     // dialog). A handle ambiguous from the start is left alone — the caller took the pick.

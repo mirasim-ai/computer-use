@@ -240,6 +240,33 @@ async function main() {
     try { bareScroll = await h.api.scroll({ direction: "down", ref: farRef }); } catch (e) { bareScroll = (e as Error).message; }
     check("...and so does scroll({ref})", !!farNow && bareScroll.includes(`which is ${farNow} now`), bareScroll.slice(0, 300));
 
+    // ── a handle used while its control is being drawn again ──────────────────
+    await open(FIXTURE_LATE);
+    const lateDue = await h.api.find("Due date");
+    await h.api.click(await h.api.find("Save", { role: "button" }));
+    const late = await timed(async () => {
+      try { return await h.api.value(lateDue); } catch (e) { return `threw: ${(e as Error).message}`; }
+    });
+    check("a handle waits out a control that is drawn again a moment later", late.out === "2026-11-21", `${sec(late.ms)}: ${late.out.slice(0, 200)}`);
+
+    // ── a handle whose control is really gone says what is there instead ─────
+    const renamed = await h.api.find("Due date");
+    await h.api.click(await h.api.find("Rename", { role: "button" }));
+    await h.api.wait({ control: "Deadline date" });
+    const gone = await timed(async () => {
+      try { return await h.api.value(renamed); } catch (e) { return (e as Error).message; }
+    });
+    check("a handle whose control is gone still stops the run", /its ref e\d+ is gone/.test(gone.out), gone.out.slice(0, 200));
+    check("...within about a second", gone.ms < 1500, sec(gone.ms));
+    check("...and names the closest controls there are now", /Deadline date/.test(gone.out), gone.out.slice(0, 300));
+
+    await open(FIXTURE_LATE);
+    const hidden = await h.api.find("Due date");
+    await h.api.click(await h.api.find("Cover", { role: "button" }));
+    let coveredNote = "";
+    try { await h.api.click(hidden); } catch (e) { coveredNote = (e as Error).message; }
+    check("a handle whose re-drawn control is under a dialog says what covers it", /Unsaved changes/.test(coveredNote) && /covers it/.test(coveredNote), coveredNote.slice(0, 300));
+
     await driver.close();
   } finally {
     site.close();
