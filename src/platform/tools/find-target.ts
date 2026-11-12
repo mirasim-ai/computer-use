@@ -414,9 +414,35 @@ export function nearMiss(elements: Named[], name: string, scope: FindScope = {},
   const shortlist = scored
     .filter((x) => { const k = `${x.e.role}\u0000${x.e.name.trim().toLowerCase()}`; return seen.has(k) ? false : (seen.add(k), true); })
     .slice(0, 3);
-  if (!shortlist.length) return { reason: unseen, note: `no match — nothing among the ${named.length} named controls is close to it${asText}` };
+  if (!shortlist.length) {
+    return { reason: unseen, note: `no match — nothing among the ${named.length} named controls is close to it${whatIsHere(named, scope)}${asText}` };
+  }
   const list = shortlist.map((x) => `${x.e.role} "${x.e.name.slice(0, 40)}"`).join(", ");
   return { reason: unseen, note: `no match — closest by name: ${list}${asText}` };
+}
+
+/** How many controls a miss with nothing close names: a small surface whole, a large one's start. */
+const HERE_SHOWN = 8;
+
+/**
+ * The controls a find with nothing close could have meant, as the end of its miss line — the
+ * names the next call needs, so it is not spent on reading them. Under a `role` they are that
+ * role's controls, the kind the caller said it wanted; otherwise every named control. On screen
+ * first (what the caller was most likely looking at), then in reading order; one row per name.
+ */
+function whatIsHere(named: Named[], scope: FindScope): string {
+  const role = scope.role?.trim().toLowerCase();
+  const pool = role ? named.filter((e) => e.role.toLowerCase() === role) : named;
+  if (role && !pool.length) return ` — and no ${role} is listed here at all`;
+  const seen = new Set<string>();
+  const distinct = [...pool.filter((e) => !e.offscreen), ...pool.filter((e) => e.offscreen)].filter((e) => {
+    const k = `${e.role}\u0000${e.name.trim().toLowerCase()}`;
+    return seen.has(k) ? false : (seen.add(k), true);
+  });
+  const shown = distinct.slice(0, HERE_SHOWN)
+    .map((e) => `${role ? "" : `${e.role} `}"${e.name.trim().slice(0, 40)}" (${e.ref})`).join(", ");
+  const more = distinct.length - HERE_SHOWN;
+  return `; ${role ? `the ${role} controls here` : "what is here"}: ${shown}${more > 0 ? `, +${more} more` : ""}`;
 }
 
 /** {@link nearMiss}'s journal line alone. */

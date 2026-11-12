@@ -126,6 +126,19 @@ async function main() {
     check("…and a name no covered control carries is not a covered miss",
       coveredMiss({ by: "an overlay", elements: [] }, "Save", {}, true) === null);
 
+    // Nothing close by name: the miss names what IS there, so the next call need not look first.
+    const lost = nearMiss(far, "Quarterly", {}).note;
+    check("a miss with nothing close lists the controls there are, with their refs",
+      /what is here: button "Go" \(e1\), button "Stop" \(e2\)|what is here: button "Stop" \(e2\), button "Go" \(e1\)/.test(lost), lost);
+    check("...on screen before off screen", lost.indexOf('"Stop"') < lost.indexOf('"Go"'), lost);
+    const many = Array.from({ length: 12 }, (_, i) => ({ ref: `e${i}`, name: `Row ${i}`, role: i % 2 ? "link" : "button", rect }));
+    const capped = nearMiss(many, "Quarterly", {}).note;
+    check("...a long list is cut, and says how many more", /\+4 more/.test(capped) && !/Row 9/.test(capped), capped);
+    const roleOnly = nearMiss(many, "Quarterly", { role: "link" }).note;
+    check("...under a role it lists that role's controls only", /the link controls here: "Row 1" \(e1\)/.test(roleOnly) && !/Row 0/.test(roleOnly), roleOnly);
+    const noRole = nearMiss(many, "Quarterly", { role: "checkbox" }).note;
+    check("...and says when no control of that role is listed", /no checkbox is listed here at all/.test(noRole), noRole);
+
     const missed = await h.api.find("no such control anywhere", { why: true });
     check("on macOS a miss with why answers {ref: null, reason, note}",
       missed.ref === null && missed.reason === "absent" && /no match/.test(missed.note), JSON.stringify(missed));
