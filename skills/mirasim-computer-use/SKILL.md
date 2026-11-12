@@ -1,6 +1,6 @@
 ---
 name: mirasim-computer-use
-description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
+description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, returning what is being verified instead of asserting it, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
 ---
 
 # Mirasim Computer Use
@@ -71,16 +71,51 @@ In extension mode the user decides what you may reach (the extension's panel). T
 ## Going on in one call
 
 Most extra round trips are a call that only returns a check, followed by a call that does the
-next stage. When the check only decides whether the plan continues, assert it and keep going
-in the same code — a failed check stops the run with its reason, which is what you would have
-read:
+next stage. When the next stage needs a condition to hold, state it with `expect` and keep
+going in the same code — a failed `expect` stops the run and says what was there instead,
+which is what you would have read:
 
 ```js
 await w.click(await w.find("Save", {role: "button"}));
-await w.expect({text: "Saved"});                     // throws, with the reason, if not
-if (!await w.wait({url: "/tasks"})) throw new Error("did not return to the list");
+await w.expect({text: "Saved"});                     // the next stage needs the save…
+await w.expect({url: "/tasks"});                     // …and the list it returns to
 await w.click(await w.find("New task", {role: "button"}));   // next stage, same call
 ```
+
+- `expect` takes no `…_gone` condition. There, check the wait:
+  `if (!await w.wait({control_gone: "Saving…"})) throw new Error("still saving")`.
+- A `find` that matched nothing needs no check of its own: the verb it is passed to refuses
+  the null, and its journal line says why.
+
+## Checking the outcome: return it
+
+What you want to **see** — the outcome the task asked you to verify, a value to report — is
+not a condition for the code to judge. Read it and return it, then judge it from the result:
+
+```js
+await w.setText(await w.find("Quantity"), "3");
+await w.click(await w.find("Update", {role: "button"}));
+await w.wait({});
+return {
+  total: await w.value(await w.find("Total")),
+  url: (await w.observe()).url,
+  list: (await w.text()).slice(0, 400),
+};
+```
+
+Do not compare such values in code and throw (`if (total !== "$30.00") throw new Error(…)`):
+
+- A comparison that fails ends the call before `return`, so the values you needed are gone
+  and the script is written again. These checks fail often — on a guess at wording, a count,
+  a format — and a long checking script costs more to write than the round trip it saves.
+- Returned values cost nothing when they are as expected, and show what is wrong when not.
+  In a QA or verification task the unexpected value **is** the finding.
+- The observation that ends every result already shows the surface after the last action.
+  Do not `expect` again what it will show.
+
+So: `expect` what the **next step** needs, `return` what **you** need to judge.
+
+## Detours and where code must not choose
 
 Branch on what the page shows only for a **known detour with no side effect**. `find(name,
 {why: true})` answers a miss with its `reason` instead of `null`, so the code can tell an
@@ -91,8 +126,7 @@ let m = await w.find("Menu", {role: "button", why: true});
 if (m.reason === "covered") { await w.keys("Escape"); await w.wait({}); }   // m.by names the cover
 else if (m.reason === "absent") await w.wait({control: "Menu"});
 if (!m.ref) m = await w.find("Menu", {role: "button", why: true});
-if (!m.ref) throw new Error(m.note);                 // the journal's own words
-await w.click(m);
+await w.click(m);                                    // a miss still there is refused with its note
 const toggle = await w.find("Light mode", {role: "button"}) ?? await w.find("Dark mode", {role: "button"});
 await w.wait({control_gone: "Loading tasks"});       // a load needs no branch: returns at once when idle
 ```
