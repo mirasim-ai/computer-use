@@ -587,6 +587,38 @@ async function main() {
       out.slice(0, 200));
   }
 
+  // ── scroll in the background: by ref through the area's own page action ───────
+  // System Settings' sidebar: its rows past the window are unnamed until scrolled to, the window's
+  // centre is another pane, and a background call may not post the wheel. Its own driver.
+  {
+    const bg = stubTransport();
+    const bgH = createHarness(new MacosDriver({ transport: bg.transport, bundle: ONE_APP.bundle, interaction: "background" }));
+    const seven = (await bgH.api.observe()).elements.find((e) => e.name === "7")!;
+    const scroll = (a: Record<string, unknown>) => bgH.api.scroll(a).then((n) => String(n), (e: Error) => e.message);
+    bg.scrollArea = true;
+    bg.calls.length = 0;
+    const byRef = await scroll({ direction: "down", ref: seven.ref });
+    const sentKey = String(findCall(bg.calls, "scrollpage")?.params.key ?? "");
+    check("scroll by ref hands the page rung the HELPER's key for that element, never the ref itself",
+      !!sentKey && sentKey !== seven.ref && /1 page down/.test(byRef) && /pointer never moved/.test(byRef) && !findCall(bg.calls, "scroll"),
+      `${seven.ref} → ${sentKey} · ${byRef.split("\n")[0]}`);
+
+    bg.scrollArea = false;
+    bg.calls.length = 0;
+    const bare = await scroll({ direction: "down" });
+    check("background, no ref and no area under the window's centre: the refusal names scroll({direction, ref}), and no wheel is posted",
+      /scroll\(\{direction, ref\}\)/.test(bare) && /no wheel input was posted/.test(bare) && !findCall(bg.calls, "scroll"), bare.slice(0, 160));
+    bg.calls.length = 0;
+    const noArea = await scroll({ direction: "down", ref: seven.ref });
+    check("background, a ref in no scrolling area: said as that, with the keys that still work, and no wheel is posted",
+      /sits in no accessibility scrolling area/.test(noArea) && /PageDown/.test(noArea) && !findCall(bg.calls, "scroll"), noArea.slice(0, 160));
+    bg.scrollArea = true;
+    bg.calls.length = 0;
+    const sideways = await scroll({ direction: "right", ref: seven.ref });
+    check("background, left/right: refused as a wheel-only direction, never sent to the page rung",
+      /only up and down/.test(sideways) && !findCall(bg.calls, "scroll") && !findCall(bg.calls, "scrollpage"), sideways.slice(0, 160));
+  }
+
   await driver.close();
   console.log(failures ? `\n${failures} check(s) failed` : "\nall macos mouse checks passed");
   process.exit(failures ? 1 : 0);

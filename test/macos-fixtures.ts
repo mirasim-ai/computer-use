@@ -342,6 +342,8 @@ export function stubTransport(): Stub {
         // what was ATTEMPTED and stops as soon as a page moves nothing, so a `to` request answers
         // with how far the area really went.
         case "scrollpage": {
+          // A key is the HELPER's own (this generation's), as for every other op that takes one.
+          if (params.key !== undefined && !String(params.key).endsWith(`g${state.generation}`)) throw new AxRequestError("stale_key", `key ${params.key} is not in the current tree`);
           if (!state.scrollArea) throw new AxRequestError("no_scroll_area", "no accessibility scrolling area here — this app does not expose one");
           const dir = String(params.direction) === "up" ? -1 : 1;
           const want = Math.max(1, Number(params.pages) || 1);

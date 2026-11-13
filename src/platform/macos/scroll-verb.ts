@@ -85,9 +85,13 @@ export async function scrollVerb(
   // nothing asked for.
   let at = { x: frame.x + frame.w / 2, y: frame.y + frame.h / 2 };
   let where = 'the window';
+  /** The named element's key in the HELPER's table. The page rung starts from it, and the helper
+   *  knows no refs: handed "e8" it answers `stale_key` for an element that is right there. */
+  let key: string | null = null;
   if (typeof a.ref === 'string' && a.ref) {
     const target = acts.resolve(a.ref, a.name);
     if (!('key' in target)) return target;
+    key = target.key;
     const r = host.rectOf(a.ref);
     if (!r) {
       return { ok: false, note: `${target.role} "${target.name}" has no frame on this walk, so there is nowhere to scroll — observe and name a listed element` };
@@ -109,8 +113,36 @@ export async function scrollVerb(
   const lines = a.to ? HARD_LINES : PAGE_LINES * screens;
   const direction = a.to === 'top' ? 'up' : a.to === 'bottom' ? 'down' : String(a.direction ?? 'down');
   // Rung 1, asked after the ref has been resolved and refused if stale.
-  const paged = await pageRung(host, typeof a.ref === "string" && a.ref ? String(a.ref) : null, centre, where, direction, screens, a.to);
+  let paged: ActResult | null;
+  try {
+    paged = await pageRung(host, key, centre, where, direction, screens, a.to);
+  } catch (e) {
+    // The element went away between the walk and this call: the refusal every ref verb gives.
+    if (e instanceof AxRequestError && e.code === "stale_key") return acts.staleRef(a.ref);
+    throw e;
+  }
   if (paged) return paged;
+  // Only the wheel is left, and a background call may not post it. Said here, with the way that
+  // DOES work in the background, rather than left to the helper gate's bare refusal: a list the
+  // window's centre is not in (a sidebar) pages through its own area once an element in it is named.
+  if (!host.pointerAllowed()) {
+    const wheel = "The wheel needs the user's permission and interaction:'desktop'";
+    const sideways = direction !== "up" && direction !== "down";
+    return {
+      ok: false,
+      note: sideways
+        ? `nothing was scrolled: only up and down go through the app's own scrolling area; ${direction} is a mouse-wheel scroll, `
+          + `and this call is background-only (no wheel input was posted). ${wheel}`
+        : key
+          ? `nothing was scrolled: ${where} sits in no accessibility scrolling area (this app exposes none there), so only the mouse `
+            + "wheel could scroll it, and this call is background-only (no wheel input was posted). keys('PageDown') / keys('PageUp') "
+            + `go to whatever holds the app's focus without the pointer. ${wheel}`
+          : "nothing was scrolled: with no ref the scroll aims at the window's CENTRE, there is no accessibility scrolling area under it, "
+            + "and the mouse wheel is not available to a background-only call (no wheel input was posted). To scroll a list or a pane in the "
+            + "background, name any element inside it: scroll({direction, ref}) turns that area's own page and never touches the pointer. "
+            + wheel,
+    };
+  }
 
   const dy = direction === 'down' ? lines : direction === 'up' ? -lines : 0;
   const dx = direction === 'right' ? lines : direction === 'left' ? -lines : 0;
