@@ -322,6 +322,29 @@ async function main() {
     await appDriver.close();
   }
 
+  // ── computer.surface() with no argument, in a call whose host named the surface ────────
+  // The tool description's own first line is `const w = await computer.surface();`, and a host
+  // that passes `target` on every call has already said which app the call is about: among
+  // several open apps that must bind the named one, not refuse and list them.
+  {
+    const st = stubTransport();
+    const appDriver = new MacosDriver({ transport: st.transport, env: {}, interaction: "desktop" });
+    const ownership = { claim: async () => {}, release: async () => {}, releaseAll: async () => {} };
+    const tools = Object.fromEntries(createComputerUseTools([{ driver: appDriver }], { ownership }).map((t) => [t.name, t]));
+    const run = async (code: string, target?: string) =>
+      firstText(await tools.computer_repl!.execute({ code, observation: "brief", ...(target ? { target } : {}) }) as never);
+    const named = await run("const w = await computer.surface(); return w.title;", "com.apple.calculator");
+    check("computer.surface() binds the surface the call's host named, among several open apps",
+      /Returned: .*com\.apple\.calculator/.test(named) && !/surfaces are open/.test(named), named.replace(/\n/g, " ⏎ ").slice(0, 200));
+    const explicit = await run("const t = await computer.surface('TextEdit'); return t.title;", "com.apple.calculator");
+    check("…and a surface the code names itself still wins over the host's",
+      /Returned: .*com\.apple\.TextEdit/.test(explicit), explicit.replace(/\n/g, " ⏎ ").slice(0, 200));
+    const unnamed = await run("const u = await computer.surface(); return u.title;");
+    check("…while a call that names none still refuses among several and lists them — the last call's target does not carry over",
+      /surfaces are open — name one/.test(unnamed) && /com\.apple\.TextEdit/.test(unnamed), unnamed.replace(/\n/g, " ⏎ ").slice(0, 200));
+    await appDriver.close();
+  }
+
   // ── Several platforms mounted: the Targets line names surfaces the way surface() takes them ─
   {
     const st = stubTransport();

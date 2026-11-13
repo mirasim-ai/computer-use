@@ -88,7 +88,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "Bind a surface first — every verb below is a method on the handle it returns, never a name of its own:",
     "  await computer.surfaces()     → [handle] — every surface (tab / window / app) as {id, kind, title, active}; `id` is an opaque key, what the platform knows the surface by lives in `title` (macOS: \"TextEdit (com.apple.TextEdit) — Untitled\"" + (windowsApps ? "; Windows: the window title, then the program name — \"Untitled - Notepad — Notepad\"" : "") + ")",
     "  await computer.surface(name)  → handle — by id, by whole title, or by a piece of the title; several matches or none is a refusal that lists the candidates, never a guess",
-    "  await computer.surface()      → handle — the ONE surface, when there is only one. Not \"whatever is in front\": with more than one open it refuses and lists them, so a script always says which it meant",
+    "  await computer.surface()      → handle — the surface this call was given by its host (the call's own target / app argument), else the ONE surface, when there is only one. Not \"whatever is in front\": with more than one open and none named by the call it refuses and lists them, so a script always says which it meant",
     "  Bind once per surface and keep the handle in a top-level declaration — it stays valid for later calls, and re-binding costs a read each time.",
     "  A browser tab marked unloaded:true is still discoverable. Using its handle restores that exact tab in the background after acquiring ownership; merely listing tabs never reloads it.",
     "",

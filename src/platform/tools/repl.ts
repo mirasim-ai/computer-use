@@ -99,6 +99,10 @@ export function createReplTools(
    *  mounted. A run then lists and binds only that platform's surfaces and never wakes another
    *  (listing the browser would start Chrome for a call about a macOS app). */
   let scoped: Slice | null = null;
+  /** The surface the CALL in progress was given by its host (`computer_repl.target`), bound before
+   *  the code ran — what `computer.surface()` with no argument means in that call. Null in a call
+   *  that names none. */
+  let hostBound: SurfaceHandle | null = null;
 
   const rememberRefs = (refs: string[]) => {
     const owner = acting?.id;
@@ -363,7 +367,8 @@ export function createReplTools(
    *
    * Tried in order: the opaque `id`, the whole title, a piece of the title. The title carries the
    * human names (macOS: "TextEdit (com.apple.TextEdit) — Untitled"), hence ONE entry point and no
-   * per-platform app()/tab(). NO ARGUMENT is not "the one in front of the user": it binds the only
+   * per-platform app()/tab(). NO ARGUMENT is not "the one in front of the user": it binds the
+   * surface the call's host named (`hostBound`, settled before this is asked), else the only
    * surface, else the one THIS runtime opened or claimed (TargetInfo.mine) — the one it is on when
    * it has several. Tabs an earlier session left in a shared browser, and the user's, are never
    * the default; with no surface of its own among several the call is refused.
@@ -444,7 +449,11 @@ export function createReplTools(
       ledger().push("targets", "", true, `${ts.length} surfaces`);
       return ts.map(handleFor);
     },
-    surface: async (want?: unknown) => (want === undefined ? await emptyHandle() : null) ?? handleFor(await resolve(want)),
+    // No argument in a call whose host named the surface: that surface, already bound. The caller
+    // said which one this call is about, so it is not a guess among the open ones, and refusing
+    // here ("10 surfaces are open — name one") costs a round trip to repeat what the call carried.
+    surface: async (want?: unknown) => (want === undefined && hostBound && handles.get(hostBound.id) === hostBound ? hostBound : null)
+      ?? (want === undefined ? await emptyHandle() : null) ?? handleFor(await resolve(want)),
     // Touches no surface, which is why it is the one member that never belonged on a handle.
     log: raw.log,
     help: () => requestedHelp = slices.map((sl) => apiReference(sl.driver, windowsApps)).join("\n\n"),
@@ -462,7 +471,7 @@ export function createReplTools(
     if (verbNames.has(m[1]!)) {
       return `${msg} — verbs live on a surface handle, not on the top level: `
         + `const w = await computer.surface('<id or title>'); await w.${m[1]}(…). `
-        + "computer.surface() with no argument binds the only surface, or the one this session opened among several; computer.surfaces() lists them.";
+        + "computer.surface() with no argument binds the surface this call's host named, else the only surface, or the one this session opened among several; computer.surfaces() lists them.";
     }
     // Any other undefined name is usually a handle the code expected to hold: nothing binds one
     // implicitly, and a restarted runtime has lost earlier bindings.
@@ -523,7 +532,8 @@ export function createReplTools(
       target: Type.Optional(Type.String({
         description: "Bind this surface before the code runs — the same string computer.surface() takes (an id, a whole "
           + "title, or a piece of one). For a HOST that decides which surface a call is about: the code can still "
-          + "bind whatever it likes, and this only settles where a run that binds nothing lands.",
+          + "bind whatever it likes; this settles where a run that binds nothing lands, and what computer.surface() "
+          + "with no argument returns in this call.",
       })),
       observation: Type.Optional(Type.Union([Type.Literal("full"), Type.Literal("brief"), Type.Literal("none")], {
         description: "How much of the end-of-run observation to render. \"full\" (default) is the element list and the text "
@@ -536,6 +546,7 @@ export function createReplTools(
     async execute(params) {
       ownershipRefusal = null;
       requestedHelp = null;
+      hostBound = null;
       const src = String((params as { code?: unknown }).code ?? "");
       if (!src.trim()) return text("computer_repl needs code to run.", { error: "bad_args" });
       const platform = String((params as { platform?: unknown }).platform ?? "").trim();
@@ -591,7 +602,11 @@ export function createReplTools(
         // A host's `target` is bound through the same pick and `bind` the code would use, so a run
         // that binds nothing lands where the CALLER meant.
         const want = String((params as { target?: unknown }).target ?? "").trim();
-        if (want) await bind(handleFor(await resolveHostTarget(want)));
+        if (want) {
+          const named = handleFor(await resolveHostTarget(want));
+          await bind(named);
+          hostBound = named;
+        }
         returned = await runInContext(prepareCode(src), sandbox, { filename: "computer_repl", timeout: SYNC_MAX_MS });
       } catch (e) {
         if ((e as { code?: unknown }).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {
