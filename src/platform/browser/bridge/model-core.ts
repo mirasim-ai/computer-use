@@ -23,7 +23,7 @@
 
 export type SendToExtension = (method: string, params: unknown[]) => Promise<unknown>;
 
-import { BridgeClient, STAND_IN_PREFIX, tabIsUnloaded, type BridgeTab, type TabAttachment , type CdpMessage } from "./client.ts";
+import { BridgeClient, ExtensionUnanswered, STAND_IN_PREFIX, tabIsUnloaded, type BridgeTab, type TabAttachment , type CdpMessage } from "./client.ts";
 import { RuntimeDomain, isRuntimeContextEvent } from "./runtime-contexts.ts";
 
 /** The user's access settings as the extension reports them (extension/access.js). */
@@ -51,6 +51,11 @@ function sameUrl(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+/** One clause, lower case, for a note or an error to build on. */
+function unansweredReason(tabId: number, url: string, e: ExtensionUnanswered): string {
+  return `tab ${tabId} (${url || "no address yet"}) did not answer ${e.cdpMethod ?? "the debugger"} for ${Math.round(e.ms / 1000)}s`;
+}
+
 export abstract class BridgeModelCore {
   /** Implemented in {@link BridgeModelCommands}: the client half owns what a reconnect has to
    *  re-learn about the tabs, and this half is what notices the reconnect. */
@@ -76,16 +81,81 @@ export abstract class BridgeModelCore {
    *  only a page that stopped answering). Chrome's words matter: "Cannot access a chrome-extension://
    *  URL of different extension" means another extension's frame is in the page, which no retry
    *  gets past. Read by `Mirasim.attachRefusals`. */
-  protected attachRefusals = new Map<number, { url: string; reason: string; at: number }>();
+  protected attachRefusals = new Map<number, { url: string; reason: string; at: number; unanswered?: boolean }>();
+  /**
+   * Tabs the bridge let go of because they stopped answering the debugger ({@link tabUnanswered}),
+   * with where each was going. Auto-attach passes them by ({@link wants}) until a client binds one
+   * by name, the tab closes or the browser restarts: a tab that answers nothing is handed to no
+   * client on its own, so the line that comes after a reconnect does not stall on it again.
+   */
+  protected stalledTabs = new Map<number, { url: string; at: number }>();
+  /** Tabs being let go of right now, so every command that waited on one fails with one answer. */
+  private readonly unanswering = new Map<number, Promise<string | null>>();
   /** Windows driven pages are about to open, oldest first — see {@link claimPopup}. */
   private windowOpens: Array<{ from: number; url: string; at: number }> = [];
   protected clients = new Set<BridgeClient>();
   private nextClientId = 0;
 
+  protected readonly sendToExtension: SendToExtension;
+
   constructor(
-    protected readonly sendToExtension: SendToExtension,
+    send: SendToExtension,
     protected readonly log: (...args: unknown[]) => void = () => {},
-  ) {}
+  ) {
+    this.sendToExtension = async (method, params) => {
+      try {
+        return await send(method, params);
+      } catch (e) {
+        if (e instanceof ExtensionUnanswered && e.tabId !== undefined) throw await this.tabUnanswered(send, e);
+        throw e;
+      }
+    };
+  }
+
+  /**
+   * A tab did not answer a debugger command in time. Chrome holds back every command to a tab
+   * whose navigation has not started loading, so when the extension itself still answers, the tab
+   * is what is stuck, not the line. Let go of it: its clients are told the page is gone, the
+   * debugger leaves it (which also releases whatever that session was holding paused), and it is
+   * not handed out again by itself. Returns the error the waiting command fails with, naming the
+   * tab and where it was going — or the transport's own, when the extension is what went quiet.
+   */
+  private async tabUnanswered(send: SendToExtension, e: ExtensionUnanswered): Promise<Error> {
+    const tabId = e.tabId!;
+    let settling = this.unanswering.get(tabId);
+    if (!settling) {
+      settling = this.letGoOfTab(send, tabId, e);
+      this.unanswering.set(tabId, settling);
+      void settling.finally(() => this.unanswering.delete(tabId));
+    }
+    const reason = await settling;
+    if (!reason) return e;
+    return new Error(`T${reason.slice(1)}, so the bridge let go of it and the rest of the browser stays reachable. `
+      + "The tab is still open in the user's window: use another tab, or bind this one again once it has finished loading.");
+  }
+
+  /** The reason, once the tab is let go of; null when the extension did not answer either, which
+   *  is the line's failure (the transport drops it) and nothing to hold against the tab. */
+  private async letGoOfTab(send: SendToExtension, tabId: number, e: ExtensionUnanswered): Promise<string | null> {
+    let live: BridgeTab | undefined;
+    try {
+      live = ((await send("chrome.tabs.query", [{}])) as BridgeTab[] | undefined)?.find((t) => t.id === tabId);
+    } catch {
+      return null;
+    }
+    // The address as Chrome has it now: a navigation that has not committed is `pendingUrl`,
+    // and the tab's own url is still the page it was leaving (about:blank for a new tab).
+    const info = this.attachments.get(tabId)?.targetInfo;
+    const url = live?.pendingUrl || live?.url || this.knownTabs.get(tabId)?.url || (typeof info?.url === "string" ? info.url : "");
+    const reason = unansweredReason(tabId, url, e);
+    // Recorded before its clients hear the page is gone, so one that asks why finds the answer.
+    this.stalledTabs.set(tabId, { url, at: Date.now() });
+    this.attachRefusals.set(tabId, { url, reason, at: Date.now(), unanswered: true });
+    this.dropTab(tabId);
+    void send("bridge.releaseTab", [tabId]).catch((error) => this.log("release of an unanswering tab failed:", error));
+    this.log(`let go of ${reason}`);
+    return reason;
+  }
 
   // ─── Client lifecycle ─────────────────────────────────────────────────
 
@@ -181,6 +251,7 @@ export abstract class BridgeModelCore {
   onTabRemoved(tabId: number): void {
     this.knownTabs.delete(tabId);
     this.agentTabs.delete(tabId);
+    this.stalledTabs.delete(tabId);
     for (const client of this.clients) {
       client.heldTabs.delete(tabId);
       client.keptTabs.delete(tabId);
@@ -266,7 +337,10 @@ export abstract class BridgeModelCore {
     // Each line reports its own access settings (or, from an older extension, none).
     this.access = null;
     const sameSession = !!browserSession && browserSession === this.browserSession;
-    if (!sameSession) this.agentTabs.clear();
+    if (!sameSession) {
+      this.agentTabs.clear();
+      this.stalledTabs.clear();
+    }
     // The bridge log is the only place this decision is visible, and it decides whether a tab
     // gets closed on the user's behalf. `kept=0` on a first connect is the normal reading.
     this.log(`extension connected: ${sameSession ? "same" : "new"} browser session, kept ${this.agentTabs.size} agent tab mark(s)`);
@@ -333,7 +407,8 @@ export abstract class BridgeModelCore {
    *  those), its pages' popups and the ones it borrowed ({@link BridgeClient}) — never the rest of the
    *  user's browsing, which stays listed and unattached until a client binds it. */
   protected wants(client: BridgeClient, tabId: number): boolean {
-    return client.autoAttach && (this.agentTabs.has(tabId) || client.keptTabs.has(tabId) || client.heldTabs.has(tabId));
+    return client.autoAttach && !this.stalledTabs.has(tabId)
+      && (this.agentTabs.has(tabId) || client.keptTabs.has(tabId) || client.heldTabs.has(tabId));
   }
 
   protected releaseUnusedTab(tabId: number): void {

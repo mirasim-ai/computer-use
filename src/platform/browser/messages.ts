@@ -163,6 +163,16 @@ export function tabRefusedNote(reason: string): string {
     : head + "Reopening it will most likely be refused the same way — tell the user rather than retrying";
 }
 
+/** The other CONFIRMED loss: the bridge let go of the tab itself, because it answered nothing for
+ * the bridge's whole command budget (bridge/model-core.ts `tabUnanswered`). `reason` names the tab
+ * and where it was going; `claimed` is what the session is on instead. */
+export function tabUnansweredNote(reason: string, claimed: string): string {
+  return `this surface's tab is out of reach: ${reason}, so the bridge let go of it. It is still open in the user's `
+    + `window and every other tab is reachable; ${claimed}. A page that never starts loading does this — do not `
+    + "repeat the step that led there blindly: re-observe, and if you need that page, bind its tab again once it "
+    + "has loaded or tell the user which tab is stuck";
+}
+
 /** The session closed its own last tab and is left with none, ON PURPOSE: `close_tab({all})`
  * leaves a borrowed browser as it was found, and reclaiming a blank tab would leave an
  * `about:blank` in the user's window. The driver goes DORMANT until `open_url` / `new_tab`. */

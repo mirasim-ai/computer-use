@@ -36,6 +36,7 @@ import net from "node:net";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { socketChannel, type ExtensionChannel } from "./extension-channel.ts";
+import { ExtensionUnanswered } from "./client.ts";
 import { BridgeModel } from "./model.ts";
 import { MIRASIM_EXTENSION_ID, extensionManifest } from "./extension-id.ts";
 import { ExtensionUpdates } from "./extension-updates.ts";
@@ -46,10 +47,14 @@ const EXTENSION_WAIT_MS = 15_000;
  *  service worker can be evicted mid-command, and playwright waits forever on an unanswered id. */
 const EXTENSION_COMMAND_TIMEOUT_MS = 30_000;
 /** A call still unanswered after this gets a log line — the ONLY record that a stall lives on the
- *  extension side. The 30s bound above never fires in the product: every real caller's own budget
- *  is tighter (`SHOT_TIMEOUT_MS` 4s, `NAV_TIMEOUT_MS` 15s, clicks 4-8s) and gives up first, so
- *  the warning must sit below the tightest of them. */
+ *  extension side. Most callers' own budgets are tighter than the bound above (`SHOT_TIMEOUT_MS`
+ *  4s, `NAV_TIMEOUT_MS` 15s, clicks 4-8s) and give up first, so the warning must sit below the
+ *  tightest of them. The bound itself does fire in the product: Chrome answers NOTHING on a tab
+ *  whose navigation has not started loading, however long that takes. */
 const SLOW_CALL_WARN_MS = 3_000;
+/** How long the extension gets to answer a ping once a command went unanswered. It answers from
+ *  its own worker in milliseconds, whatever a tab is doing; silence here means the line is dead. */
+const LINE_PROBE_MS = 5_000;
 
 export interface BridgeServerOptions {
   /** TCP port; 0 (default) = ephemeral. Always bound to 127.0.0.1. */
@@ -73,13 +78,17 @@ export interface BridgeServerOptions {
   /** Verbose trace sink. Absent = silent, EXCEPT the stall lines, which fall back to stderr:
    *  they are the only record of where a hang lives. */
   log?: (...args: unknown[]) => void;
+  /** TEST SEAM ONLY — how long a command may go unanswered (default 30s), so a suite that
+   *  makes a tab stop answering does not wait half a minute per check. */
+  commandTimeoutMs?: number;
 }
 
 /** Id/callback bookkeeping over the extension's line, whichever transport carries it
  *  ({@link ExtensionChannel}: the ws relay, or the native-messaging socket). */
 export class ExtensionConnection {
-  private readonly callbacks = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private readonly callbacks = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; tabId?: number }>();
   private lastId = 0;
+  private probing = false;
   onEvent: ((method: string, params: unknown[]) => void) | null = null;
   onClose: (() => void) | null = null;
 
@@ -87,6 +96,7 @@ export class ExtensionConnection {
     private readonly channel: ExtensionChannel,
     protected readonly log: (...args: unknown[]) => void,
     protected readonly warn: (...args: unknown[]) => void,
+    private readonly commandTimeoutMs = EXTENSION_COMMAND_TIMEOUT_MS,
   ) {
     channel.onMessage((text) => this.onMessage(text));
     channel.onClose(() => this.dispose());
@@ -105,6 +115,7 @@ export class ExtensionConnection {
     if (!this.channel.isOpen) return Promise.reject(new Error("Extension connection closed"));
     const id = ++this.lastId;
     const started = Date.now();
+    const tabId = debuggeeTab(method, params);
     return new Promise((resolve, reject) => {
       // Keepalive pings are excluded on purpose: one every 20s, and a busy service
       // worker delaying one is normal — warning on those buries the signal.
@@ -114,18 +125,21 @@ export class ExtensionConnection {
       }, SLOW_CALL_WARN_MS);
       warn?.unref?.();
       const timer = setTimeout(() => {
-        if (!this.callbacks.delete(id)) return;
-        if (warn) clearTimeout(warn);
-        const reason = `Extension did not answer ${callLabel(method, params)} within ${EXTENSION_COMMAND_TIMEOUT_MS}ms`;
-        reject(new Error(reason));
-        // An open pipe with unanswered commands is not a usable connection. Close only this
-        // transport so native messaging reconnects and releases stale debugger sessions.
+        const callback = this.callbacks.get(id);
+        if (!callback) return;
+        const cdpMethod = tabId !== undefined && typeof params[1] === "string" ? params[1] : undefined;
+        const unanswered = new ExtensionUnanswered(
+          `Extension did not answer ${callLabel(method, params)} within ${this.commandTimeoutMs}ms`, this.commandTimeoutMs, tabId, cdpMethod);
         // Never replay a command: a timed-out input may already have reached its tab.
-        this.close('Extension command timed out');
-      }, EXTENSION_COMMAND_TIMEOUT_MS);
+        callback.reject(unanswered);
+        // Whatever else waits on that tab waits on the same thing: fail it now, not one timeout each.
+        if (tabId !== undefined) for (const other of [...this.callbacks.values()]) if (other.tabId === tabId) other.reject(unanswered);
+        void this.closeUnlessAnswering(method);
+      }, this.commandTimeoutMs);
       timer.unref?.();
-      const settled = () => { clearTimeout(timer); if (warn) clearTimeout(warn); };
+      const settled = () => { this.callbacks.delete(id); clearTimeout(timer); if (warn) clearTimeout(warn); };
       this.callbacks.set(id, {
+        ...(tabId === undefined ? {} : { tabId }),
         resolve: (v) => {
           settled();
           // Only the calls that warned report their total, so a healthy run stays silent.
@@ -137,12 +151,41 @@ export class ExtensionConnection {
       });
       try { this.channel.send(JSON.stringify({ id, method, params })); }
       catch (e) {
-        this.callbacks.delete(id);
-        settled();
-        reject(e);
+        const callback = this.callbacks.get(id)!;
+        callback.reject(e instanceof Error ? e : new Error(String(e)));
         this.close('Extension transport failed');
       }
     });
+  }
+
+  /**
+   * One unanswered command is not a dead line: a tab whose navigation never starts loading
+   * answers nothing while the extension itself is fine, and dropping the line for it took every
+   * other tab and every other session down with it (and the next line stalled on the same tab).
+   * So ask the extension itself. Only its silence closes this transport, so native messaging
+   * reconnects and releases stale debugger sessions.
+   */
+  private async closeUnlessAnswering(method: string): Promise<void> {
+    if (method === "bridge.ping") { this.close('Extension command timed out'); return; }
+    if (this.probing || !this.channel.isOpen) return;
+    this.probing = true;
+    try {
+      if (!(await this.answersWithin(LINE_PROBE_MS))) this.close('Extension command timed out');
+    } finally {
+      this.probing = false;
+    }
+  }
+
+  /** Does the line answer a ping in time? A closed or silent one does not. */
+  async answersWithin(ms: number): Promise<boolean> {
+    if (!this.channel.isOpen) return false;
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); timer.unref?.(); });
+    try {
+      return await Promise.race([this.send("bridge.ping", []).then(() => true, () => false), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   close(reason: string): void {
@@ -160,7 +203,6 @@ export class ExtensionConnection {
     }
     if (message.id !== undefined && this.callbacks.has(message.id)) {
       const callback = this.callbacks.get(message.id)!;
-      this.callbacks.delete(message.id);
       if (message.error !== undefined) callback.reject(new Error(message.error));
       else callback.resolve(message.result);
       return;
@@ -169,11 +211,18 @@ export class ExtensionConnection {
   }
 
   private dispose(): void {
-    for (const callback of this.callbacks.values()) callback.reject(new Error("Extension connection closed"));
+    for (const callback of [...this.callbacks.values()]) callback.reject(new Error("Extension connection closed"));
     this.callbacks.clear();
     this.onClose?.();
     this.onClose = null;
   }
+}
+
+/** The tab a `chrome.debugger.sendCommand` is for; undefined for every other call. */
+function debuggeeTab(method: string, params: unknown[]): number | undefined {
+  if (method !== "chrome.debugger.sendCommand") return undefined;
+  const tabId = (params[0] as { tabId?: unknown } | undefined)?.tabId;
+  return typeof tabId === "number" ? tabId : undefined;
 }
 
 /** What a `chrome.*` call is doing, for one log line. Nearly every call is
@@ -210,6 +259,8 @@ export abstract class BridgeServerCore {
   protected readonly warn: (...args: unknown[]) => void;
   /** Test seam; null in the product — see {@link BridgeServerOptions.openUrl}. */
   private readonly openUrl: ((url: string) => void | Promise<void>) | null;
+  /** Test seam; undefined in the product — see {@link BridgeServerOptions.commandTimeoutMs}. */
+  protected readonly commandTimeoutMs: number | undefined;
   protected port = 0;
 
   protected extension: ExtensionConnection | null = null;
@@ -233,6 +284,7 @@ export abstract class BridgeServerCore {
     this.extensionId = options.extensionId ?? MIRASIM_EXTENSION_ID;
     this.extensionIds = [this.extensionId];
     this.openUrl = options.openUrl ?? null;
+    this.commandTimeoutMs = options.commandTimeoutMs;
     this.model = new BridgeModel((method, params) => {
       if (this.updates.reloading) throw new Error('The Mirasim extension is reloading; reconnect before continuing.');
       if (!this.extension) throw new Error("Bridge extension not connected");

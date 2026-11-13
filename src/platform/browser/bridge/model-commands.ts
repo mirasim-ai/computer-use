@@ -102,7 +102,8 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
         // Not Chrome's vocabulary, and meant not to be: a client that lost a tab asks why, and a
         // real browser answers an unknown method with an error, which reads as "no record".
         const since = Date.now() - 60_000;
-        return { refusals: [...this.attachRefusals.values()].filter((r) => r.at >= since).map(({ url, reason }) => ({ url, reason })) };
+        return { refusals: [...this.attachRefusals.values()].filter((r) => r.at >= since)
+          .map(({ url, reason, unanswered }) => ({ url, reason, ...(unanswered ? { unanswered } : {}) })) };
       }
       case "Browser.close":
         // The browser is the USER'S OWN; recycling the agent's tabs is `recycleAgentTabs`.
@@ -290,6 +291,8 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
           if (!this.knownTabs.has(tabId)) throw new Error(`Tab ${tabId} closed while restoring; no replacement tab was opened.`);
         }
       }
+      // Bound by name: the one way back for a tab that had stopped answering.
+      this.stalledTabs.delete(tabId);
       const attachment = await this.ensureAttached(tabId);
       if (attachment.targetInfo.targetId !== expectedTargetId) throw new Error(`Tab ${tabId} changed identity while restoring; list and bind it again before acting.`);
       // Chrome 155 can restore a background renderer with a zero-size viewport. Offer an
@@ -376,7 +379,7 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
     const attached = this.attachments.values().next().value as TabAttachment | undefined;
     // Between tasks nothing may be attached while the group still has tabs, and any of them can
     // carry a browser-scoped question: attach one for the question, then let it go again.
-    const tabId = attached?.tabId ?? [...this.knownTabs].find(([, tab]) => !tabIsUnloaded(tab))?.[0];
+    const tabId = attached?.tabId ?? [...this.knownTabs].find(([id, tab]) => !tabIsUnloaded(tab) && !this.stalledTabs.has(id))?.[0];
     if (tabId === undefined) throw new Error(`No tab to forward browser-level command: ${method}`);
     if (!attached) await this.ensureAttached(tabId);
     try {

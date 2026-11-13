@@ -15,6 +15,8 @@ export interface BridgeTab {
   id?: number;
   url?: string;
   title?: string;
+  /** Where a navigation that has not committed yet is going. */
+  pendingUrl?: string;
   discarded?: boolean;
   status?: string;
   windowId?: number;
@@ -36,6 +38,14 @@ export interface TabAttachment {
   targetInfo: { targetId: string; [key: string]: unknown };
   /** Root (empty key) and real child debugger sessions have independent Runtime domains. */
   runtimes: Map<string, RuntimeDomain>;
+}
+
+/** A command the extension took and did not answer in time, while the line itself still works.
+ *  `tabId` and `cdpMethod` are set for a `chrome.debugger.sendCommand`: the tab is what is stuck. */
+export class ExtensionUnanswered extends Error {
+  constructor(message: string, readonly ms: number, readonly tabId?: number, readonly cdpMethod?: string) {
+    super(message);
+  }
 }
 
 export type CdpMessage = {

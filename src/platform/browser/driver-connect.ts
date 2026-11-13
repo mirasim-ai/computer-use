@@ -17,7 +17,7 @@ import { acquireManagedBrowser, openBlankTab, publishTabIdentity } from "./acqui
 import { acquireBridge, bridgeJustStarted, extensionHeldElsewhere, waitForExtension } from "./bridge/acquire-bridge.ts";
 import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, newBackgroundPageIn, pageTargetInfo } from "./tabs.ts";
 import { bridgeBrowserSession } from "./bridge-tabs.ts";
-import { BROWSER_SWITCHED_NOTE, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote } from "./messages.ts";
+import { BROWSER_SWITCHED_NOTE, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote, tabUnansweredNote } from "./messages.ts";
 import { SurfaceUnreadableError } from "../types.ts";
 import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_JS } from "./page-tabs.ts";
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
@@ -57,17 +57,20 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
    * `Mirasim.attachRefusals` (bridge/model-commands.ts). The re-attach is tried ~150 ms after the
    * detach, so a loss noticed sooner gets one more look. A non-bridge endpoint errors: no record.
    */
-  private async attachRefusal(lostUrl: string): Promise<string | null> {
-    if (!lostUrl || lostUrl === "about:blank" || !this.browser) return null;
-    for (let look = 0; look < 2; look++) {
+  private async attachRefusal(lostUrl: string): Promise<{ reason: string; unanswered?: boolean } | null> {
+    if (!this.browser) return null;
+    // A tab that never left about:blank has no address to match a refusal by; the one record that
+    // still fits it is a tab the bridge let go of for not answering, written before the loss.
+    const named = !!lostUrl && lostUrl !== "about:blank";
+    for (let look = 0; look < (named ? 2 : 1); look++) {
       if (look) await new Promise((r) => setTimeout(r, 500));
       try {
         const session = await this.browser.newBrowserCDPSession();
         try {
-          const res = await (session as unknown as { send(m: string): Promise<{ refusals?: { url: string; reason: string }[] }> })
+          const res = await (session as unknown as { send(m: string): Promise<{ refusals?: { url: string; reason: string; unanswered?: boolean }[] }> })
             .send("Mirasim.attachRefusals");
-          const hit = res.refusals?.find((r) => r.url === lostUrl);
-          if (hit) return hit.reason;
+          const hit = (named ? res.refusals?.find((r) => r.url === lostUrl) : undefined) ?? res.refusals?.findLast((r) => r.unanswered);
+          if (hit) return hit;
         } finally {
           await session.detach().catch(() => {});
         }
@@ -139,7 +142,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
           : this.wokeAfterSelfClose ? TAB_REOPENED_AFTER_SELF_CLOSE_NOTE
           : this.managedProfileDir && !this.tab ? REOPENED_NOTE
           : this.explicit && !this.managedProfileDir && !this.attached
-            ? ((r) => r ? tabRefusedNote(r) : TAB_DETACHED_NOTE)(await this.attachRefusal(lostUrl))
+            ? ((r) => r?.unanswered ? tabUnansweredNote(r.reason, "a fresh blank tab was claimed")
+              : r ? tabRefusedNote(r.reason) : TAB_DETACHED_NOTE)(await this.attachRefusal(lostUrl))
           : TAB_REOPENED_NOTE;
         this.wokeAfterSelfClose = false;
         await this.publishClaim();
@@ -151,7 +155,13 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         // …unless it is the SAME page under a new object (a bridge reconnection, e.g. after a
         // service-worker eviction): "the tab was closed" would be false of the TAB.
         const known = await this.recognise(next).catch(() => null);
-        this.makeActive(next, known === "same" ? REIDENTIFIED_WHY : "the tab it was on was closed");
+        // Not closed when the bridge let go of it for answering nothing: say which tab, and why.
+        const letGo = known === "same" || !this.explicit || this.managedProfileDir || this.attached ? null
+          : await this.attachRefusal(this.active.url());
+        if (letGo?.unanswered) {
+          this.makeActive(next, null);
+          this.appendNote(tabUnansweredNote(letGo.reason, "the session is on another of its tabs now, so refs from earlier observations no longer apply"));
+        } else this.makeActive(next, known === "same" ? REIDENTIFIED_WHY : "the tab it was on was closed");
       }
       return;
     }

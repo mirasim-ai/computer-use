@@ -91,7 +91,7 @@ export class BridgeServer extends BridgeServerCore {
    *  - another browser while the active one does NOT answer → it takes over.
    */
   protected attachExtension(channel: ExtensionChannel): void {
-    const connection = new ExtensionConnection(channel, this.log, this.warn);
+    const connection = new ExtensionConnection(channel, this.log, this.warn, this.commandTimeoutMs);
     if (!this.extension) {
       this.activateExtension(connection, []);
       return;
@@ -113,7 +113,7 @@ export class BridgeServer extends BridgeServerCore {
   private async admitExtension(connection: ExtensionConnection, held: Array<[string, unknown[]]>, session: string | null): Promise<void> {
     const incumbent = this.extension;
     const sameOrUnknown = !session || !this.extensionSession || session === this.extensionSession;
-    if (incumbent && !sameOrUnknown && await answersWithin(incumbent, INCUMBENT_PROBE_MS)) {
+    if (incumbent && !sameOrUnknown && await incumbent.answersWithin(INCUMBENT_PROBE_MS)) {
       // Another line became active while the probe ran: judge against that one instead.
       if (this.extension !== incumbent) return this.admitExtension(connection, held, session);
       if (!connection.isOpen) return;
@@ -253,17 +253,5 @@ export class BridgeServer extends BridgeServerCore {
     });
     ws.on("close", () => this.model.removeClient(client));
     ws.on("error", () => this.model.removeClient(client));
-  }
-}
-
-/** Does the line answer a ping in time? A closed or silent one does not. */
-async function answersWithin(connection: ExtensionConnection, ms: number): Promise<boolean> {
-  if (!connection.isOpen) return false;
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
-  try {
-    return await Promise.race([connection.send("bridge.ping", []).then(() => true, () => false), timeout]);
-  } finally {
-    clearTimeout(timer);
   }
 }
