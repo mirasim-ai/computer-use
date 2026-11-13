@@ -45,10 +45,18 @@ const EXTENSION_WAIT_MS = 15_000;
 /** A chrome.* call the extension never answers becomes an ERROR after this, not a hang: an MV3
  *  service worker can be evicted mid-command, and playwright waits forever on an unanswered id. */
 const EXTENSION_COMMAND_TIMEOUT_MS = 30_000;
+/**
+ * How long the extension gets to answer a ping once one of its calls ran out of time. A call
+ * can go unanswered while the extension is fine: the debugger relays it to ONE page, and a page
+ * whose renderer is busy or frozen holds every command sent to it. Only a line that does not
+ * answer this ping is dead (see {@link ExtensionConnection.send}).
+ */
+const LIVENESS_PROBE_MS = 5_000;
 /** A call still unanswered after this gets a log line — the ONLY record that a stall lives on the
- *  extension side. The 30s bound above never fires in the product: every real caller's own budget
- *  is tighter (`SHOT_TIMEOUT_MS` 4s, `NAV_TIMEOUT_MS` 15s, clicks 4-8s) and gives up first, so
- *  the warning must sit below the tightest of them. */
+ *  extension side. Every real caller's own budget is tighter than the 30s bound above
+ *  (`SHOT_TIMEOUT_MS` 4s, `NAV_TIMEOUT_MS` 15s, clicks 4-8s), so the warning must sit below the
+ *  tightest of them. A caller giving up does not withdraw its call: the bridge still waits for
+ *  the answer, and that 30s bound still runs. */
 const SLOW_CALL_WARN_MS = 3_000;
 
 export interface BridgeServerOptions {
@@ -80,6 +88,8 @@ export interface BridgeServerOptions {
 export class ExtensionConnection {
   private readonly callbacks = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private lastId = 0;
+  /** The ping asking whether the line is alive after a call timed out; one at a time. */
+  private probing: Promise<void> | null = null;
   onEvent: ((method: string, params: unknown[]) => void) | null = null;
   onClose: (() => void) | null = null;
 
@@ -87,6 +97,8 @@ export class ExtensionConnection {
     private readonly channel: ExtensionChannel,
     protected readonly log: (...args: unknown[]) => void,
     protected readonly warn: (...args: unknown[]) => void,
+    /** Test seam: the two bounds, so a suite need not wait 30 s for one. */
+    private readonly timing = { commandMs: EXTENSION_COMMAND_TIMEOUT_MS, probeMs: LIVENESS_PROBE_MS },
   ) {
     channel.onMessage((text) => this.onMessage(text));
     channel.onClose(() => this.dispose());
@@ -116,13 +128,20 @@ export class ExtensionConnection {
       const timer = setTimeout(() => {
         if (!this.callbacks.delete(id)) return;
         if (warn) clearTimeout(warn);
-        const reason = `Extension did not answer ${callLabel(method, params)} within ${EXTENSION_COMMAND_TIMEOUT_MS}ms`;
+        const reason = `Extension did not answer ${callLabel(method, params)} within ${this.timing.commandMs}ms`;
         reject(new Error(reason));
-        // An open pipe with unanswered commands is not a usable connection. Close only this
-        // transport so native messaging reconnects and releases stale debugger sessions.
+        this.warn(reason);
         // Never replay a command: a timed-out input may already have reached its tab.
-        this.close('Extension command timed out');
-      }, EXTENSION_COMMAND_TIMEOUT_MS);
+        if (method === "bridge.ping") this.close("Extension stopped answering");
+        // Not a reason to drop the line by itself. The call went to one page, and a page that
+        // stopped answering (a renderer busy or frozen: a heavy app loading in a background tab)
+        // leaves only ITS calls unanswered. Closing here cut every session off the browser, and
+        // the reconnect handed the same tab to the drivers again, whose first commands timed out
+        // in turn: the extension dropped every 30 s and never stayed up. The line goes only when
+        // the extension itself no longer answers, so native messaging reconnects and lets go of
+        // stale debugger sessions.
+        else this.checkAlive();
+      }, this.timing.commandMs);
       timer.unref?.();
       const settled = () => { clearTimeout(timer); if (warn) clearTimeout(warn); };
       this.callbacks.set(id, {
@@ -148,6 +167,31 @@ export class ExtensionConnection {
   close(reason: string): void {
     try { this.channel.close(reason); }
     finally { this.dispose(); }
+  }
+
+  /**
+   * Ping the extension after one of its calls timed out, and close the line if no answer comes
+   * within {@link LIVENESS_PROBE_MS}. Any answer counts, an error included: it came back over the
+   * line. A ping already in flight answers for the calls that time out meanwhile.
+   */
+  private checkAlive(): void {
+    if (this.probing || !this.channel.isOpen) return;
+    let timer: NodeJS.Timeout | undefined;
+    const silent = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.timing.probeMs);
+      timer.unref?.();
+    });
+    const answered = this.send("bridge.ping", []).then(() => true, (e: unknown) =>
+      // The extension's own error is an answer; the line closing or the call timing out is not.
+      !/^(Extension connection closed|Extension did not answer)/.test(e instanceof Error ? e.message : String(e)));
+    this.probing = Promise.race([answered, silent]).then((alive) => {
+      clearTimeout(timer);
+      if (alive) {
+        this.warn("a call timed out but the extension still answers; keeping the line");
+        return;
+      }
+      if (this.channel.isOpen) this.close("Extension stopped answering");
+    }).finally(() => { this.probing = null; });
   }
 
   private onMessage(text: string): void {
