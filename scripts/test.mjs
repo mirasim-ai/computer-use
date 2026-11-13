@@ -27,7 +27,7 @@ const GROUPS = {
   unit: [
     'blank-args', 'viewport-line', 'journal-drain', 'repl-guards',
     'macos-ui', 'macos-windows', 'macos-budgets', 'macos-targets', 'macos-elements', 'macos-marks',
-    'macos-window-match', 'macos-grants', 'macos-diagnostics', 'macos-mouse', 'macos-heard', 'macos-app-notes', 'macos-forms', 'bridge-acquire',
+    'macos-window-match', 'macos-grants', 'macos-diagnostics', 'macos-mouse', 'macos-heard', 'macos-app-notes', 'macos-forms', 'bridge-acquire', 'bridge-stalled-tab',
     'ownership', 'setup-skill', 'windows-approval', 'windows-opt-in',
   ],
   browser: [
@@ -37,7 +37,7 @@ const GROUPS = {
     'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why', 'page-opened-tabs', 'quick-misses',
   ],
 };
-GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', 'extension-bridge', 'extension-access'];
+GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', 'extension-bridge', 'extension-access', 'extension-stalled-tab'];
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const tsx = createRequire(import.meta.url).resolve('tsx/cli');

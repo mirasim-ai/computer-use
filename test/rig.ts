@@ -4,11 +4,14 @@
  * and a tiny page server — data: URLs abort under chrome.debugger navigation.
  */
 
-import { existsSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { MIRASIM_EXTENSION_ID } from "../src/platform/browser/bridge/extension-id.ts";
+import { chromeBinary, spawnChrome, type ThrowawayChrome } from "./helpers.ts";
 
 /** A Chromium-flavored binary that still honors --load-extension. Branded Chrome
  *  dropped the flag, so the test needs Playwright's Chrome for Testing. */
@@ -34,6 +37,53 @@ export function findLoadableChromium(): string | null {
     /* no cache */
   }
   return null;
+}
+
+/**
+ * A throwaway browser with the bridge extension loaded. Playwright's Chromium takes it on the
+ * command line; with `COMPUTER_USE_TEST_BRANDED_CHROME=1` the installed Google Chrome is used
+ * instead, which ignores that switch and is handed the extension over its debugging pipe
+ * (`Extensions.loadUnpacked`). The branded one is how a suite meets what the Chrome people
+ * actually run does: it is several versions ahead of Playwright's. Null: neither is available.
+ */
+export async function spawnChromeWithExtension(dir: string, extraArgs: string[] = []): Promise<ThrowawayChrome | null> {
+  if (!process.env.COMPUTER_USE_TEST_BRANDED_CHROME) {
+    const binary = findLoadableChromium();
+    return binary ? await spawnChrome({ binary, extraArgs: [`--load-extension=${dir}`, ...extraArgs] }) : null;
+  }
+  const binary = chromeBinary();
+  if (!existsSync(binary)) return null;
+  const port: number = await new Promise((resolve) => {
+    const srv = createNetServer();
+    srv.listen(0, "127.0.0.1", () => { const p = (srv.address() as { port: number }).port; srv.close(() => resolve(p)); });
+  });
+  const profileDir = mkdtempSync(join(tmpdir(), "computer-use-chrome-"));
+  const proc = spawn(binary, [
+    "--remote-debugging-pipe", `--remote-debugging-port=${port}`, "--enable-unsafe-extension-debugging",
+    `--user-data-dir=${profileDir}`, "--no-first-run", "--no-default-browser-check",
+    ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []), ...extraArgs, "--headless=new", "about:blank",
+  ], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
+  const reap = () => { try { proc.kill("SIGKILL"); } catch { /* already gone */ } };
+  process.on("exit", reap);
+  const cleanup = () => {
+    reap();
+    process.removeListener("exit", reap);
+    try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch { /* temp dir */ }
+  };
+  // The pipe speaks CDP as NUL-terminated JSON; one command is all it is used for.
+  const answer = new Promise<string>((resolve) => {
+    let buffer = "";
+    (proc.stdio[4] as NodeJS.ReadableStream).on("data", (d) => { buffer += String(d); const end = buffer.indexOf("\0"); if (end >= 0) resolve(buffer.slice(0, end)); });
+    setTimeout(() => resolve(""), 15_000).unref();
+  });
+  (proc.stdio[3] as NodeJS.WritableStream).write(`${JSON.stringify({ id: 1, method: "Extensions.loadUnpacked", params: { path: dir } })}\0`);
+  const loaded = await answer;
+  const cdpUrl = `http://127.0.0.1:${port}`;
+  for (let i = 0; i < 75; i++) {
+    try { await fetch(`${cdpUrl}/json/version`); break; } catch { await new Promise((r) => setTimeout(r, 200)); }
+  }
+  if (!/"result"/.test(loaded)) { cleanup(); throw new Error(`Chrome did not load the extension: ${loaded || "no answer"}`); }
+  return { cdpUrl, pid: proc.pid!, profileDir, cleanup };
 }
 
 /** Minimal raw CDP client against the REAL browser — used to interrogate the

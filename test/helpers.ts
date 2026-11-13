@@ -17,6 +17,9 @@ const CHROME = process.env.COMPUTER_USE_CHROME
   || (INSTALLED_CHROME[process.platform] ?? []).find((bin) => existsSync(bin))
   || "google-chrome";
 
+/** The installed Chrome the suites spawn. */
+export const chromeBinary = (): string => CHROME;
+
 export interface ThrowawayChrome {
   cdpUrl: string;
   pid: number;
