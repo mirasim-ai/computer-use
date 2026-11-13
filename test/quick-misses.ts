@@ -35,6 +35,24 @@ const FIXTURE_SELECT = page(`
 </div>
 <p id="picked">nothing picked</p>`);
 
+/** A Cancel button on a page that is busy for a while, in stretches that leave it no time to
+ *  take a click, and that removes the button when the work is over. */
+const FIXTURE_BUSY = page(`
+<button id="cancel">Cancel</button><p id="state">idle</p>
+<script>
+  window.busyThenRemove = (ms, stretch) => setTimeout(() => {
+    const end = Date.now() + ms;
+    const step = () => {
+      const t = Date.now();
+      while (Date.now() - t < stretch && Date.now() < end);
+      if (Date.now() < end) return setTimeout(step, 4);
+      document.getElementById('cancel').remove();
+      document.getElementById('state').textContent = 'done';
+    };
+    step();
+  }, 30);
+</script>`);
+
 /** A control whose name is close to, but not, the one a script will wait for. */
 const FIXTURE_NEAR_NAME = page(`
 <button>Filter by Date</button>
@@ -299,6 +317,22 @@ async function main() {
     try { keptClick = await h.api.click(kept85); } catch (e) { keptClick = `threw: ${(e as Error).message}`; }
     const third = (await h.api.observe()).elements.filter((e) => e.name === "Share").sort((a, b) => a.rect.y - b.rect.y)[2]?.ref;
     check("a handle found near text is found again there after a reload", !!third && keptClick.includes(third), `${third}: ${keptClick.slice(0, 200)}`);
+
+    // ── click: the page removes the control while the click is waiting on it ──
+    // The click cannot land while the page is busy, and once the button is gone a single long
+    // attempt went on waiting for the ref to match again: 14 s in a front-end QA task, on a
+    // Cancel button that left with the work it cancelled.
+    const cancel = refOf(await open(FIXTURE_BUSY), "Cancel");
+    await h.api.act("run_js", { code: "window.busyThenRemove(5000, 900)" });
+    await new Promise((r) => setTimeout(r, 150));
+    const removedClick = await timed(async () => {
+      try { return await h.api.click(cancel!); } catch (e) { return `threw: ${(e as Error).message}`; }
+    });
+    check("a click on a control the page removed while it waited says so, and that nothing was clicked",
+      /the page removed it while this click was waiting on it, so nothing was clicked/.test(removedClick.out), removedClick.out.slice(0, 220));
+    // ~6 s: the busy stretch, then the first look at whether it is still there. One long
+    // attempt answered after 17.5 s here, with Playwright's own timeout as the message.
+    check("...and stops when it is gone rather than waiting out the budget", removedClick.ms < 9000, sec(removedClick.ms));
 
     await driver.close();
   } finally {

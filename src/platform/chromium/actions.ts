@@ -58,27 +58,35 @@ export async function refuseIfGated(loc: Locator, ref?: string, name?: string): 
   };
 }
 
-/** How long a click by ref may wait on actionability before {@link coveredBy} is asked. */
+/** How long one attempt at a click by ref may wait on actionability before the page is asked
+ *  what is in the way: {@link coveredBy}, and whether the node is still there at all. */
 const COVER_CHECK_AFTER_MS = 2_000;
-/** The whole actionability budget, unchanged: the second attempt gets what the first left. */
+/** The whole actionability budget, unchanged: the later attempts share what the first left. */
 const CLICK_BUDGET_MS = 8_000;
+/** How long {@link removed} may take to answer; a page too busy to say is taken as "still there". */
+const REMOVED_PROBE_MS = 500;
 
 /**
- * Click, but find out early when something is COVERING the target, instead of only after the
- * full 8 s actionability wait. Measured on a front-end QA task: ten clicks on a covered button
- * cost 80 s, a third of all browser time in that run.
+ * Click, but find out early when something is COVERING the target, or when the target is no
+ * longer in the document, instead of only after the full 8 s actionability wait. Measured on
+ * front-end QA tasks: ten clicks on a covered button cost 80 s, a third of all browser time in
+ * that run; and one click on a Cancel button, which the page removed when the work it cancelled
+ * finished, waited 14 s for a node that was never coming back.
  *
- * Two attempts sharing the old budget. The first gets {@link COVER_CHECK_AFTER_MS}, enough for
- * Playwright to try each of its scroll alignments, which is how a click under a sticky header
- * succeeds, so a click that resolves at all resolves inside it. When it times out without having
+ * Attempts of {@link COVER_CHECK_AFTER_MS} sharing the old budget. One is enough for Playwright
+ * to try each of its scroll alignments, which is how a click under a sticky header succeeds, so a
+ * click that resolves at all resolves inside it. When the first times out without having
  * dispatched, a cover still on top is answered at once; anything else (an element still moving
- * or appearing) gets the rest of the budget, as before. A timeout AFTER dispatch is never
- * retried: that click may have landed.
+ * or appearing) gets the rest of the budget, as before, but in attempts: between them a node
+ * that has left the document is noticed, where one long attempt went on waiting for the ref to
+ * match again. A timeout AFTER dispatch is never retried: that click may have landed.
+ *
+ * Null means the node is gone and nothing was clicked; the caller words that as its own miss.
  */
 export async function clickNamingCover(
   target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
   opts: { button: "left" | "right" | "middle"; clickCount: number }, ref?: string, name?: string,
-): Promise<ActResult> {
+): Promise<ActResult | null> {
   try {
     await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
     return { ok: true };
@@ -87,6 +95,8 @@ export async function clickNamingCover(
     if (after) return after;
     if (!undispatchedTimeout(e)) throw e;
   }
+  // Before the probes below: each waits out its own 2 s for a node that is no longer there.
+  if (await removed(loc)) return null;
   // An editor's input proxy never passes Playwright's hit check: the editor's own text is on top
   // of it by design (coverer-label.ts). A click at its point is the one a person makes there.
   if (await isEditorProxy(loc)) {
@@ -101,15 +111,41 @@ export async function clickNamingCover(
   }
   const early = await coveredBy(loc, ref, name);
   if (early) return { ok: false, journal: { covered: true }, note: early };
+  let last: unknown;
+  for (let spent = COVER_CHECK_AFTER_MS; spent < CLICK_BUDGET_MS; spent += COVER_CHECK_AFTER_MS) {
+    if (await removed(loc)) return null;
+    try {
+      await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
+      return { ok: true };
+    } catch (e) {
+      const after = afterDispatch(e, COVER_CHECK_AFTER_MS);
+      if (after) return after;
+      last = e;
+      if (!undispatchedTimeout(e)) break;
+    }
+  }
+  if (await removed(loc)) return null;
+  const late = await coveredBy(loc, ref, name);
+  if (!late) throw last;
+  return { ok: false, journal: { covered: true }, note: late };
+}
+
+/**
+ * Has the node this locator named left the document? Asked between click attempts, so it must not
+ * become a wait of its own: `count()` takes no timeout and a page whose main thread is busy
+ * answers late, so the question is dropped after {@link REMOVED_PROBE_MS} and the answer is "no".
+ */
+async function removed(loc: Locator): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await target.click({ ...opts, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
-    return { ok: true };
-  } catch (e) {
-    const after = afterDispatch(e, CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS);
-    if (after) return after;
-    const late = await coveredBy(loc, ref, name);
-    if (!late) throw e;
-    return { ok: false, journal: { covered: true }, note: late };
+    return await Promise.race([
+      loc.count().then((n) => n === 0),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), REMOVED_PROBE_MS); }),
+    ]);
+  } catch {
+    return false; // cannot tell (mid-navigation): the click's own failure is the honest answer
+  } finally {
+    clearTimeout(timer);
   }
 }
 
