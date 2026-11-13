@@ -17,12 +17,17 @@ export const BROWSER_TO_HOST_MAX = 64 * 1024 * 1024;
 
 const LITTLE_ENDIAN = os.endianness() === "LE";
 
-/** One frame: length prefix + payload. Throws when `text` exceeds `max`. */
+/** A message too large for the leg it was to travel: nothing was sent, and the line is intact. */
+export class FrameTooLargeError extends Error {
+  constructor(readonly bytes: number, readonly max: number) {
+    super(`native message of ${bytes} bytes exceeds the ${max}-byte limit`);
+  }
+}
+
+/** One frame: length prefix + payload. Throws {@link FrameTooLargeError} when `text` exceeds `max`. */
 export function encodeFrame(text: string, max: number): Buffer {
   const body = Buffer.from(text, "utf8");
-  if (body.length > max) {
-    throw new Error(`native message of ${body.length} bytes exceeds the ${max}-byte limit`);
-  }
+  if (body.length > max) throw new FrameTooLargeError(body.length, max);
   const head = Buffer.allocUnsafe(4);
   if (LITTLE_ENDIAN) head.writeUInt32LE(body.length, 0);
   else head.writeUInt32BE(body.length, 0);

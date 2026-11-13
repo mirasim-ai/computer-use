@@ -15,6 +15,7 @@ export interface ExtensionChannel {
   /** Which transport this line runs on — for logs and for the status a host reports. */
   readonly kind: "ws" | "native";
   readonly isOpen: boolean;
+  /** Throws `FrameTooLargeError` for a message the transport cannot carry, having sent nothing. */
   send(text: string): void;
   close(reason: string): void;
   onMessage(cb: (text: string) => void): void;
@@ -58,15 +59,9 @@ export function socketChannel(socket: Duplex, onError: (e: Error) => void): Exte
     get isOpen() {
       return open && socket.writable;
     },
-    send: (text) => {
-      try {
-        socket.write(encodeFrame(text, HOST_TO_BROWSER_MAX));
-      } catch (e) {
-        // An oversized frame is a bug on our side, not a transport failure: report it and
-        // leave the line up, the way a rejected command would.
-        onError(e instanceof Error ? e : new Error(String(e)));
-      }
-    },
+    // An oversized frame throws (`FrameTooLargeError`) before anything is written: the caller
+    // fails that one command and the line stays up.
+    send: (text) => { socket.write(encodeFrame(text, HOST_TO_BROWSER_MAX)); },
     close: () => { open = false; socket.destroy(); },
     onMessage: (cb) => {
       socket.on("data", (chunk: Buffer) => {

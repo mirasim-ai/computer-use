@@ -37,6 +37,7 @@ import path from "node:path";
 import { WebSocketServer } from "ws";
 import { socketChannel, type ExtensionChannel } from "./extension-channel.ts";
 import { ExtensionUnanswered } from "./client.ts";
+import { FrameTooLargeError } from "./native-frames.ts";
 import { BridgeModel } from "./model.ts";
 import { MIRASIM_EXTENSION_ID, extensionManifest } from "./extension-id.ts";
 import { ExtensionUpdates } from "./extension-updates.ts";
@@ -152,6 +153,13 @@ export class ExtensionConnection {
       try { this.channel.send(JSON.stringify({ id, method, params })); }
       catch (e) {
         const callback = this.callbacks.get(id)!;
+        if (e instanceof FrameTooLargeError) {
+          // Nothing was written, so the line is as good as before: only this command fails.
+          this.warn(`not sent: ${callLabel(method, params)} is ${e.bytes} bytes, over the ${e.max} Chrome takes in one message`);
+          callback.reject(new Error(`${callLabel(method, params)} was not sent: at ${e.bytes} bytes it is over the ${e.max} bytes `
+            + "Chrome accepts in one message to an extension. Pass less in one call (a long text or script in several parts)."));
+          return;
+        }
         callback.reject(e instanceof Error ? e : new Error(String(e)));
         this.close('Extension transport failed');
       }
