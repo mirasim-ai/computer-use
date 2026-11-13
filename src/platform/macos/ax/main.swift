@@ -187,6 +187,15 @@ func handle(_ req: Req) throws -> [String: Any] {
   case "at":
     return ["element": try engine.at(pid: try req.pid(), x: try req.dbl("x"), y: try req.dbl("y"))]
   case "press": try engine.press(key: try req.str("key"), action: (req.raw["action"] as? String) ?? "AXPress")
+  // What the app itself says changed (ax-watch.swift): a mark before an action, the wait after it.
+  case "watch":
+    let pid = try req.pid()
+    return try changeWatch.mark(
+      pid: pid, appElement: engine.appElement(pid), quietMs: req.dbl("quietMs", 40), maxMs: req.dbl("maxMs", 300))
+  case "settled":
+    return try changeWatch.settled(
+      pid: try req.pid(), mark: try req.int("mark"), firstMs: req.dbl("firstMs", 800),
+      quietMs: req.dbl("quietMs", 150), maxMs: req.dbl("maxMs", 3000))
   // The rungs above the element itself: what CONTAINS it, and the one act a click means for a row.
   case "ancestors":
     return ["ancestors": try engine.ancestors(key: try req.str("key"), limit: req.int("limit", 5))]

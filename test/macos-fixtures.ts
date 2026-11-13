@@ -90,6 +90,14 @@ export interface Stub {
   pressInert: boolean;
   /** The element takes the focus and answers Space — the keyboard rung (press-rungs.ts). */
   spaceActs: boolean;
+  /** What the app SAYS after a press (change notifications by name → count), whatever the press
+   *  did to the listing: with {@link pressInert}, a press whose whole effect is outside the window.
+   *  null = the app says nothing, as web content does. */
+  saysOnPress: Record<string, number> | null;
+  /** The app posts changes on its own, so a mark never finds it quiet (`watch` → quiet: false). */
+  talking: boolean;
+  /** A helper that predates the `watch` / `settled` ops. */
+  noWatch: boolean;
   /** A press that answers an AXError and acts anyway (Word's start gallery). */
   pressErrorsButActs: boolean;
   /** The `at` hit test answers an AXError instead of an element or `no_element`. */
@@ -143,7 +151,7 @@ export interface Stub {
 
 export function stubTransport(): Stub {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
-  const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
+  const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, saysOnPress: null as Record<string, number> | null, said: {} as Record<string, number>, talking: false, noWatch: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
   // The helper's two views of what is running, kept apart exactly as the real one has them:
   // `running` is the truth and only `lookup` sees it; `apps` answers from the snapshot taken when
   // the helper started and never learns about a later launch or quit.
@@ -317,6 +325,7 @@ export function stubTransport(): Stub {
               throw new AxRequestError("ax_error", `${wanted} on ${params.key}`, -25206);
             }
             if (!state.pressInert) state.presses++; // any action the app honoured moves the display
+            for (const [k, n] of Object.entries(state.saysOnPress ?? {})) state.said[k] = (state.said[k] ?? 0) + n;
             if (state.pressOpensSheet) state.extraWindow = "numbered"; // the sheet is the whole effect
           }
           return {};
@@ -331,6 +340,17 @@ export function stubTransport(): Stub {
           state.frontmost = true;
           if (op !== "hover" && !state.mouseInert) state.presses++;
           return {};
+        }
+        // The app's own change notifications (ax-watch.swift): a mark, then what was said after it.
+        case "watch":
+          if (state.noWatch) throw new AxRequestError("unsupported", `unknown op "${op}"`);
+          state.said = {};
+          return { mark: 0, registered: 22, quiet: !state.talking };
+        case "settled": {
+          if (state.noWatch) throw new AxRequestError("unsupported", `unknown op "${op}"`);
+          const kinds = state.said;
+          state.said = {};
+          return { changes: Object.values(kinds).reduce((a, n) => a + n, 0), removed: 0, focus: 0, kinds, quiet: true, waitedMs: 0, mark: 0 };
         }
         case "activate":
           state.covered = false; // raised above whatever covered the point
@@ -491,6 +511,9 @@ export function stubTransport(): Stub {
     get treeWindowId() { return state.treeWindowId; }, set treeWindowId(v: number) { state.treeWindowId = v; },
     get pressInert() { return state.pressInert; }, set pressInert(v: boolean) { state.pressInert = v; },
     get spaceActs() { return state.spaceActs; }, set spaceActs(v: boolean) { state.spaceActs = v; },
+    get saysOnPress() { return state.saysOnPress; }, set saysOnPress(v: Record<string, number> | null) { state.saysOnPress = v; },
+    get talking() { return state.talking; }, set talking(v: boolean) { state.talking = v; },
+    get noWatch() { return state.noWatch; }, set noWatch(v: boolean) { state.noWatch = v; },
     get labelledReadout() { return state.labelledReadout; }, set labelledReadout(v: boolean) { state.labelledReadout = v; },
     get thinAfterNudge() { return state.thinAfterNudge; }, set thinAfterNudge(v: boolean) { state.thinAfterNudge = v; },
     get sidebar() { return state.sidebar; }, set sidebar(v: boolean) { state.sidebar = v; },
