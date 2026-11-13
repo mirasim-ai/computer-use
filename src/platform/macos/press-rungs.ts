@@ -4,7 +4,8 @@
  * two rungs that act without taking the screen.
  *
  * The judge lives here because every road out of a press uses it and they must use ONE: the app's
- * own word on whether a press worked is not evidence, in either direction.
+ * ANSWER to a press (success, or an AXError) is not evidence, in either direction. What is: the
+ * window's listing read again, and the change notifications the app posts after the press.
  */
 
 import type { ActResult, Element } from "../types.ts";
@@ -71,6 +72,9 @@ const PRESS_SETTLE_STEP_MS = 60;
 const MARK_QUIET_MS = 40;
 /** An app that will not be quiet this long is talking on its own; its word is not used. */
 const MARK_QUIET_CAP_MS = 300;
+/** An app that posted a change this recently with the helper idle is changing on its own
+ *  (playback, a monitor refreshing every few seconds, its user at work); its word is not used. */
+const UNPROMPTED_MS = 10_000;
 /** How long an app is given to START saying it changed. */
 const FIRST_WORD_MS = 100;
 /** How long the app must then say nothing to count as done changing. */
@@ -189,8 +193,8 @@ const HEARD_ONLY = "\u0000heard:";
 export async function markChanges(host: MouseHost): Promise<number | null> {
   if (host.memory.cannotListen || host.memory.mute(host.bundle())) return null;
   try {
-    const m = await host.call<{ mark: number; quiet: boolean }>("watch", { pid: host.pid(), quietMs: MARK_QUIET_MS, maxMs: MARK_QUIET_CAP_MS });
-    return m.quiet ? m.mark : null;
+    const m = await host.call<{ mark: number; quiet: boolean; unpromptedMs?: number }>("watch", { pid: host.pid(), quietMs: MARK_QUIET_MS, maxMs: MARK_QUIET_CAP_MS });
+    return m.quiet && !(m.unpromptedMs !== undefined && m.unpromptedMs < UNPROMPTED_MS) ? m.mark : null;
   } catch (e) {
     if (e instanceof AxRequestError && e.code === "unsupported") host.memory.cannotListen = true;
     return null;

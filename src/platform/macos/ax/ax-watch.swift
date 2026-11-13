@@ -53,16 +53,30 @@ private final class AppWatch {
   /// How many witness notifications this app has ever posted while watched. Zero means its
   /// silence is not known to mean anything (web content never speaks).
   var spoken = 0
+  /// When the app last posted a change that nothing this helper did can have caused (see
+  /// `ChangeWatch.heard`). nil: never, while watched.
+  var unpromptedAt: TimeInterval? = nil
   /// What the quiet wait of a mark measures from while nothing has been heard yet.
   let since: TimeInterval
   init(observer: AXObserver, since: TimeInterval) { self.observer = observer; self.since = since }
 }
 
 private let HEARD_KEEP = 2048
+/// How long after this helper's last request a change can still be that request's doing: a sheet
+/// keeps posting while it slides in (gaps of up to 361 ms measured inside one click's stream).
+private let ECHO_S: TimeInterval = 1.0
 
 final class ChangeWatch {
   private let cond = NSCondition()
   private var apps: [pid_t: AppWatch] = [:]
+  /// Requests this helper is running now, and when the last one ended: what separates a change
+  /// the caller may have caused from one the app (or its user) made on its own.
+  private var working = 0
+  private var lastWorkEnd: TimeInterval = 0
+
+  /// Called around every request (`main.swift`).
+  func workBegan() { cond.lock(); working += 1; cond.unlock() }
+  func workEnded() { cond.lock(); working -= 1; lastWorkEnd = now(); cond.unlock() }
 
   private func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 
@@ -76,8 +90,15 @@ final class ChangeWatch {
     cond.lock()
     if let app = apps[pid] {
       app.seq += 1
-      app.log.append(Heard(seq: app.seq, at: now(), name: name))
-      if isWitness(name) { app.spoken += 1 }
+      let t = now()
+      app.log.append(Heard(seq: app.seq, at: t, name: name))
+      if isWitness(name) {
+        app.spoken += 1
+        // Posted with no request running and none just finished: the app is changing on its own
+        // (playback, a monitor refreshing, its user at work), so what it says around the next
+        // press cannot be pinned on the press.
+        if working == 0 && t - lastWorkEnd > ECHO_S { app.unpromptedAt = t }
+      }
       if app.log.count > HEARD_KEEP { app.log.removeFirst(app.log.count - HEARD_KEEP / 2) }
       cond.broadcast()
     }
@@ -100,7 +121,8 @@ final class ChangeWatch {
   /// list makes the app post value changes of its own (System Settings does, on every read), and
   /// they are still arriving when the walk returns. An app that will not go quiet within `maxMs`
   /// is talking on its own (a clock, a streaming view) and answers `quiet: false`: nothing it says
-  /// next can be pinned on the caller's action.
+  /// next can be pinned on the caller's action. `unpromptedMs` says the same over a longer span:
+  /// how long ago the app last posted a change while this helper was idle.
   func mark(pid: pid_t, appElement: AXUIElement, quietMs: Double, maxMs: Double) throws -> [String: Any] {
     try requireTrusted()
     cond.lock()
@@ -117,10 +139,12 @@ final class ChangeWatch {
         if t >= start + maxMs / 1000 { quiet = false; break }
         cond.wait(until: Date(timeIntervalSinceNow: min(quietAt, start + maxMs / 1000) - t))
       }
-      return [
+      var answer: [String: Any] = [
         "mark": app.seq, "registered": app.registered, "quiet": quiet, "spoken": app.spoken,
         "waitedMs": Int((now() - start) * 1000),
       ]
+      if let unprompted = app.unpromptedAt { answer["unpromptedMs"] = Int((now() - unprompted) * 1000) }
+      return answer
     }
     cond.unlock()
     var made: AXObserver?

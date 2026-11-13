@@ -295,6 +295,10 @@ func readLoop() {
       // ~33K a tree walk while `leaks` reports nothing.
       workQueue.async {
         autoreleasepool {
+          // Bracketed for ax-watch.swift: a change the app posts while nothing here is running is
+          // the app's own, not an effect of a request.
+          changeWatch.workBegan()
+          defer { changeWatch.workEnded() }
           do { emit(["id": req.id, "ok": true, "result": try handle(req)]) } catch { fail(req.id, error) }
         }
       }

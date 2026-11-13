@@ -73,6 +73,24 @@ const ops = (calls: Array<{ op: string }>) => calls.map((c) => c.op).join(",");
     /accepted but nothing in the window changed within 800 ms/.test(note) && !findCall(stub.calls, "settled"), `${note.split("\n")[0]} | ${ops(stub.calls)}`);
 }
 
+// ── …nor is one that was changing on its own a moment ago (playback, a monitor, its user) ──
+{
+  const { stub, h } = await session();
+  stub.pressInert = true;
+  stub.unprompted = 3_000;
+  stub.saysOnPress = { AXValueChanged: 1 };
+  const recent = firstText(await h.act("click", { ref: "e3" }));
+  check("an app that posted a change 3 s ago with nothing asked of it is not believed about this press",
+    /accepted but nothing in the window changed within 800 ms/.test(recent) && !findCall(stub.calls, "settled"), recent.split("\n")[0]);
+  // Its own session: the click above armed a redo on this control (the press memory).
+  const later = await session();
+  later.stub.pressInert = true;
+  later.stub.unprompted = 60_000;
+  later.stub.saysOnPress = { AXValueChanged: 1 };
+  const old = firstText(await later.h.act("click", { ref: "e3" }));
+  check("…and is believed again once that is a minute behind", /reported changes \(1 value changed\)/.test(old), old.split("\n")[0]);
+}
+
 // ── A helper that predates the op: one failed ask, then the old judgement ──
 {
   const { stub, h } = await session();
