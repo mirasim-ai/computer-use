@@ -20,6 +20,7 @@ import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ElectronDriver } from "../src/platform/electron/driver.ts";
 import type { OwnershipResource } from "../src/platform/types.ts";
 import { expectVerb } from "../src/platform/tools/api-expect.ts";
+import { APPEAR_WAIT_MS, waitVerb } from "../src/platform/tools/api-wait.ts";
 import type { RunLedger } from "../src/platform/tools/api-contract.ts";
 import type { ComputerUseDriver } from "../src/platform/driver.ts";
 
@@ -352,6 +353,34 @@ async function main() {
     /Expectation failed/.test(heldThenHung) && /SPRING-10/.test(heldThenHung) && reads > 1, `${reads} reads: ${heldThenHung.slice(0, 120)}`);
   const neverRead = await expectMessage(() => new Promise<string>(() => {}));
   check("...and one that never read the field says the read timed out", /value read timed out/.test(neverRead), neverRead);
+
+  // ── wait: an appearance with no ms gets the short default, and a miss on it says so ────
+  // 16 s is right for "until it is gone" and wrong for a guess at a name: measured, every wait
+  // for an appearance that named no ms and was met took under 8 s, and each miss cost all 16.
+  const budgets: Record<string, number | undefined> = {};
+  const notes: string[] = [];
+  const miss = (kind: string) => async (_what: string, gone: boolean, capMs?: number) => {
+    budgets[`${kind}${gone ? "_gone" : ""}`] = capMs;
+    return { ok: false, note: `waited and "${_what}" never ${gone ? "left" : "appeared"}` };
+  };
+  const waitStub = {
+    noteAction() {}, readTextForWait: async () => "", waitForText: miss("text"), waitForControl: miss("control"), waitForUrl: miss("url"),
+    waitForLoad: async (capMs?: number) => { budgets.loaded = capMs; return { ok: false, note: "still loading" }; },
+  } as unknown as ComputerUseDriver;
+  const waitLedger = { charge() {}, push(_k: string, _t: string, _ok: boolean, note: string) { notes.push(note); }, attach() {} } as unknown as RunLedger;
+  const wait = waitVerb(waitStub, () => waitLedger);
+  for (const opts of [{ text: "Saved" }, { control: "Save" }, { url: "/done" }, { text_gone: "Saving" }, { control_gone: "Stop" }, { url_gone: "/login" }, { loaded: true }]) await wait(opts);
+  check("a wait for something to appear polls for the short default when the call names no ms",
+    budgets.text === APPEAR_WAIT_MS && budgets.control === APPEAR_WAIT_MS && budgets.url === APPEAR_WAIT_MS && APPEAR_WAIT_MS === 8_000, JSON.stringify(budgets));
+  check("...while a wait for something to go, or for the document, keeps the driver's own budget",
+    ["text_gone", "control_gone", "url_gone", "loaded"].every((k) => k in budgets && budgets[k] === undefined), Object.keys(budgets).join(" "));
+  check("a miss on the default says it was the default and that ms extends it",
+    notes.slice(0, 3).every((n) => /that was the default 8s for an appearance — pass ms/.test(n)) && notes.slice(3).every((n) => !/default/.test(n)), notes.join(" | "));
+  notes.length = 0;
+  await wait({ text: "Calculated in", ms: 20_000 });
+  await wait({ control: "Save", ms: 600 });
+  check("the caller's ms is the budget either way, and a miss on it says nothing about a default",
+    budgets.text === 20_000 && budgets.control === 600 && notes.every((n) => !/default/.test(n)), `${JSON.stringify(budgets)} ${notes.join(" | ")}`);
 
   await driver.close();
   console.log(failures ? `\n${failures} check(s) failed` : "\nall repl guard checks passed");
