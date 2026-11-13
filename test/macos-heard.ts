@@ -25,10 +25,11 @@ const firstText = (r: { content: Array<{ type: string; text?: string }> }) =>
   r.content.find((c) => c.type === "text")?.text ?? "";
 const session = async () => {
   const stub = stubTransport();
-  const h = createHarness(new MacosDriver({ transport: stub.transport, ...ONE_APP, interaction: "background" }));
+  const driver = new MacosDriver({ transport: stub.transport, ...ONE_APP, interaction: "background" });
+  const h = createHarness(driver);
   await h.observe({});
   stub.calls.length = 0;
-  return { stub, h };
+  return { stub, h, driver };
 };
 const ops = (calls: Array<{ op: string }>) => calls.map((c) => c.op).join(",");
 
@@ -101,6 +102,29 @@ const ops = (calls: Array<{ op: string }>) => calls.map((c) => c.op).join(",");
   check("a click's note names the control it made appear, by ref", r.ok && !!m, note.split("\n")[0]);
   const again = m ? await h.act("click", { ref: m[1], name: "Send" }) : null;
   check("…and that ref is live: the next click can use it with no observation between", !!again && !/not in the latest observation/.test(firstText(again)), again ? firstText(again).split("\n")[0] : "");
+}
+
+// ── wait({}) listens where the app's silence can be read, and polls the text where it cannot ──
+{
+  const { stub, driver } = await session();
+  const polled = await driver.waitSettled(2_000);
+  check("an app that has never posted a change is waited on by polling its text, as before",
+    /the readable text settled/.test(polled.note ?? "") && !!findCall(stub.calls, "watch"), polled.note);
+  stub.spoken = 4;
+  stub.calls.length = 0;
+  const heard = await driver.waitSettled(2_000);
+  check("an app that has spoken is settled when it stops, and nothing is read to find that out",
+    /计算器 stopped posting accessibility changes after \d/.test(heard.note ?? "") && !findCall(stub.calls, "tree"), `${heard.note} | ${ops(stub.calls)}`);
+  stub.talking = true;
+  const busy = await driver.waitSettled(30);
+  check("…and one that never stops says so when the budget runs out, without failing",
+    busy.ok && /still posting accessibility changes when the 0s budget ran out/.test(busy.note ?? ""), busy.note);
+  stub.talking = false;
+  stub.noWatch = true;
+  const { stub: old, driver: oldDriver } = await session();
+  old.noWatch = true;
+  const fallback = await oldDriver.waitSettled(2_000);
+  check("a helper without `watch` polls the text", /the readable text settled/.test(fallback.note ?? ""), fallback.note);
 }
 
 // ── changeNote itself ──

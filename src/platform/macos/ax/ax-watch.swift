@@ -50,6 +50,9 @@ private final class AppWatch {
   var seq = 0
   /// How many notifications the app let us register for; 0 would be a watch that can hear nothing.
   var registered = 0
+  /// How many witness notifications this app has ever posted while watched. Zero means its
+  /// silence is not known to mean anything (web content never speaks).
+  var spoken = 0
   /// What the quiet wait of a mark measures from while nothing has been heard yet.
   let since: TimeInterval
   init(observer: AXObserver, since: TimeInterval) { self.observer = observer; self.since = since }
@@ -74,6 +77,7 @@ final class ChangeWatch {
     if let app = apps[pid] {
       app.seq += 1
       app.log.append(Heard(seq: app.seq, at: now(), name: name))
+      if isWitness(name) { app.spoken += 1 }
       if app.log.count > HEARD_KEEP { app.log.removeFirst(app.log.count - HEARD_KEEP / 2) }
       cond.broadcast()
     }
@@ -113,7 +117,10 @@ final class ChangeWatch {
         if t >= start + maxMs / 1000 { quiet = false; break }
         cond.wait(until: Date(timeIntervalSinceNow: min(quietAt, start + maxMs / 1000) - t))
       }
-      return ["mark": app.seq, "registered": app.registered, "quiet": quiet]
+      return [
+        "mark": app.seq, "registered": app.registered, "quiet": quiet, "spoken": app.spoken,
+        "waitedMs": Int((now() - start) * 1000),
+      ]
     }
     cond.unlock()
     var made: AXObserver?
@@ -137,7 +144,7 @@ final class ChangeWatch {
     apps[pid] = app
     cond.unlock()
     CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
-    return ["mark": 0, "registered": registered, "quiet": true]
+    return ["mark": 0, "registered": registered, "quiet": true, "spoken": 0, "waitedMs": 0]
   }
 
   /// `settled {pid, mark, firstMs, quietMs, maxMs}`: wait for the app to SAY it changed, then for it

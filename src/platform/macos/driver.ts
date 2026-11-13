@@ -34,6 +34,7 @@ import { AxHelperProcess, type AxHelperOptions, type AxTransport } from "./ax-cl
 import { menuChord, menuVerb, normalizeChord, pasteVerb, type MenuHost } from "./menu-commands.ts";
 import { COLLAPSED_FRAME_HINT, dragVerb, hoverVerb, PressMemory, type MouseHost } from "./mouse.ts";
 import { clickVerb } from "./click-verb.ts";
+import { waitQuiet } from "./press-rungs.ts";
 import { selectTextVerb } from "./select-text-verb.ts";
 import { scrollVerb } from "./scroll-verb.ts";
 import { typeVerb } from "./type-verb.ts";
@@ -373,6 +374,40 @@ export class MacosDriver extends MacosDriverTargets {
   }
 
 
+  /**
+   * `wait({})`: by the app's own change notifications where its silence can be read, else the
+   * base's poll over the text. @see waitQuiet
+   */
+  override async waitSettled(capMs = 16_000): Promise<ActResult> {
+    await this.ensure();
+    return await waitQuiet(this.mouse, capMs) ?? super.waitSettled(capMs);
+  }
+
+  /** The pids whose change notifications the helper is already listening to. */
+  private readonly listening = new Set<number>();
+
+  /**
+   * Start listening to the app, so that a `wait({})` has something to go by. Once per pid for the
+   * helper's life; best effort — an app or a helper that cannot be listened to is waited on by
+   * polling instead.
+   */
+  private async listenTo(pid: number): Promise<void> {
+    if (this.listening.has(pid)) return;
+    this.listening.add(pid);
+    // Straight to the transport: a refusal here (no grant yet, an old helper) is nobody's news,
+    // and `call` would word it as the failure of whatever the caller was doing.
+    await this.ax.request("watch", { pid, quietMs: 0, maxMs: 0 }).catch(() => undefined);
+  }
+
+  /** Listening starts before the first READ of an app, not only before the first action: some
+   *  apps answer a read with changes of their own (System Settings), and an app first heard at
+   *  its first click could not be told quiet by a `wait({})` that came before it. */
+  protected override async walk(maxText?: number): ReturnType<MacosDriverTargets["walk"]> {
+    const { pid } = await this.ensure();
+    await this.listenTo(pid);
+    return super.walk(maxText);
+  }
+
   async perform(kind: string, raw: Record<string, any>): Promise<ActResult> {
     const before = this.dispatchedActions;
     try { return await this.performAction(kind, raw); }
@@ -390,6 +425,7 @@ export class MacosDriver extends MacosDriverTargets {
     // and must not resolve some OTHER app on the way.
     if (kind === "launch_app") return this.launch(String(a.bundle ?? ""));
     const { pid } = await this.ensure();
+    await this.listenTo(pid);
     if (this.interactionMode === "background") {
       if (kind === "paste" || (kind === "keys" && clipboardChord(normalizeChord(String(a.chord ?? ""))))) {
         return { ok: false, note: new DesktopInteractionRequired(kind).message };
@@ -528,6 +564,7 @@ export class MacosDriver extends MacosDriverTargets {
    *  but require a fresh observation and never reuse the old ref numbers. */
   private forgetHelper(): void {
     this.pointerHeld = false;
+    this.listening.clear();
     // The pinned window id belongs to macOS, not the helper, and remains the target.
     this.frame = null;
     this.shotScale = 1;

@@ -77,6 +77,12 @@ const FIRST_WORD_MS = 100;
 const QUIET_MS = 100;
 /** The most a click waits for an app that keeps talking (a pane that streams in, a clock). */
 const QUIET_CAP_MS = 2_500;
+/** How long the app must say nothing for a bare `wait({})` to call it settled. Longer than a
+ *  click's: the longest silence measured INSIDE one click's notifications was 361 ms (a sheet
+ *  sliding in), and this verb is asked precisely when the caller wants the whole of it. */
+const SETTLED_QUIET_MS = 500;
+/** One helper call's share of that wait: under the transport's per-request ceiling (15 s). */
+const SETTLED_SLICE_MS = 5_000;
 
 /**
  * Per-app memory of AXPress being ignored, for one driver's life.
@@ -198,6 +204,49 @@ async function listen(host: MouseHost, mark: number): Promise<Heard | null> {
     return await host.call<Heard>("settled", { pid: host.pid(), mark, firstMs: FIRST_WORD_MS, quietMs: QUIET_MS, maxMs: QUIET_CAP_MS });
   } catch {
     return null;
+  }
+}
+
+/**
+ * `wait({})` by the app's own word: until it has posted no change for {@link SETTLED_QUIET_MS},
+ * or `capMs` is spent. `null` when its silence cannot be read — then the caller polls the text.
+ *
+ * Why not poll the text everywhere: reading is not silent to every app. System Settings names and
+ * un-names the sidebar rows past its window on every read, so two reads 600 ms apart never agree
+ * and the text poll spent 8–16 s (its whole budget) on a pane that had been still for seconds.
+ * Listening reads nothing.
+ *
+ * Silence means something only from an app that HAS spoken while watched, and not where a web
+ * view sits in the window (web content posts nothing, so a page still loading is silent too).
+ */
+export async function waitQuiet(host: MouseHost, capMs: number): Promise<ActResult | null> {
+  if (host.memory.cannotListen || host.memory.mute(host.bundle()) || host.hadWeb()) return null;
+  const started = Date.now();
+  // Asked first with no wait at all: an app that has never spoken must not cost the quiet period
+  // before the text poll it falls back to.
+  let slice = 0;
+  for (;;) {
+    let m: { quiet: boolean; spoken?: number };
+    try {
+      m = await host.call("watch", { pid: host.pid(), quietMs: SETTLED_QUIET_MS, maxMs: slice });
+    } catch (e) {
+      if (e instanceof AxRequestError && e.code === "unsupported") host.memory.cannotListen = true;
+      return null;
+    }
+    if (!m.spoken) return null;
+    slice = Math.max(0, Math.min(capMs - (Date.now() - started), SETTLED_SLICE_MS));
+    const took = ((Date.now() - started) / 1000).toFixed(1);
+    if (m.quiet) {
+      return { ok: true, note: `${host.appName()} stopped posting accessibility changes after ${took}s (heard, not polled: nothing was read)` };
+    }
+    if (Date.now() - started >= capMs) {
+      return {
+        ok: true,
+        note: `${host.appName()} was still posting accessibility changes when the ${Math.round(capMs / 1000)}s budget ran out — it may still be `
+          + "working, or it may be a surface that never goes quiet (a clock, a progress line). Read it as it is, or wait "
+          + "for something specific: wait({text:'…'}) or wait({control_gone:'…'})",
+      };
+    }
   }
 }
 
