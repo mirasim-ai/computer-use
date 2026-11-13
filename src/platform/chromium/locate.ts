@@ -9,6 +9,9 @@ import { ELEM_NAME_JS, pageFn } from "./collect.ts";
 import { readableFrames } from "./frames.ts";
 import { refSelector } from "./page-refs.ts";
 
+/** How long the identity check waits for the name of the node a ref has just matched. */
+const NAME_WAIT_MS = 2_000;
+
 /** Find the element for a ref (verifying its identity has not moved) or, failing that,
  * by role+name. Returns null when neither road leads anywhere. */
 export async function locateOnPage(page: Page, ref: string | undefined, name: string | undefined, fill: boolean): Promise<Locator | null> {
@@ -20,7 +23,9 @@ export async function locateOnPage(page: Page, ref: string | undefined, name: st
         const loc = frame.locator(sel);
         if (!(await loc.count())) continue;
         const cand = loc.first();
-        const actual = await cand.evaluate(pageFn(ELEM_NAME_JS) as any).catch(() => "");
+        // Bounded: a node the page removed since count() is waited on for 30 s otherwise. An
+        // unread name is "nothing to check against", as it was after that wait.
+        const actual = await cand.evaluate(pageFn(ELEM_NAME_JS) as any, undefined, { timeout: NAME_WAIT_MS }).catch(() => "");
         if (nameAgrees(actual as string, want)) return cand;
         break; // ref moved to a different element → fall back to name
       } catch { /* frame unreadable, try next */ }

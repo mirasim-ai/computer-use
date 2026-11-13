@@ -12,7 +12,7 @@ import type { ActResult } from "../types.ts";
 import { locateOnPage } from "./locate.ts";
 import { readableFrames } from "./frames.ts";
 import { refSelector } from "./page-refs.ts";
-import { clickNamingCover, performDrag, refuseIfGated } from "./actions.ts";
+import { clickNamingCover, clickTargetOf, performDrag, refuseIfGated, removed } from "./actions.ts";
 import { performScroll, performScrollInto } from "./scroll.ts";
 import { performPaste, performSelectOption, setTextWithFallbacks } from "./actions-value.ts";
 import { performSelectText } from "./select-text.ts";
@@ -24,6 +24,9 @@ import { pageFn } from "./collect.ts";
 const DOCUMENT_REPLACED = "the page was reloaded or navigated since the last observation, so every ref from before is gone; "
   + "re-observe (w.observe()) and use a current one";
 
+/** How long {@link ChromiumPageActs.locate} waits for the box of the node it has just found. */
+const POINT_WAIT_MS = 2_000;
+
 export abstract class ChromiumPageActs extends ChromiumPageBase {
   // ── Locate: by ref with identity check, then by name (battle-tested fallback chain) ──
 
@@ -32,7 +35,9 @@ export abstract class ChromiumPageActs extends ChromiumPageBase {
     // Capture the action point BEFORE the action: a click that navigates destroys the element,
     // and a post-action boundingBox answers null.
     if (found) {
-      const box = await found.boundingBox().catch(() => null);
+      // Bounded: the page may have removed the node since it was found, and a locator waits 30 s
+      // for it to match again. No point is a smaller loss than that wait.
+      const box = await found.boundingBox({ timeout: POINT_WAIT_MS }).catch(() => null);
       this.lastPoint = box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
     }
     return found;
@@ -88,20 +93,30 @@ export abstract class ChromiumPageActs extends ChromiumPageBase {
         if (hasPoint) { await page.mouse.click(a.x, a.y, { button: a.button ?? "left", clickCount: a.count ?? 1 }); return { ok: true }; }
         const loc = await this.locate(a.ref, a.name, false);
         if (!loc) return await this.missing(a.ref, a.name);
+        // It was there when the click began: say so, or the miss reads as a stale ref.
+        const removedMeanwhile = async (): Promise<ActResult> => {
+          const miss = await this.missing(a.ref, a.name);
+          return { ...miss, note: `${miss.note} — the page removed it while this click was waiting on it, so nothing was clicked` };
+        };
+        // No box for a node just found: it may have left already. Asked here, before the two
+        // steps below each wait 2 s on it.
+        if (!this.lastPoint && await removed(loc)) return await removedMeanwhile();
         // Before the 8 s actionability wait, not after it (actions.ts explains the trade).
         const gated = await refuseIfGated(loc, a.ref, a.name);
         if (gated) return gated;
-        const visual = await loc.evaluateHandle(pageFn(CHECKABLE_TARGET_JS) as any);
+        // Asked in short attempts: by now the page may have removed the node (actions.ts).
+        const visual = await clickTargetOf(loc, pageFn(CHECKABLE_TARGET_JS));
+        if (!visual) return await removedMeanwhile();
         try {
-          const target = visual.asElement() ?? loc;
-          const box = await target.boundingBox();
+          const stand = visual.asElement();
+          const target = stand ?? loc;
+          // Only the stand-in is measured: locate() took the located node's own point, and asking
+          // the locator again would wait on a node that may have left since.
+          const box = stand ? await stand.boundingBox() : null;
           if (box) this.lastPoint = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
           // A cover is named after 2 s, not after the whole 8 s wait (actions.ts).
           const clicked = await clickNamingCover(target, loc, { button: a.button ?? "left", clickCount: a.count ?? 1 }, a.ref, a.name);
-          if (clicked) return clicked;
-          // It was there when the click began: say so, or the miss reads as a stale ref.
-          const miss = await this.missing(a.ref, a.name);
-          return { ...miss, note: `${miss.note} — the page removed it while this click was waiting on it, so nothing was clicked` };
+          return clicked ?? await removedMeanwhile();
         } finally {
           await visual.dispose();
         }

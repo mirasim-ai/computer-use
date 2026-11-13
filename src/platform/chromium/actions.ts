@@ -5,7 +5,7 @@
  */
 
 import { existsSync } from "node:fs";
-import type { ElementHandle, Locator, Page } from "playwright-core";
+import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
 import { coverOf, isEditorProxy } from "./coverer-label.ts";
@@ -131,11 +131,38 @@ export async function clickNamingCover(
 }
 
 /**
- * Has the node this locator named left the document? Asked between click attempts, so it must not
+ * The node a click on `loc` lands on. `pick` runs in the page on the located node and answers
+ * another one for a checkbox or radio whose own box is hidden (checkable-target.ts), and nothing
+ * for every other control.
+ *
+ * `evaluateHandle` waits for the locator to match, 30 s by default. On a page too busy to answer
+ * the calls before this one promptly, the node can be gone by the time this is asked, and the
+ * click then waited out those 30 s before it was tried at all: 34 s under a 4x CPU slowdown, on
+ * the fixture {@link clickNamingCover} answers in 6 s. So it is asked the way the click is, in
+ * attempts of {@link COVER_CHECK_AFTER_MS} with {@link removed} between them.
+ *
+ * Null means the node is gone, as from {@link clickNamingCover}.
+ */
+export async function clickTargetOf(loc: Locator, pick: unknown): Promise<JSHandle | null> {
+  let last: unknown;
+  for (let spent = 0; spent < CLICK_BUDGET_MS; spent += COVER_CHECK_AFTER_MS) {
+    try {
+      return await loc.evaluateHandle(pick as any, undefined, { timeout: COVER_CHECK_AFTER_MS });
+    } catch (e) {
+      if ((e as { name?: string } | null)?.name !== "TimeoutError") throw e;
+      last = e;
+      if (await removed(loc)) return null;
+    }
+  }
+  throw last;
+}
+
+/**
+ * Has the node this locator named left the document? Asked between a click's steps, so it must not
  * become a wait of its own: `count()` takes no timeout and a page whose main thread is busy
  * answers late, so the question is dropped after {@link REMOVED_PROBE_MS} and the answer is "no".
  */
-async function removed(loc: Locator): Promise<boolean> {
+export async function removed(loc: Locator): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

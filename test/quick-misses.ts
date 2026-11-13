@@ -9,6 +9,7 @@
  */
 
 import { createServer } from "node:http";
+import type { Page } from "playwright-core";
 import { spawnChrome } from "./helpers.ts";
 import { createHarness } from "./harness.ts";
 
@@ -330,9 +331,32 @@ async function main() {
     });
     check("a click on a control the page removed while it waited says so, and that nothing was clicked",
       /the page removed it while this click was waiting on it, so nothing was clicked/.test(removedClick.out), removedClick.out.slice(0, 220));
-    // ~6 s: the busy stretch, then the first look at whether it is still there. One long
-    // attempt answered after 17.5 s here, with Playwright's own timeout as the message.
-    check("...and stops when it is gone rather than waiting out the budget", removedClick.ms < 9000, sec(removedClick.ms));
+    // ~6 s: the busy stretch, then the first look at whether it is still there; two looks, 2 s
+    // each, when the button leaves during a step before the click proper. One long attempt
+    // answered after 17.5 s here, with Playwright's own timeout as the message.
+    check("...and stops when it is gone rather than waiting out the budget", removedClick.ms < 12000, sec(removedClick.ms));
+
+    // ── click: the same, on a machine that answers once between the page's stretches ──
+    // The steps before the click proper (the ref's name, its box, the disabled check, the click
+    // target) then take a stretch each, and the button leaves during one of them. Three of them
+    // waited on a locator's own 30 s for the node to match again: 34 s on the release runner,
+    // 34 to 37 s here at a quarter of the speed, with "locator.evaluateHandle: Timeout 30000ms".
+    const tab = (driver as unknown as { page(): Page }).page();
+    const cpu = await tab.context().newCDPSession(tab);
+    await cpu.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+    for (const busy of [2300, 3600, 5000]) {
+      const again = refOf(await open(FIXTURE_BUSY), "Cancel");
+      await h.api.act("run_js", { code: `window.busyThenRemove(${busy}, 900)` });
+      await new Promise((r) => setTimeout(r, 150));
+      const slow = await timed(async () => {
+        try { return await h.api.click(again!); } catch (e) { return `threw: ${(e as Error).message}`; }
+      });
+      check(`at a quarter of the speed, busy for ${sec(busy)}: the click still says the page removed the control`,
+        /the page removed it while this click was waiting on it, so nothing was clicked/.test(slow.out), slow.out.slice(0, 220));
+      check("...within a few seconds of its leaving", slow.ms < busy + 7000, sec(slow.ms));
+    }
+    await cpu.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    await cpu.detach();
 
     await driver.close();
   } finally {
