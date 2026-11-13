@@ -16,6 +16,21 @@ import { hostname } from "node:os";
 
 type RestoredTab = { targetId: string; reloaded: boolean; viewport?: { width: number; height: number } };
 
+/**
+ * What a page session auto-attaches to: Chrome's default (everything but the browser and tab
+ * targets) without service workers.
+ *
+ * A service worker Chrome starts for a navigation is attached to EVERY session whose page is in
+ * its scope, and with `waitForDebuggerOnStart` it stays paused until each of them has resumed it
+ * (measured on Chrome 153 and 157: one silent session on another tab of the site is enough). The
+ * navigation waits for the worker, and Chrome holds back every command to a tab with a navigation
+ * pending, so one unresumed session anywhere on the site turns another tab into one that answers
+ * nothing. Playwright only resumes such a worker to let go of it at once (the context's service
+ * workers come from the browser target, which the bridge answers itself), so nothing is lost by
+ * never being handed one, and nobody is left able to hold one.
+ */
+const AUTO_ATTACH_FILTER = [{ type: "service_worker", exclude: true }, { type: "browser", exclude: true }, { type: "tab", exclude: true }, {}];
+
 export abstract class BridgeModelCommands extends BridgeModelCore {
   private readonly restoringTabs = new Map<string, Promise<{ attachment: TabAttachment; result: RestoredTab }>>();
   // ─── Client → model commands ──────────────────────────────────────────
@@ -99,7 +114,9 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
           await this.enableAutoAttach(client);
           return {};
         }
-        break; // session-level (workers/oopifs) forwards to the tab
+        // Session-level (a tab, its workers and oopifs) forwards to the tab, minus service workers.
+        if (p.autoAttach === true && p.filter === undefined) params = { ...p, filter: AUTO_ATTACH_FILTER };
+        break;
       case "Target.createTarget":
         return await this.createTarget(typeof p.url === "string" ? p.url : undefined);
       case "Target.closeTarget":
