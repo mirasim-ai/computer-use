@@ -23,6 +23,7 @@ import {
   activateByKey,
   keyRoute,
   changedSince,
+  changeNote,
   heardOnly,
   markChanges,
   surfaceGone,
@@ -190,13 +191,19 @@ export async function clickVerb(host: MouseHost, acts: ElementActs, a: Record<st
   // where a failed read would talk about a tree that cannot be read (test/macos-grants.ts pins it).
   let before: string | null = null;
   try { before = await evidence(host); } catch { /* no baseline */ }
-  // The app's change notifications from here on. After the baseline on purpose: a walk can make a
-  // lazy list build rows, and what the app says about THAT is not the press.
+  // The baseline's listing (what the effect is named against), and the app's change notifications
+  // from here on. After the baseline on purpose: a walk can make a lazy list build rows, and what
+  // the app says about THAT is not the press.
+  const was = before === null ? undefined : host.listing?.();
+  const minted = host.minted?.();
   const mark = before === null ? null : await markChanges(host);
   /** What an effect reads as: the window's listing changed, or only the app said so. */
-  const effect = (after: string): { how: string } => {
+  const effect = (after: string): { how: string; diff: string | null } => {
     const said = heardOnly(after);
-    return { how: said === null ? "the window changed" : `${host.appName()} reported changes (${said}) though nothing listed inside the window differs` };
+    return {
+      how: said === null ? "the window changed" : `${host.appName()} reported changes (${said}) though nothing listed inside the window differs`,
+      diff: changeNote(was, host.listing?.(), minted),
+    };
   };
   let pressed: ActResult;
   if (hasPoint) {
@@ -263,10 +270,10 @@ export async function clickVerb(host: MouseHost, acts: ElementActs, a: Record<st
     const after = before === null ? null : await changedSince(host, before, mark);
     if (after !== null) {
       host.memory.noteHonoured(host.bundle());
-      const { how } = effect(after);
+      const { how, diff } = effect(after);
       // Claim what this driver DID, never where the app ended up: opening a document raises Word on
       // its own.
-      return { ok: true, note: `${reason} — but ${surfaceGone(after) ? SURFACE_GONE_MSG : how}, so it acted: the error was about the call, not about the effect. It was not redone with the mouse, so nothing here brought ${host.appName()} to the front` };
+      return { ok: true, note: `${reason} — but ${surfaceGone(after) ? SURFACE_GONE_MSG : how}, so it acted: the error was about the call, not about the effect. It was not redone with the mouse, so nothing here brought ${host.appName()} to the front${diff ? `. It ${diff}` : ""}` };
     }
     if (a.retry !== true) {
       return { ok: false, mayHaveActed: true, note: `${reason}. The result is uncertain; no keyboard or mouse retry was sent. `
@@ -280,10 +287,13 @@ export async function clickVerb(host: MouseHost, acts: ElementActs, a: Record<st
       // A press that took the surface with it says so: the caller cannot read the window any more,
       // and "which button did I just press" must not be left to inference from the next failure.
       if (surfaceGone(after)) return { ...pressed, note: `${pressed.note ?? "pressed"} — ${SURFACE_GONE_MSG}` };
-      // A change only the app reported is said as that: the listing inside the window is the
-      // same, so the note is the one place the caller learns the press did land.
-      if (heardOnly(after) === null) return pressed;
-      return { ...pressed, note: `${pressed.note ?? `pressed ${what}`} — ${effect(after).how}` };
+      // What the press changed, in refs the caller can act on at once. A change only the app
+      // reported is said as that: the listing inside the window is the same, so the note is the
+      // one place the caller learns the press did land.
+      const { how, diff } = effect(after);
+      const said = heardOnly(after) === null ? "" : how;
+      const note = [pressed.note, said, diff].filter(Boolean).join(" — ");
+      return note ? { ...pressed, note: pressed.note ? note : `pressed ${what} — ${note}` } : pressed;
     }
     host.memory.noteIgnored(host.bundle());
     reason = `AXPress on ${what} was accepted but nothing in the window changed within ${PRESS_SETTLE_MS} ms`;

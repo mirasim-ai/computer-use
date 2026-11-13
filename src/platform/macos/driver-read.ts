@@ -42,6 +42,9 @@ export abstract class MacosDriverRead extends MacosDriverApps {
   protected rects = new Map<string, { x: number; y: number; w: number; h: number }>();
   /** The refs the last walk listed OUTSIDE the window — reachable by every AX rung, by no pointer. */
   protected offscreenRefs = new Set<string>();
+  /** Every control of the last walk, in and outside the window: what a click's effect is named
+   *  from (`changeNote` in press-rungs.ts). */
+  protected lastListed: Array<{ ref: string; role: string; name: string; offscreen?: boolean }> = [];
   /** How many of those are list rows the app has not filled in yet — nameless, with nothing named
    *  inside them. Nonzero only for a list that builds its rows as they scroll in. */
   protected offscreenEmptyRows = 0;
@@ -149,6 +152,10 @@ export abstract class MacosDriverRead extends MacosDriverApps {
     this.acts.keys = mapped.keys;
     this.rects = mapped.rects;
     this.offscreenRefs = new Set(mapped.offscreenElements.map((e) => e.ref));
+    this.lastListed = [
+      ...mapped.elements.map((e) => ({ ref: e.ref, role: e.role, name: e.name })),
+      ...mapped.offscreenElements.map((e) => ({ ref: e.ref, role: e.role, name: e.name, offscreen: true })),
+    ];
     // A row past the window with no name and no named element inside its frame: the list has not
     // built it yet (see `offscreenWindowNote`). By geometry, since the walk hands back a flat list.
     const named = mapped.offscreenElements.filter((e) => e.name).map((e) => mapped.rects.get(e.ref)).filter((r) => !!r);

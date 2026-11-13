@@ -13,6 +13,7 @@
 
 import { createHarness } from "./harness.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
+import { changeNote } from "../src/platform/macos/press-rungs.ts";
 import { findCall, ONE_APP, stubTransport } from "./macos-fixtures.ts";
 
 let failures = 0;
@@ -87,6 +88,35 @@ const ops = (calls: Array<{ op: string }>) => calls.map((c) => c.op).join(",");
   for (let i = 0; i < 4; i++) await h.act("click", { ref: "e3" });
   check("after two presses that changed the window in silence the app is taken as mute and no longer waited on",
     stub.calls.filter((c) => c.op === "watch").length === 2, ops(stub.calls));
+}
+
+// ── What appeared is named in refs the caller can act on ──
+{
+  const { stub, h } = await session();
+  stub.pressReveals = true;
+  stub.saysOnPress = { AXCreated: 1 };
+  const r = await h.act("click", { ref: "e3" });
+  const note = firstText(r);
+  const m = /appeared: button "Send" (e\d+)/.exec(note);
+  check("a click's note names the control it made appear, by ref", r.ok && !!m, note.split("\n")[0]);
+  const again = m ? await h.act("click", { ref: m[1], name: "Send" }) : null;
+  check("…and that ref is live: the next click can use it with no observation between", !!again && !/not in the latest observation/.test(firstText(again)), again ? firstText(again).split("\n")[0] : "");
+}
+
+// ── changeNote itself ──
+{
+  const was = [{ ref: "e1", role: "button", name: "Add" }, { ref: "e2", role: "row", name: "" }, { ref: "e3", role: "text", name: "Old" }];
+  const now = [{ ref: "e1", role: "button", name: "Add" }, { ref: "e4", role: "button", name: "Mail", offscreen: true }, { ref: "e5", role: "row", name: "" }];
+  check("changeNote lists what came and what went, marks what is outside the window, and leaves nameless rows out",
+    changeNote(was, now) === 'appeared: button "Mail" e4 (outside the window); gone: text "Old"', String(changeNote(was, now)));
+  check("changeNote answers null when nothing named came or went", changeNote(was, was) === null && changeNote(undefined, now) === null);
+  const churn = [...now, { ref: "e2", role: "button", name: "General", offscreen: true }];
+  check("…and outside the window only a control never listed before counts: a lazy row that got its name back is not the click's doing",
+    changeNote(was, churn, 3) === 'appeared: button "Mail" e4 (outside the window); gone: text "Old"', String(changeNote(was, churn, 3)));
+  check("…nor is one that lost it reported as gone",
+    changeNote([...was, { ref: "e6", role: "button", name: "VPN", offscreen: true }], now, 3) === 'appeared: button "Mail" e4 (outside the window); gone: text "Old"');
+  const many = Array.from({ length: 12 }, (_, i) => ({ ref: `e${10 + i}`, role: "button", name: `B${i}` }));
+  check("changeNote is bounded", /\+4 more$/.test(changeNote([], many) ?? ""), String(changeNote([], many)));
 }
 
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }

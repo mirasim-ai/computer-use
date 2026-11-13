@@ -30,6 +30,11 @@ export interface MouseHost {
   offWindow(ref: string): boolean;
   /** Walk the tree NOW (re-keying the ref table as every walk does) and hand back its elements. */
   walk(): Promise<Element[]>;
+  /** Everything the LAST walk listed, the part outside the window included — what {@link changeNote}
+   *  names a click's effect from. Optional: a host without it gets no such note. */
+  listing?(): readonly Listed[];
+  /** The highest ref number minted so far: a ref above it was first seen after this point. */
+  minted?(): number;
   /** The app's bundle id — what the press memory is keyed on. */
   bundle(): string;
   /** Did the last walk find web content? Gates advice that only applies where a web view can hide
@@ -40,6 +45,9 @@ export interface MouseHost {
   pointerAllowed(): boolean;
   memory: PressMemory;
 }
+
+/** One control of a walk, as far as naming a change needs it. */
+export interface Listed { ref: string; role: string; name: string; offscreen?: boolean }
 
 /** How long an accepted AXPress is given to show up in the tree before the next rung is tried.
  *
@@ -249,6 +257,38 @@ export async function changedSince(host: MouseHost, before: string, mark: number
 }
 
 /**
+ * What a click changed, in the caller's own refs: the controls that appeared and the ones that
+ * went, between the listing taken before the press and the one after it — so a script can go on
+ * to the next control without observing and diffing by hand.
+ *
+ * Named controls only (a nameless row says nothing), off-window ones marked: a control that
+ * appeared outside the window is there to be acted on by ref, but not to be seen in a screenshot.
+ * Bounded, since a pane switch replaces everything. `null` when nothing listed came or went.
+ *
+ * Outside the window only a control NEVER listed before counts (`minted`: the highest ref before
+ * the press), and nothing counts as gone: a list that builds its rows as they scroll in names
+ * and un-names the rows past its edge on every read (System Settings' sidebar), and those would
+ * be reported as the click's doing on every click.
+ */
+export function changeNote(was: readonly Listed[] | undefined, now: readonly Listed[] | undefined, minted = 0): string | null {
+  if (!was || !now) return null;
+  const SHOWN = 8;
+  const named = (l: readonly Listed[]) => l.filter((e) => e.name.trim() && e.role !== "row" && e.role !== "cell");
+  const refs = (l: readonly Listed[]) => new Set(l.map((e) => e.ref));
+  const [had, has] = [refs(was), refs(now)];
+  const fresh = (e: Listed) => Number(e.ref.slice(1)) > minted;
+  const appeared = named(now).filter((e) => !had.has(e.ref) && (!e.offscreen || fresh(e)))
+    .sort((a, b) => Number(!!a.offscreen) - Number(!!b.offscreen));
+  const gone = named(was).filter((e) => !has.has(e.ref) && !e.offscreen);
+  if (!appeared.length && !gone.length) return null;
+  const list = (l: readonly Listed[], withRef: boolean) => l.slice(0, SHOWN)
+    .map((e) => `${e.role} "${e.name.length > 40 ? `${e.name.slice(0, 40)}…` : e.name}"${withRef ? ` ${e.ref}` : ""}${e.offscreen ? " (outside the window)" : ""}`)
+    .join(", ") + (l.length > SHOWN ? `, +${l.length - SHOWN} more` : "");
+  return [appeared.length ? `appeared: ${list(appeared, true)}` : "", gone.length ? `gone: ${list(gone, false)}` : ""]
+    .filter(Boolean).join("; ");
+}
+
+/**
  * Only button/toggle roles have a Space equivalent. Finder file icons also accept focus, but
  * Space opens Quick Look instead of selecting the file. A changed window cannot prove the
  * intended click happened. Unknown roles skip this rung (undefined); text fields only take
@@ -375,6 +415,8 @@ export async function activateByAncestor(host: MouseHost, acts: ElementActs, ref
       const container = up.name ? `the ${up.role.replace(/^AX/, "").toLowerCase()} "${up.name}"` : "its row";
       return { ok: true, note: `${target.name ? `"${target.name}"` : "this element"} carries no click of its own and ${container} is already selected — which is what a single click here means, so nothing more was done` };
     }
+    const was = host.listing?.();
+    const minted = host.minted?.();
     const mark = await markChanges(host);
     try {
       await host.call(act, act === "press" ? { key: up.key, action: "AXPress" } : { key: up.key });
@@ -389,6 +431,9 @@ export async function activateByAncestor(host: MouseHost, acts: ElementActs, ref
       .then((r) => r.ancestors?.[chain.indexOf(up)]?.selected === true, () => false);
     if (!selectedNow && await changedSince(host, before, mark) === null) continue;
     host.memory.noteHonoured(host.bundle());
+    // Named only when a walk followed the act (a selection read back from the row needs none, and
+    // then the listing in hand is still the baseline's).
+    const diff = selectedNow ? null : changeNote(was, host.listing?.(), minted);
     // `roleOf` reads the actions too (a node with AXPress is a button whatever its role says), so
     // both fields go in; a partial element would throw.
     const kind = roleOf({ role: up.role, actions: up.actions } as AxElement);
@@ -397,7 +442,7 @@ export async function activateByAncestor(host: MouseHost, acts: ElementActs, ref
       ok: true,
       note: `${target.name ? `"${target.name}"` : "this element"} carries no click of its own, so ${act === "press" ? "AXPress ran on" : "the selection was set on"} ${container} `
         + `instead — ${selectedNow ? "it reads back selected" : "that DID change the window"}, and unlike a mouse click it left ${host.appName()} where it was, so the user's `
-        + "front window, keyboard and pointer are untouched",
+        + `front window, keyboard and pointer are untouched${diff ? `. It ${diff}` : ""}`,
     };
   }
   return null;

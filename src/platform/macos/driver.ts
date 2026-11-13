@@ -194,6 +194,8 @@ export class MacosDriver extends MacosDriverTargets {
     // geometry: a second opinion from the same numbers can only disagree.
     offWindow: (ref) => this.offscreenRefs.has(ref),
     walk: async () => (await this.walk()).mapped.elements,
+    listing: () => this.lastListed,
+    minted: () => this.refCount,
     bundle: () => this.app!.bundle,
     hadWeb: () => this.lastWalkHadWeb(),
     pointerAllowed: () => this.interactionMode === "desktop",
@@ -535,6 +537,7 @@ export class MacosDriver extends MacosDriverTargets {
     this.acts.keys.clear();
     this.rects.clear();
     this.offscreenRefs.clear();
+    this.lastListed = [];
     this.offscreenEmptyRows = 0;
     this.appWindowIds = null;
   }
