@@ -42,6 +42,9 @@ export abstract class MacosDriverRead extends MacosDriverApps {
   protected rects = new Map<string, { x: number; y: number; w: number; h: number }>();
   /** The refs the last walk listed OUTSIDE the window — reachable by every AX rung, by no pointer. */
   protected offscreenRefs = new Set<string>();
+  /** How many of those are list rows the app has not filled in yet — nameless, with nothing named
+   *  inside them. Nonzero only for a list that builds its rows as they scroll in. */
+  protected offscreenEmptyRows = 0;
   /** Window points per pixel of the LAST screenshot the model saw (1 = unscaled). */
   protected shotScale = 1;
   /** Has a capture set {@link shotScale} in this session? A model point is "a pixel of the last
@@ -146,6 +149,16 @@ export abstract class MacosDriverRead extends MacosDriverApps {
     this.acts.keys = mapped.keys;
     this.rects = mapped.rects;
     this.offscreenRefs = new Set(mapped.offscreenElements.map((e) => e.ref));
+    // A row past the window with no name and no named element inside its frame: the list has not
+    // built it yet (see `offscreenWindowNote`). By geometry, since the walk hands back a flat list.
+    const named = mapped.offscreenElements.filter((e) => e.name).map((e) => mapped.rects.get(e.ref)).filter((r) => !!r);
+    this.offscreenEmptyRows = mapped.offscreenElements.filter((e) => {
+      const row = e.role === "row" && !e.name ? mapped.rects.get(e.ref) : undefined;
+      return !!row && !named.some((r) => {
+        const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+        return cx >= row.x && cx <= row.x + row.w && cy >= row.y && cy <= row.y + row.h;
+      });
+    }).length;
     return { tree, mapped };
   }
 

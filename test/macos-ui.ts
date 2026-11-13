@@ -443,6 +443,26 @@ async function main() {
       /NOT unreachable/.test(header) && /act on it by ref without scrolling/.test(header) && !/reveals CONTROLS/.test(header),
       (header.match(/\d+ outside the window[^\n]{0,80}/) ?? ["(no note)"])[0]);
     check("…and it still says what only the POINTER needs", /click\/hover refuse a ref the window does not show/.test(header));
+    check("…with no exception named where every row past the window has its name", !/EXCEPT/.test(header));
+  }
+
+  // ── A list that builds its rows as they scroll in ────────────────────────────
+  // System Settings' sidebar: the rows past the window are bare frames, so "find returns one
+  // without scrolling" is false for the very pane being looked for. Its own driver: the note is
+  // said when its kind changes.
+  {
+    const lazy = stubTransport();
+    lazy.scrolledAway = true;
+    lazy.lazyRows = 3;
+    const lazyH = createHarness(new MacosDriver({ transport: lazy.transport, ...ONE_APP }));
+    const header = firstText(await lazyH.observe({}));
+    check("rows past the window with no name yet are counted apart, and the note says find() cannot see into them",
+      /EXCEPT 3 of them/.test(header) && /find\(\) cannot return what those rows will hold/.test(header),
+      (header.match(/EXCEPT[^\n]{0,90}/) ?? ["(no exception named)"])[0]);
+    check("…and names the way through: page that list by ref, then find again",
+      /scroll\(\{direction:'down', ref:/.test(header) && /then find again/.test(header));
+    check("…while a NAMED row past the window is not counted among them", /\b8 outside the window/.test(header),
+      (header.match(/\d+ outside the window/) ?? ["(no count)"])[0]);
   }
 
 

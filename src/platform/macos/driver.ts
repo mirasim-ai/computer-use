@@ -276,7 +276,7 @@ export class MacosDriver extends MacosDriverTargets {
 
   /** @see narrate.ts */
   protected override offscreenNote(count: number): string {
-    return offscreenWindowNote(count);
+    return offscreenWindowNote(count, this.offscreenEmptyRows);
   }
 
   /**
@@ -535,6 +535,7 @@ export class MacosDriver extends MacosDriverTargets {
     this.acts.keys.clear();
     this.rects.clear();
     this.offscreenRefs.clear();
+    this.offscreenEmptyRows = 0;
     this.appWindowIds = null;
   }
 

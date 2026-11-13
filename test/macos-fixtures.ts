@@ -18,7 +18,7 @@ import {
 export interface Stub {
   transport: AxTransport; calls: Array<{ op: string; params: Record<string, unknown> }>;
   trusted: boolean; resultRow: boolean; overflow: number; launchReady: boolean;
-  scrollArea: boolean; scrollAt: number; scrollMax: number; scrolledAway: boolean; findBar: boolean; launchWindowless: boolean; launchPanelOnly: boolean; windowsGone: boolean;
+  scrollArea: boolean; scrollAt: number; scrollMax: number; scrolledAway: boolean; lazyRows: number; findBar: boolean; launchWindowless: boolean; launchPanelOnly: boolean; windowsGone: boolean;
   /** Leave exactly one drivable app in the enumeration, by bundle id. Set, never read back. */
   only(bundle: string): void;
   /** Static text the walk counted instead of listing — the budget that is NOT the control cap. */
@@ -143,7 +143,7 @@ export interface Stub {
 
 export function stubTransport(): Stub {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
-  const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
+  const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
   // The helper's two views of what is running, kept apart exactly as the real one has them:
   // `running` is the truth and only `lookup` sees it; `apps` answers from the snapshot taken when
   // the helper started and never learns about a later launch or quit.
@@ -248,6 +248,12 @@ export function stubTransport(): Stub {
           // Rows the window does not show, listed apart so `find` can name one: one ABOVE the
           // visible rows and one BELOW, by `seq`. The text channel must read them in that order,
           // not as a block on the end.
+          // A list that builds its rows as they scroll in (System Settings' sidebar): the rows past
+          // the window are bare frames. One nameless row with a nameless cell in it per count.
+          const lazy = Array.from({ length: state.lazyRows }, (_, i) => [
+            el({ key: `kL${i}rg${state.generation}`, seq: 30 + i * 2, role: "AXRow", x: 1600, y: 3200 + i * 32, w: 232, h: 32, actions: [], off: true }),
+            el({ key: `kL${i}cg${state.generation}`, seq: 31 + i * 2, role: "AXCell", x: 1610, y: 3200 + i * 32, w: 212, h: 32, actions: [], off: true }),
+          ]).flat();
           const away = state.scrolledAway
             ? [
               el({ key: `kA1g${state.generation}`, seq: 4, role: "AXRow", title: "报告 2025.pdf", x: 1600, y: -900, w: 300, h: 24, actions: ["AXOpen", "AXShowMenu"], off: true }),
@@ -256,7 +262,7 @@ export function stubTransport(): Stub {
             : [];
           return { ...TREE, elements, overflow: state.overflow, textOverflow: state.textOverflow,
             ...(state.treeWindowId ? { window: { ...TREE.window, id: state.treeWindowId } } : {}),
-            ...(away.length ? { offscreenElements: away, offscreen: away.length } : {}),
+            ...(away.length + lazy.length ? { offscreenElements: [...away, ...lazy], offscreen: away.length + lazy.length } : {}),
             ...(state.cappedBy ? { capped: true, cappedBy: state.cappedBy, visited: 8000 } : {}), locked: state.locked };
         }
         // The chain above an element, as the helper reports it — modelled on the Finder sidebar
@@ -453,6 +459,7 @@ export function stubTransport(): Stub {
   get scrollMax() { return state.scrollMax; }, set scrollMax(v: number) { state.scrollMax = v; },
   /** Two rows the window does not show — what `find` must still be able to name. */
   get scrolledAway() { return state.scrolledAway; }, set scrolledAway(v: boolean) { state.scrolledAway = v; },
+  get lazyRows() { return state.lazyRows; }, set lazyRows(v: number) { state.lazyRows = v; },
   /** Leave exactly one drivable app in the ENUMERATION — the case where there is no choice. */
   only(bundle: string) { state.soleApp = bundle; },
   get findBar() { return state.findBar; }, set findBar(v: boolean) { state.findBar = v; },

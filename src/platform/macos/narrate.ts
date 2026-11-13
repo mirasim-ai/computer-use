@@ -115,10 +115,22 @@ export function backgroundOnlyNote(bundle: string, pid: number): string {
  * Elements whose AX frame lies beyond the window's bounds. The walk carries them, so `find` and
  * ref verbs reach them without scrolling; only the POINTER needs them shown, since click and hover
  * would land on the desktop (`mouse.ts` → `outOfReach`).
+ *
+ * `emptyRows` is the exception, and it gets said: a list that builds its rows as they scroll in
+ * (System Settings' sidebar) publishes the rows past the window as bare frames — no name, nothing
+ * inside — so `find` has nothing to match and "without scrolling" is false for exactly the control
+ * the model is looking for. Measured: 14 of that sidebar's 30-odd items were named with the list
+ * at its top, and "Internet Accounts" was not among them until the list was paged down.
  */
-export function offscreenWindowNote(count: number): string {
+export function offscreenWindowNote(count: number, emptyRows = 0): string {
+  const lazy = emptyRows > 0
+    ? ` EXCEPT ${emptyRows} of them, which are list rows with no name and nothing in them yet: that list builds a row only `
+      + "when it scrolls into the window, so find() cannot return what those rows will hold, and a miss there does not mean "
+      + "the control is absent. Page the list first — scroll({direction:'down', ref:<any listed element inside that list>}) "
+      + "turns its own page with the app in the background — then find again."
+    : "";
   return `${count} outside the window — NOT unreachable: they are in this observation's element `
-    + `set, so find('<name>') returns one and you can act on it by ref without scrolling. Only the `
+    + `set, so find('<name>') returns one and you can act on it by ref without scrolling.${lazy} Only the `
     + `POINTER needs them on screen — click/hover refuse a ref the window does not show and name `
     + `the action to run instead. Scrolling buys no TEXT in web content either: text() already has `
     + `what scrolled away, so read it before scrolling to find a phrase`;
