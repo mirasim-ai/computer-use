@@ -39,8 +39,12 @@ const APP_NOTES: Record<string, string> = {
   can be refused (AXError -25202): bring it into the window first.
 - A sheet raised inside a pane (Internet Accounts › Add Account…, and the forms behind it) is in
   THIS window's element list, not a surface of its own: keep the handle and wait for the control
-  you expect. A click that opens one can report "nothing in the window changed within 800 ms"
-  and have worked — wait({control}) for the next control before deciding it did not.
+  you expect. The click that opens one names what appeared, by ref, so the next click can follow
+  in the same call. A list that grows past the window's edge (Add Other Account…) answers
+  "reported changes … though nothing listed inside the window differs": the click worked, and
+  the new rows are past the edge — find them, they take a click by ref where they are.
+- wait({}) here goes by the app's change notifications (about half a second); reading the text
+  twice never agrees, because the sidebar renames its rows on every read.
 - The pane names in the View menu need the window to be key, so menu() does not run them in the
   background; the sidebar is the background route.
 - The steps differ between macOS versions (27 puts an "enter your email address" sheet before the

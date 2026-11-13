@@ -11,6 +11,12 @@ export const MACOS_INTERACTION_NOTES: readonly string[] = [
   MACOS_INTERACTION_RULE,
   "click does not automatically repeat a press whose result is uncertain. click(t, {retry:true}) permits that fallback "
     + "only for an action you know is harmless to repeat; it does not grant desktop permission.",
+  "click returns once the app has stopped changing, and answers with what the press changed: "
+    + "`pressed button \"Add Account…\" — appeared: button \"Mail Account\" e257, …; gone: …`. Those refs are live, so several steps "
+    + "fit in ONE call with no observe and no wait({ms}) between them — await w.click(await w.find('Add Account…', {role:'button'})); "
+    + "await w.click(await w.find('Mail Account', {role:'button'})); — and wait({control}) is only for something a note did not list. "
+    + "When a note says the app reported changes though nothing listed inside the window differs, the press worked and its effect "
+    + "is past the window's edge or in another surface: find what you expect, do not click again.",
   "Each computer_repl call defaults to interaction:background: driver-controlled real pointer, activation and clipboard routes are blocked, including fallback. "
     + "After obtaining scoped permission, use interaction:desktop for the covered calls. This setting is not proof of consent. "
     + "AX actions can still cause the app itself to present windows or change state; background is not application isolation.",
