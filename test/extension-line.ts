@@ -50,7 +50,7 @@ function fakeExtension(stuck: (method: string, params: unknown[]) => boolean) {
 async function main() {
   // The bridge unrefs its timers (they must not keep a host alive); this suite waits on them.
   const hold = setInterval(() => {}, 1_000);
-  const timing = { commandMs: 300, probeMs: 200 };
+  const timing = { commandMs: 300, probeMs: 200, stalledMs: 60 };
   const warned: string[] = [];
   const quiet = () => {};
 
@@ -86,6 +86,31 @@ async function main() {
       .map((m) => line.send("chrome.debugger.sendCommand", [{ tabId: 7 }, m])));
     await sleep(timing.probeMs + 100);
     check("several calls to that page timing out together leave the line up", line.isOpen, `${pings} ping(s)`);
+    line.close("done");
+  }
+
+  // ── A page known to be stuck is given up on sooner, until it answers ──
+  {
+    let stuckNow = true;
+    const ext = fakeExtension((method, params) => stuckNow && method === "chrome.debugger.sendCommand" && (params[0] as { tabId?: number })?.tabId === 7);
+    const line = new ExtensionConnection(ext.channel, quiet, quiet, timing);
+    const call = (tabId: number, m: string) => {
+      const t = Date.now();
+      return line.send("chrome.debugger.sendCommand", [{ tabId }, m]).then(() => ({ ok: true, ms: Date.now() - t }), () => ({ ok: false, ms: Date.now() - t }));
+    };
+    const first = await call(7, "Runtime.evaluate");
+    const next = await call(7, "Page.enable");
+    check("the first call to a stuck page waits the full bound", !first.ok && first.ms >= timing.commandMs, JSON.stringify(first));
+    check("...the next one to it is given up on sooner, so a session attaching it is not held up",
+      !next.ok && next.ms < timing.commandMs, JSON.stringify(next));
+    const elsewhere = await call(8, "Page.enable");
+    check("...while another tab's calls are unaffected", elsewhere.ok, JSON.stringify(elsewhere));
+    stuckNow = false;
+    const back = await call(7, "Page.enable");
+    check("once the page answers again, it is no longer treated as stuck", back.ok, JSON.stringify(back));
+    stuckNow = true;
+    const again = await call(7, "Page.enable");
+    check("...so a new stall waits the full bound again", !again.ok && again.ms >= timing.commandMs, JSON.stringify(again));
     line.close("done");
   }
 

@@ -52,6 +52,13 @@ const EXTENSION_COMMAND_TIMEOUT_MS = 30_000;
  * answer this ping is dead (see {@link ExtensionConnection.send}).
  */
 const LIVENESS_PROBE_MS = 5_000;
+/**
+ * The bound for a call to a page whose last call timed out, until it answers one again. Without
+ * it every client that attaches that tab waits out the full bound on each of its first commands:
+ * playwright's `connectOverCDP` waits for every page it is handed to initialize, so one stuck tab
+ * of the agent's made every new session's connect time out (its own bound is 30 s too).
+ */
+const STALLED_CALL_MS = 3_000;
 /** A call still unanswered after this gets a log line — the ONLY record that a stall lives on the
  *  extension side. Every real caller's own budget is tighter than the 30s bound above
  *  (`SHOT_TIMEOUT_MS` 4s, `NAV_TIMEOUT_MS` 15s, clicks 4-8s), so the warning must sit below the
@@ -90,6 +97,8 @@ export class ExtensionConnection {
   private lastId = 0;
   /** The ping asking whether the line is alive after a call timed out; one at a time. */
   private probing: Promise<void> | null = null;
+  /** Debuggees (a tab, or a session in it) whose last call timed out — see {@link STALLED_CALL_MS}. */
+  private readonly stalled = new Set<string>();
   onEvent: ((method: string, params: unknown[]) => void) | null = null;
   onClose: (() => void) | null = null;
 
@@ -97,8 +106,8 @@ export class ExtensionConnection {
     private readonly channel: ExtensionChannel,
     protected readonly log: (...args: unknown[]) => void,
     protected readonly warn: (...args: unknown[]) => void,
-    /** Test seam: the two bounds, so a suite need not wait 30 s for one. */
-    private readonly timing = { commandMs: EXTENSION_COMMAND_TIMEOUT_MS, probeMs: LIVENESS_PROBE_MS },
+    /** Test seam: the bounds, so a suite need not wait 30 s for one. */
+    private readonly timing = { commandMs: EXTENSION_COMMAND_TIMEOUT_MS, probeMs: LIVENESS_PROBE_MS, stalledMs: STALLED_CALL_MS },
   ) {
     channel.onMessage((text) => this.onMessage(text));
     channel.onClose(() => this.dispose());
@@ -117,10 +126,14 @@ export class ExtensionConnection {
     if (!this.channel.isOpen) return Promise.reject(new Error("Extension connection closed"));
     const id = ++this.lastId;
     const started = Date.now();
+    const debuggee = debuggeeOf(method, params);
+    const wasStalled = debuggee !== null && this.stalled.has(debuggee);
+    const bound = wasStalled ? this.timing.stalledMs : this.timing.commandMs;
     return new Promise((resolve, reject) => {
       // Keepalive pings are excluded on purpose: one every 20s, and a busy service
-      // worker delaying one is normal — warning on those buries the signal.
-      const warn = method === "bridge.ping" ? null : setTimeout(() => {
+      // worker delaying one is normal — warning on those buries the signal. So are calls to a
+      // page already known to be stuck: its first timeout said so.
+      const warn = method === "bridge.ping" || wasStalled ? null : setTimeout(() => {
         // Read-only: deleting the entry is what decides the timeout below.
         if (this.callbacks.has(id)) this.warn(`slow: ${callLabel(method, params)} pending ${SLOW_CALL_WARN_MS}ms`);
       }, SLOW_CALL_WARN_MS);
@@ -128,9 +141,11 @@ export class ExtensionConnection {
       const timer = setTimeout(() => {
         if (!this.callbacks.delete(id)) return;
         if (warn) clearTimeout(warn);
-        const reason = `Extension did not answer ${callLabel(method, params)} within ${this.timing.commandMs}ms`;
+        const reason = `Extension did not answer ${callLabel(method, params)} within ${bound}ms`;
         reject(new Error(reason));
-        this.warn(reason);
+        if (debuggee !== null) this.stalled.add(debuggee);
+        if (wasStalled) this.log(reason);
+        else this.warn(reason);
         // Never replay a command: a timed-out input may already have reached its tab.
         if (method === "bridge.ping") this.close("Extension stopped answering");
         // Not a reason to drop the line by itself. The call went to one page, and a page that
@@ -140,19 +155,22 @@ export class ExtensionConnection {
         // in turn: the extension dropped every 30 s and never stayed up. The line goes only when
         // the extension itself no longer answers, so native messaging reconnects and lets go of
         // stale debugger sessions.
-        else this.checkAlive();
-      }, this.timing.commandMs);
+        else this.checkAlive(!wasStalled);
+      }, bound);
       timer.unref?.();
       const settled = () => { clearTimeout(timer); if (warn) clearTimeout(warn); };
+      // Any answer from the page, an error included, ends its stall.
+      const answered = () => { if (debuggee !== null) this.stalled.delete(debuggee); };
       this.callbacks.set(id, {
         resolve: (v) => {
           settled();
+          answered();
           // Only the calls that warned report their total, so a healthy run stays silent.
           const ms = Date.now() - started;
           if (ms >= SLOW_CALL_WARN_MS && method !== "bridge.ping") this.warn(`${callLabel(method, params)} answered after ${ms}ms`);
           resolve(v);
         },
-        reject: (e) => { settled(); reject(e); },
+        reject: (e) => { settled(); answered(); reject(e); },
       });
       try { this.channel.send(JSON.stringify({ id, method, params })); }
       catch (e) {
@@ -174,7 +192,7 @@ export class ExtensionConnection {
    * within {@link LIVENESS_PROBE_MS}. Any answer counts, an error included: it came back over the
    * line. A ping already in flight answers for the calls that time out meanwhile.
    */
-  private checkAlive(): void {
+  private checkAlive(say: boolean): void {
     if (this.probing || !this.channel.isOpen) return;
     let timer: NodeJS.Timeout | undefined;
     const silent = new Promise<boolean>((resolve) => {
@@ -187,7 +205,7 @@ export class ExtensionConnection {
     this.probing = Promise.race([answered, silent]).then((alive) => {
       clearTimeout(timer);
       if (alive) {
-        this.warn("a call timed out but the extension still answers; keeping the line");
+        if (say) this.warn("a call timed out but the extension still answers; keeping the line");
         return;
       }
       if (this.channel.isOpen) this.close("Extension stopped answering");
@@ -232,6 +250,15 @@ function callLabel(method: string, params: unknown[]): string {
     debuggee?.sessionId ? `session=${debuggee.sessionId}` : null,
   ].filter(Boolean);
   return where.length ? `${cdpMethod} ${where.join(" ")}` : cdpMethod;
+}
+
+/** Which debuggee a call goes to — a tab, or a session in it — or null for a call that is not
+ *  relayed to a page (`chrome.tabs.*`, `bridge.*`, attaching). */
+function debuggeeOf(method: string, params: unknown[]): string | null {
+  if (method !== "chrome.debugger.sendCommand") return null;
+  const debuggee = params[0] as { tabId?: number; sessionId?: string } | undefined;
+  if (debuggee?.tabId === undefined) return null;
+  return debuggee.sessionId ? `${debuggee.tabId}/${debuggee.sessionId}` : String(debuggee.tabId);
 }
 
 export abstract class BridgeServerCore {
