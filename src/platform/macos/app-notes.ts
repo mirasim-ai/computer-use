@@ -30,6 +30,22 @@ const APP_NOTES: Record<string, string> = {
 - The rename editor is a transient untitled WINDOW while it is open, so an "opened a window" note
   and a surfaces() entry that vanishes after Enter are both expected, not a problem.`,
 
+  "com.apple.systempreferences": `System Settings, known quirks:
+- The SIDEBAR builds its rows as they scroll in. Rows past the window are listed as nameless rows,
+  so find() misses a pane that is further down (measured: 14 of the 30-odd panes named with the
+  list at its top). Page it by naming any sidebar item: scroll({direction:'down', ref}) works with
+  the app in the background; then find the pane and click it. A row that has scrolled far out of
+  the window loses its name again after a while, and pressing one that is still outside the window
+  can be refused (AXError -25202): bring it into the window first.
+- A sheet raised inside a pane (Internet Accounts › Add Account…, and the forms behind it) is in
+  THIS window's element list, not a surface of its own: keep the handle and wait for the control
+  you expect. A click that opens one can report "nothing in the window changed within 800 ms"
+  and have worked — wait({control}) for the next control before deciding it did not.
+- The pane names in the View menu need the window to be key, so menu() does not run them in the
+  background; the sidebar is the background route.
+- The steps differ between macOS versions (27 puts an "enter your email address" sheet before the
+  provider list): observe each sheet instead of waiting for a control name from memory.`,
+
   "com.apple.TextEdit": `TextEdit, known quirks:
 - Every item of a context menu advertises AXCancel, and running it does NOTHING — the menu stays
   up and the verdict reads frozen. Close a menu with keys('Escape'); pick an item with click.

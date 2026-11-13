@@ -144,7 +144,7 @@ async function main() {
   // These notes are template literals in one table, so an escaped backtick inside one runs it
   // into its neighbours and the table still typechecks. One header per note is the invariant.
   for (const bundle of ["com.apple.QuickTimePlayerX", "org.blenderfoundation.blender", "com.apple.finder",
-    "com.apple.TextEdit", "com.apple.calculator", "com.microsoft.Excel", "com.microsoft.Word"]) {
+    "com.apple.TextEdit", "com.apple.calculator", "com.microsoft.Excel", "com.microsoft.Word", "com.apple.systempreferences"]) {
     const note = appNote(bundle) ?? "";
     const headers = note.match(/known quirks/g)?.length ?? 0;
     check(`${bundle}'s note ends where it should — one entry, not the table after it`,
