@@ -9,6 +9,7 @@ import { BrowserDriver } from "./browser/driver.ts";
 import { ElectronDriver } from "./electron/driver.ts";
 import { MacosDriver } from "./macos/driver.ts";
 import { WindowsDriver } from "./windows/driver.ts";
+import { windowsAppsOptedIn } from "./windows/opt-in.ts";
 import { CdpPreviewStream } from "./chromium/preview-stream.ts";
 import { MacosPreviewStream } from "./macos/preview-stream.ts";
 import type { BrowserConfigOptions } from "./browser/config.ts";
@@ -44,17 +45,8 @@ const REGISTRY: Record<string, (opts: DriverOptions) => ComputerUseDriver> = {
   // future: linux, ios
 };
 
-/**
- * Whether the `windows` platform may be mounted. Native Windows apps are not part of this
- * release: the driver and its helper stay in the tree and keep being published, but nothing
- * says so to users, and a session that names the platform is refused. A host that ships the
- * driver at its own risk sets `COMPUTER_USE_UNSUPPORTED_WINDOWS=1`, which is deliberately
- * absent from README and docs/embedding.md. The browser and Electron platforms on Windows are
- * unaffected: neither goes through this driver or its helper.
- */
-export function windowsAppsOptedIn(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.COMPUTER_USE_UNSUPPORTED_WINDOWS === "1";
-}
+// Re-exported: the registry is where the opt-in takes effect, and where callers look for it.
+export { windowsAppsOptedIn };
 
 /** The platforms a session may name: what the errors and the help list. */
 function offered(env: NodeJS.ProcessEnv): string[] {

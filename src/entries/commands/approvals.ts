@@ -12,8 +12,8 @@
 
 import { parseArgs } from "node:util";
 import { MacosApprovals } from "../../platform/macos/approvals.ts";
-import { windowsAppsOptedIn } from "../../platform/registry.ts";
 import { WindowsApprovals } from "../../platform/windows/app-gate.ts";
+import { windowsAppsOptedIn } from "../../platform/windows/opt-in.ts";
 import { emitUsage, wantsHelp } from "./help.ts";
 
 type Platform = "macos" | "windows";
