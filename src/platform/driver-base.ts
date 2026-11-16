@@ -14,7 +14,6 @@ import type {
   ScopedShot,
   ShotScope,
   Snapshot,
-  SnapshotCapture,
   TargetInfo,
   ToolResult,
   VerbSpec,
@@ -40,7 +39,7 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
   // ── Primitives (subclass must implement) ────────────────────────────────────
 
   /** Read the current a11y state as a numbered element list. */
-  protected abstract snapshot(): Promise<Snapshot>;
+  protected abstract override snapshot(): Promise<Snapshot>;
   /** Raw image bytes in the format {@link screenshotMimeType} declares; never assume PNG. */
   abstract screenshot(): Promise<Buffer>;
   /** Scoped capture — one element (ref), a region, or the full scrollable page. The base refuses
@@ -120,15 +119,8 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
 
   /** MIME type of screenshot()'s bytes (jpeg on browser, png where capture is lossless). PUBLIC:
    * whoever persists or re-serves them takes extension and MIME from HERE — strict model APIs
-   * reject a declared MIME that disagrees with the bytes, though viewers hide it. Atomic captures
-   * may override it per image (SnapshotCapture.image carries its own mimeType). */
+   * reject a declared MIME that disagrees with the bytes, though viewers hide it. */
   readonly screenshotMimeType: string = "image/jpeg";
-
-  /** Default drivers collect structure first and pixels only when requested. Drivers
-   * with an atomic structure+image API override this to keep both views coherent. */
-  protected async captureSnapshot(): Promise<SnapshotCapture> {
-    return { snapshot: await this.snapshot() };
-  }
 
   /** Bound one primitive read: a half-dead CDP session (client killed mid-navigation) leaves
    * `page.evaluate` waiting FOREVER — playwright sets no timeout — hanging every later call. A

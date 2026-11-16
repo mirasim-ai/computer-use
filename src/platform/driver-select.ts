@@ -9,14 +9,14 @@
  * needs from below is declared abstract and implemented in ComputerUseDriver.
  */
 
-import type { Element, Heading, ObservationCoverage, SnapshotCapture, TargetIdentity } from "./types.ts";
+import type { Element, Heading, ObservationCoverage, Snapshot, TargetIdentity } from "./types.ts";
 import { ComputerUseDriverRefs } from "./driver-refs.ts";
 
 export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
   abstract readonly platform: string;
 
-  // ── Implemented by ComputerUseDriver, called from here ──────────────────────────────
-  protected abstract captureSnapshot(): Promise<SnapshotCapture>;
+  // ── Implemented further down the chain (driver-base.ts), called from here ──────────
+  protected abstract snapshot(): Promise<Snapshot>;
   protected abstract bounded<T>(what: string, run: Promise<T>): Promise<T>;
 
   /** Observations since the last dispatched action. Re-observing an unchanged surface is the top
@@ -65,7 +65,7 @@ export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
      *  them (the same label a covered ref is refused with). Absent when nothing is covered. */
     covered?: { by: string; elements: Element[] };
   }> {
-    const { snapshot } = await this.bounded("observe", this.captureSnapshot());
+    const snapshot = await this.bounded("observe", this.snapshot());
     const off = (snapshot.offscreenElements ?? []).map((e) => ({ ...e, offscreen: true }));
     const all = [...snapshot.elements, ...off];
     this.rememberRefs({ ...snapshot, elements: all });

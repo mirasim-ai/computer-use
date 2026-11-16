@@ -10,7 +10,6 @@ export {
   type ObservationCoverage,
   type OwnershipResource,
   type Snapshot,
-  type SnapshotCapture,
   type TargetInfo,
   type TargetIdentity,
   type ToolResult,

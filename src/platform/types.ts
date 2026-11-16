@@ -310,14 +310,6 @@ export interface ViewportPosition {
   total: number;
 }
 
-/** One atomic platform observation. A platform that returns structure and pixels from one
- * capture provides both, so an observation with a screenshot never invalidates its own refs with a second
- * screenshot. */
-export interface SnapshotCapture {
-  snapshot: Snapshot;
-  image?: { bytes: Buffer; mimeType: string };
-}
-
 /** Scoped screenshot request — exactly one of the three. Region coordinates live in the
  * same space as a FULL screenshot of the surface (browser: CSS px of the viewport, the
  * space mouse actions share). */

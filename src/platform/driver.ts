@@ -13,7 +13,6 @@ import type {
   ScopedShot,
   ShotScope,
   Snapshot,
-  SnapshotCapture,
   TargetInfo,
   ToolResult,
   Verdict,
@@ -86,7 +85,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
   async ensureSettleBaseline(kind: string): Promise<void> {
     if (!STATE_CHANGING_ACTIONS.has(kind) || this.prevElSigSubstantive !== null) return;
     try {
-      const { snapshot } = await this.bounded("observe", this.captureSnapshot());
+      const snapshot = await this.bounded("observe", this.snapshot());
       this.prevElSigSubstantive = substantiveElementSignature(snapshot.elements);
     } catch {
       // No baseline means no re-check — the behaviour this only improves on.
@@ -94,9 +93,9 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
   }
 
   async observeElements(opts: { prefix?: string; afterAction?: string } = {}): Promise<ToolResult> {
-    let capture: SnapshotCapture;
+    let snap: Snapshot;
     try {
-      capture = await this.bounded("observe", this.captureSnapshot());
+      snap = await this.bounded("observe", this.snapshot());
     } catch (e) {
       this.prevSig = null;
       this.takeSurfaceChange();
@@ -124,24 +123,24 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     // Not after a click INTO a text field: it changes only the focus, which the comparison
     // strips, so the re-check would always run out its budget (measured: 1.3 s against 26 ms).
     const clicked = opts.afterAction === "click" && this.lastActionRef !== null
-      ? capture.snapshot.elements.find((e) => e.ref === this.lastActionRef) : undefined;
+      ? snap.elements.find((e) => e.ref === this.lastActionRef) : undefined;
     if (STATE_CHANGING_ACTIONS.has(opts.afterAction ?? "") && !(clicked && TEXT_ENTRY_ROLES.has(clicked.role))) {
       const prevRefs = this.lastRects ? new Set(this.lastRects.keys()) : null; // the previous observation's refs
       const prevFull = this.prevElSig, prevScrollY = this.lastScrollY, action = opts.afterAction ?? "";
-      capture = await settleAfterStateAction({
-        capture,
+      snap = await settleAfterStateAction({
+        capture: snap,
         previous: this.prevElSigSubstantive,
-        signature: (c) => substantiveElementSignature(c.snapshot.elements),
+        signature: (c) => substantiveElementSignature(c.elements),
         unsettled: (prev, c) => {
-          const els = c.snapshot.elements;
-          const scrolled = prevScrollY !== null && Math.abs(c.snapshot.meta.scrollY - prevScrollY) >= 3;
+          const els = c.elements;
+          const scrolled = prevScrollY !== null && Math.abs(c.meta.scrollY - prevScrollY) >= 3;
           if (prev === substantiveElementSignature(els)) {
             return !effectAlreadyShown({
               action,
               target: els.find((e) => e.ref === this.lastActionRef) ?? els.find((e) => e.state.startsWith("focused")),
               scrolled,
               focusMoved: prevFull !== null && prevFull !== elementSignature(els),
-              geometryMoved: this.geometryChanges(c.snapshot) !== null,
+              geometryMoved: this.geometryChanges(c) !== null,
             });
           }
           // Refs lost to a scroll went off screen; they are not a menu mid-close.
@@ -150,12 +149,11 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
           // filtered), is a finished effect: measured, each such click paid the whole budget.
           // An overlay that closes moves nothing, and that is the shape whose next thing may
           // still be mounting — as is any close a disclosure trigger reports, reflow or not.
-          return this.geometryChanges(c.snapshot) === null || disclosureClosed(prevFull, els);
+          return this.geometryChanges(c) === null || disclosureClosed(prevFull, els);
         },
-        recapture: () => this.bounded("observe", this.captureSnapshot()),
+        recapture: () => this.bounded("observe", this.snapshot()),
       });
     }
-    const snap = capture.snapshot;
     this.publishPreview();
     const sig = this.signature(snap);
     const surfaceChanged = this.takeSurfaceChange();
