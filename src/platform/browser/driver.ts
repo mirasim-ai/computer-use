@@ -20,42 +20,15 @@ import { DOWNLOAD_VERB } from "./downloads.ts";
 import { bridgeAccess, bridgeRequest, bridgeTabs, closeBridgeTab, holdOnlyBridgeTab, restoreBridgeTab } from "./bridge-tabs.ts";
 import type { ExtensionAccess } from "./bridge/model-core.ts";
 import { pageTargetInfo } from "./tabs.ts";
+import { boundedTitle } from "../chromium/bounded-title.ts";
 
 /** How long `close()` waits for the journal's queued line (one evidence shot's worth: the shot
  *  itself is capped at 4s, and a whole run's exit must not hang on an observer channel). */
 const JOURNAL_DRAIN_MS = 5_000;
 
-/** A LISTING's budget for one tab's title — see {@link boundedTitle}. */
-const TITLE_BUDGET_MS = 1_500;
-
 /** A surface name that is really an address: a scheme, or a host (localhost, an IP, any name)
  *  with a port — what a model passes when the task told it where the app runs. */
 const URLISH = /^(?:[a-z][a-z\d+.-]*:\/\/|(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-f:]+\])(?::\d+)?(?:[/?#]|$)|[\w.-]+:\d+(?:[/?#]|$))/i;
-
-/**
- * One tab's title, or "" (callers fall back to the url) — never a wait worth noticing.
- *
- * `page.title()` runs in the page, and `listTargets` asks every tab at once, so an unbounded read
- * makes the LISTING as slow as the sickest tab: one playwright held without a url took 78 s to
- * fail. A listing is a READ and must not block on a page mid-navigation, hung in JS or waiting on
- * a beforeunload dialog.
- */
-async function boundedTitle(page: { title(): Promise<string>; url(): string }): Promise<string> {
-  // No url = playwright never saw this page navigate; asking it anything is the 78s case above.
-  if (!page.url()) return "";
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      page.title().catch(() => ""),
-      new Promise<string>((resolve) => {
-        timer = setTimeout(() => resolve(""), TITLE_BUDGET_MS);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 /** A bridge tab this session holds no page for, named by Chrome's tab id and the browser session
  *  that id belongs to — stable across binding and releasing it, so a handle outlives both. */

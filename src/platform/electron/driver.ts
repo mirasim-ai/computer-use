@@ -34,6 +34,7 @@ import { PASTE_VERB, SELECT_OPTION_VERB } from "../chromium/actions-value.ts";
 import { SELECT_TEXT_VERB } from "../chromium/select-text.ts";
 import { performRunJs } from "../chromium/run-js.ts";
 import { ensureRefSelector } from "../chromium/page-refs.ts";
+import { boundedTitle } from "../chromium/bounded-title.ts";
 import { SurfaceGoneError, type ActResult, type Snapshot, type TargetIdentity, type TargetInfo, type VerbSpec } from "../types.ts";
 import { closeWedgedAuxTargets, isAuxUrl, listTargets } from "./preflight.ts";
 
@@ -224,9 +225,17 @@ export class ElectronDriver extends ChromiumPageDriver {
     return await Promise.all(this.surfaces().map(async (p) => ({
       id: this.windowId(p),
       kind: "window" as const,
-      title: (await p.title().catch(() => "")) || p.url(),
+      title: (await boundedTitle(p)) || p.url(),
       active: p === this.active,
     })));
+  }
+
+  /** From what this driver holds, never from a listing: it is asked before EVERY verb, and a
+   *  listing reads every window's title, so one window that answers nothing (a script that never
+   *  returns, a dialog nobody answered) held up each verb on every other window. */
+  override async activeTarget(): Promise<string | null> {
+    await this.ensure();
+    return this.active && !this.active.isClosed() ? this.windowId(this.active) : null;
   }
 
   async focusTarget(id: string): Promise<ActResult> {
