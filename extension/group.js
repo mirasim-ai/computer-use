@@ -35,7 +35,8 @@ const NON_DEBUGGABLE_SCHEMES = ["chrome:", "edge:", "devtools:", "chrome-extensi
 /** Pages Chrome never lets an extension's debugger into, whatever their scheme. */
 const NON_DEBUGGABLE_HOSTS = ["chromewebstore.google.com", "chrome.google.com"];
 /** How long an attach waits for the user's answer in `ask` scope; under the bridge's own 30s
- *  command timeout (server-core.ts EXTENSION_COMMAND_TIMEOUT_MS), so the refusal is ours. */
+ *  command timeout (extension-connection.ts EXTENSION_COMMAND_TIMEOUT_MS), so the refusal is
+ *  ours. */
 const ASK_WAIT_MS = 20_000;
 
 export function isNonDebuggableUrl(url) {
