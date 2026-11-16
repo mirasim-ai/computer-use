@@ -106,6 +106,12 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   /** Chrome targetIds of the pages above — the half of ownership that outlives a playwright
    *  re-mint (see {@link REIDENTIFIED_WHY}). Ids only, so a closed page costs nothing. */
   protected readonly ownedTargetIds = new Set<string>();
+  /** Chrome targetIds of every page this driver's connection has shown it, its own or not, and
+   *  per page whether that was the first sight of its target (driver-tabs.ts `sawTarget`). A
+   *  bridged browser announces every tab AGAIN when its connection returns; one seen before has
+   *  not "appeared", whatever order the announcements come in. */
+  protected readonly seenTargetIds = new Set<string>();
+  protected readonly firstSight = new WeakMap<Page, Promise<boolean>>();
   /** …and which of them `active` points at, recorded while that page is still readable: once
    *  the old object is closed, the only way to tell "the same page under a new object" from
    *  "another tab of mine" (a tab the user really closed). */

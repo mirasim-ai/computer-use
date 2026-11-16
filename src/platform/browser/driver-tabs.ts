@@ -98,12 +98,23 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
         // link, noopener or not) is this session's work: claimed, so it is told apart from the
         // tabs an earlier session left there (TargetInfo.mine). Elsewhere a tab that appears may
         // be the user's, and a claim would make it closable.
+        // …and only one this connection had not shown before: a tab somebody else left in the
+        // browser, announced again with the rest, has not appeared. Taken for new, it took the
+        // session off its own tab whenever it happened to be announced after it.
         const adoptNew = () => {
-          if (this.managedProfileDir) this.claim(p);
-          this.makeActive(p, APPEARED_WHY);
+          void (this.firstSight.get(p) ?? Promise.resolve(true)).then((first) => {
+            if (!first) return;
+            if (this.managedProfileDir) this.claim(p);
+            this.makeActive(p, APPEARED_WHY);
+          });
         };
+        // Ours by identity is a tab that CAME BACK (every page is announced again when a bridged
+        // browser's connection returns), not one that just opened: only the very tab the session
+        // was on takes it back. Another of its tabs is re-claimed (recognise did that) and left
+        // where it was. Made active too, the session ended on whichever of its tabs happened to
+        // be announced last, and a verb then ran in a tab the model had not been on.
         void this.recognise(p)
-          .then((known) => known ? this.makeActive(p, known === "same" ? REIDENTIFIED_WHY : ADOPTED_WHY) : adoptNew())
+          .then((known) => known === "same" ? this.makeActive(p, REIDENTIFIED_WHY) : known ? undefined : adoptNew())
           .catch(adoptNew);
         return;
       }
@@ -120,6 +131,22 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
     const timer = setTimeout(() => p.off("framenavigated", onNav), 1500);
     timer.unref?.();
     p.on("framenavigated", onNav);
+  }
+
+  /** Note a page's target as seen, and answer whether this was the first sight of it (true too
+   *  when the target cannot be read, which proves nothing). Asked once per page. */
+  protected sawTarget(p: Page): Promise<boolean> {
+    let first = this.firstSight.get(p);
+    if (!first) {
+      first = pageTargetInfo(p).then(({ targetId }) => {
+        if (!targetId) return true;
+        const seen = this.seenTargetIds.has(targetId);
+        this.seenTargetIds.add(targetId);
+        return !seen;
+      }, () => true);
+      this.firstSight.set(p, first);
+    }
+    return first;
   }
 
   protected page(): Page {
