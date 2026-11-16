@@ -1,12 +1,12 @@
 /**
  * The VERDICT half of the shared narration: what a delta says, and what a run is told when the
- * surface did not change. `driver-narrate.ts` RENDERS what was observed; this JUDGES it. Both
- * stay in the base class: the wording was tuned against real failures, and a platform fork would
- * teach the model what the other platforms contradict.
+ * surface did not change. `driver-narrate.ts` RENDERS what was observed; this JUDGES it. Plain
+ * functions, shared by every platform on purpose: the wording was tuned against real failures,
+ * and a platform fork would teach the model what the other platforms contradict.
  */
 
 import type { Snapshot } from "./types.ts";
-import { ComputerUseDriverNarrate, type FrozenFacts } from "./driver-narrate.ts";
+import type { FrozenFacts } from "./driver-narrate.ts";
 import { controlRef, splitTextChurn, TEXT_CHURN_MAX } from "./driver-lines.ts";
 
 /** Standard effect-evidence wording. Tuned against real failure modes; identical on
@@ -46,86 +46,84 @@ const FROZEN_REPEAT_NOTE =
   "NOTE: You already tried this exact action and the screen did not change. " +
   "Repeating it a third time will not help — change target or approach.";
 
-export abstract class ComputerUseDriverVerdict extends ComputerUseDriverNarrate {
-  /** The delta body. After a scroll, lines that left the viewport are summarized, not listed as
-   * removals (a wall of "-" taught models to re-observe in full). The summary stays NEUTRAL: hover
-   * menus close on scroll and virtual lists recycle DOM, so never promise those refs are alive. */
-  protected renderDelta(added: string[], removed: string[], afterScroll: boolean, modified = new Map<string, string>()): string[] {
-    const lines: string[] = [];
-    if (afterScroll) {
-      if (added.length) lines.push("Newly visible after scrolling:", ...added.map((l) => `+ ${l}`));
-      if (removed.length) lines.push(`(${removed.length} line${removed.length === 1 ? "" : "s"} left the viewport — scrolled out, or dismissed (hover menus close on scroll); re-observe before acting on their refs if unsure)`);
-      if (!added.length && !removed.length) lines.push("(nothing new is visible)");
-    } else {
-      lines.push("Changes since last observation:");
-      if (added.length || removed.length) {
-        const a = splitTextChurn(added), r = splitTextChurn(removed);
-        const churn = a.text.length + r.text.length;
-        lines.push(
-          ...r.controls.filter((l) => !modified.has(controlRef(l) ?? "")).map((l) => `- ${l}`),
-          ...modified.values(),
-          ...a.controls.filter((l) => !modified.has(controlRef(l) ?? "")).map((l) => `+ ${l}`),
-        );
-        if (churn > TEXT_CHURN_MAX) {
-          lines.push(`(${churn} text lines changed too — this surface re-renders or streams its text; read it with text() rather than from this diff)`);
-        } else {
-          lines.push(...r.text.map((l) => `- ${l}`), ...a.text.map((l) => `+ ${l}`));
-        }
-      } else lines.push("(none)");
-    }
-    lines.push("(unchanged elements omitted — refs from earlier observations remain valid; full list re-sent periodically)");
-    return lines;
+/** The delta body. After a scroll, lines that left the viewport are summarized, not listed as
+ * removals (a wall of "-" taught models to re-observe in full). The summary stays NEUTRAL: hover
+ * menus close on scroll and virtual lists recycle DOM, so never promise those refs are alive. */
+export function renderDelta(added: string[], removed: string[], afterScroll: boolean, modified = new Map<string, string>()): string[] {
+  const lines: string[] = [];
+  if (afterScroll) {
+    if (added.length) lines.push("Newly visible after scrolling:", ...added.map((l) => `+ ${l}`));
+    if (removed.length) lines.push(`(${removed.length} line${removed.length === 1 ? "" : "s"} left the viewport — scrolled out, or dismissed (hover menus close on scroll); re-observe before acting on their refs if unsure)`);
+    if (!added.length && !removed.length) lines.push("(nothing new is visible)");
+  } else {
+    lines.push("Changes since last observation:");
+    if (added.length || removed.length) {
+      const a = splitTextChurn(added), r = splitTextChurn(removed);
+      const churn = a.text.length + r.text.length;
+      lines.push(
+        ...r.controls.filter((l) => !modified.has(controlRef(l) ?? "")).map((l) => `- ${l}`),
+        ...modified.values(),
+        ...a.controls.filter((l) => !modified.has(controlRef(l) ?? "")).map((l) => `+ ${l}`),
+      );
+      if (churn > TEXT_CHURN_MAX) {
+        lines.push(`(${churn} text lines changed too — this surface re-renders or streams its text; read it with text() rather than from this diff)`);
+      } else {
+        lines.push(...r.text.map((l) => `- ${l}`), ...a.text.map((l) => `+ ${l}`));
+      }
+    } else lines.push("(none)");
   }
+  lines.push("(unchanged elements omitted — refs from earlier observations remain valid; full list re-sent periodically)");
+  return lines;
+}
 
-  /** The frozen wording for an action round (a look gets {@link OBSERVE_FROZEN_NOTE} at the call
-   * site); state arrives as {@link FrozenFacts}. A scroll that measurably moved reads as a uniform
-   * list; a set_text verified by read-back is not "no effect" (that drove models into
-   * click+select-all+delete loops); the same action frozen twice gets the harsher wording. */
-  protected frozenNote(afterAction: string, f: FrozenFacts): string {
-    if (afterAction === "scroll" && f.scrollMoved !== null && f.scrollMoved >= 8) {
-      return `NOTE: scrolled ${Math.round(f.scrollMoved)}px but the visible elements look identical (uniform list?).`;
-    }
-    if (afterAction === "set_text" && f.writeRound?.ended) {
-      // "Try another element" would send the model back to the fields it just filled: name what
-      // was dispatched, and for Enter the usual cause.
-      const ended = f.writeRound.ended;
-      return `NOTE: the fields are filled and ${ended} was dispatched, but nothing on screen changed — `
-        + (ended === "keys Enter"
-          ? "this form does not submit on Enter. Click its submit button."
-          : "re-observe before assuming the sequence worked.");
-    }
-    if (afterAction === "set_text" && f.writeRound && f.writeRound.fields > 0
-      && f.writeRound.verified === f.writeRound.fields) {
-      return f.writeRound.fields > 1
-        ? `NOTE: all ${f.writeRound.fields} fields hold the text you sent (verified by read-back); nothing else on screen changed.`
-        : "NOTE: the text is in the field (verified by read-back); nothing else on screen changed.";
-    }
-    // A frozen signature only proves the TEXT view is identical — measured geometry
-    // (a resize, a reorder, a pan) is still an effect and must not be denied.
-    if ((afterAction === "click" || afterAction === "drag" || afterAction === "keys") && f.geomChange) {
-      return `NOTE: the element list and text are identical, but geometry changed: ${f.geomChange} — the ${afterAction} DID take effect; judge progress by the new size/position.`;
-    }
-    // Wait and blind come before repeat/round-trip, which claim no effect — unknowable on a blind
-    // channel. The wait wording only for a round of NOTHING but waiting (`wait` is not counted in
-    // actionsInRound): an action before it is judged as usual.
-    if (afterAction === "wait" && f.actionsInRound === 0) return FROZEN_WAIT_NOTE;
-    if (f.treeBlind) return FROZEN_BLIND_NOTE;
-    if (f.repeated) return FROZEN_REPEAT_NOTE;
-    if (f.actionsInRound > 1) return FROZEN_ROUNDTRIP_NOTE;
-    return FROZEN_NOTE;
+/** The frozen wording for an action round (a look gets {@link OBSERVE_FROZEN_NOTE} at the call
+ * site); state arrives as {@link FrozenFacts}. A scroll that measurably moved reads as a uniform
+ * list; a set_text verified by read-back is not "no effect" (that drove models into
+ * click+select-all+delete loops); the same action frozen twice gets the harsher wording. */
+export function frozenNote(afterAction: string, f: FrozenFacts): string {
+  if (afterAction === "scroll" && f.scrollMoved !== null && f.scrollMoved >= 8) {
+    return `NOTE: scrolled ${Math.round(f.scrollMoved)}px but the visible elements look identical (uniform list?).`;
   }
+  if (afterAction === "set_text" && f.writeRound?.ended) {
+    // "Try another element" would send the model back to the fields it just filled: name what
+    // was dispatched, and for Enter the usual cause.
+    const ended = f.writeRound.ended;
+    return `NOTE: the fields are filled and ${ended} was dispatched, but nothing on screen changed — `
+      + (ended === "keys Enter"
+        ? "this form does not submit on Enter. Click its submit button."
+        : "re-observe before assuming the sequence worked.");
+  }
+  if (afterAction === "set_text" && f.writeRound && f.writeRound.fields > 0
+    && f.writeRound.verified === f.writeRound.fields) {
+    return f.writeRound.fields > 1
+      ? `NOTE: all ${f.writeRound.fields} fields hold the text you sent (verified by read-back); nothing else on screen changed.`
+      : "NOTE: the text is in the field (verified by read-back); nothing else on screen changed.";
+  }
+  // A frozen signature only proves the TEXT view is identical — measured geometry
+  // (a resize, a reorder, a pan) is still an effect and must not be denied.
+  if ((afterAction === "click" || afterAction === "drag" || afterAction === "keys") && f.geomChange) {
+    return `NOTE: the element list and text are identical, but geometry changed: ${f.geomChange} — the ${afterAction} DID take effect; judge progress by the new size/position.`;
+  }
+  // Wait and blind come before repeat/round-trip, which claim no effect — unknowable on a blind
+  // channel. The wait wording only for a round of NOTHING but waiting (`wait` is not counted in
+  // actionsInRound): an action before it is judged as usual.
+  if (afterAction === "wait" && f.actionsInRound === 0) return FROZEN_WAIT_NOTE;
+  if (f.treeBlind) return FROZEN_BLIND_NOTE;
+  if (f.repeated) return FROZEN_REPEAT_NOTE;
+  if (f.actionsInRound > 1) return FROZEN_ROUNDTRIP_NOTE;
+  return FROZEN_NOTE;
+}
 
-  /**
-   * Change signature: refs stripped (identity is what an element IS; some platforms re-mint
-   * numbers), form values included (a fill changes values, not the element set). Blind to meaning
-   * carried by pixels alone, which it calls `frozen`: `img` is not a collected role (BROWSER_ROLES
-   * is controls only) and the excerpt reads text nodes plus ALT, so a swapped photo, a canvas/svg
-   * redraw, a video frame or a color-only change only `screenshot()` settles. NOT blind to
-   * geometry: rects are compared separately ({@link geometryChanges} → `lastGeomChange`) before
-   * any no-effect wording, so a drag that moves things is handled — don't add a second one.
-   */
-  protected signature(s: Snapshot): string {
-    const els = s.elements.map((e) => `${e.role}|${e.name}|${e.row ?? ""}|${e.state}`).join("\n");
-    return `${s.url}\n${s.title}\n${els}\n${s.text}`;
-  }
+/**
+ * Change signature: refs stripped (identity is what an element IS; some platforms re-mint
+ * numbers), form values included (a fill changes values, not the element set). Blind to meaning
+ * carried by pixels alone, which it calls `frozen`: `img` is not a collected role (BROWSER_ROLES
+ * is controls only) and the excerpt reads text nodes plus ALT, so a swapped photo, a canvas/svg
+ * redraw, a video frame or a color-only change only `screenshot()` settles. NOT blind to
+ * geometry: rects are compared separately (`geometryChanges` → `lastGeomChange` in driver.ts) before
+ * any no-effect wording, so a drag that moves things is handled — don't add a second one.
+ */
+export function snapshotSignature(s: Snapshot): string {
+  const els = s.elements.map((e) => `${e.role}|${e.name}|${e.row ?? ""}|${e.state}`).join("\n");
+  return `${s.url}\n${s.title}\n${els}\n${s.text}`;
 }

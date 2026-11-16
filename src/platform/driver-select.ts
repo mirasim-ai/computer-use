@@ -11,6 +11,7 @@
  */
 
 import type { Element, Heading, ObservationCoverage, Snapshot, TargetIdentity } from "./types.ts";
+import { observationCoverage } from "./driver-narrate.ts";
 import { ComputerUseDriverRefs } from "./driver-refs.ts";
 
 export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
@@ -71,7 +72,7 @@ export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
     const all = [...snapshot.elements, ...off];
     this.rememberRefs({ ...snapshot, elements: all });
     return { url: snapshot.url, title: snapshot.title, elements: all,
-      coverage: this.observationCoverage(snapshot), ...(snapshot.target ? { target: snapshot.target } : {}),
+      coverage: observationCoverage(snapshot), ...(snapshot.target ? { target: snapshot.target } : {}),
       ...(snapshot.groups?.length ? { groups: snapshot.groups } : {}),
       ...(snapshot.headings?.length ? { headings: snapshot.headings } : {}), ...(snapshot.meta.partial ? { partial: snapshot.meta.partial } : {}),
       ...(snapshot.coveredElements?.length

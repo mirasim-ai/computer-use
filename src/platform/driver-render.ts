@@ -10,7 +10,11 @@
 
 import type { Element, HeaderChanges, Snapshot, TargetInfo, Verdict } from "./types.ts";
 import { ComputerUseDriverSelect } from "./driver-select.ts";
-import { targetsLine } from "./driver-narrate.ts";
+import {
+  bodyLines as renderBodyLines, changedElementLine, coveredBaselineLines, elementLine, FIRST_HEADER, headLines,
+  OFFSCREEN_NOTE, targetLine, targetsLine, viewportPosition,
+} from "./driver-narrate.ts";
+import { renderDelta } from "./driver-verdict.ts";
 import { controlRef, diffLines, looksUnmarked, reattachRows, stripFocus, stripRow } from "./driver-lines.ts";
 
 /** After this many deltas a full list is re-sent, bounding how far back a delta's anchor is. */
@@ -61,6 +65,17 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
     this.lastElements.clear();
   }
 
+  /** Header lines; override to add a platform's own (browser, macOS). The shared ones are
+   *  {@link headLines}. */
+  protected renderHeadLines(s: Snapshot, targets: TargetInfo[], targetsUnchanged = false, changes: HeaderChanges = FIRST_HEADER): string[] {
+    return headLines(s, targets, targetsUnchanged, changes, (count) => this.offscreenNote(count));
+  }
+
+  /** How this platform says "some controls are off screen"; see {@link OFFSCREEN_NOTE}. */
+  protected offscreenNote(_count: number): string {
+    return OFFSCREEN_NOTE;
+  }
+
   private headerChanges(s: Snapshot): HeaderChanges {
     const shown = new Set(s.elements.map((e) => e.ref));
     const coverage = JSON.stringify(s.covered?.modal
@@ -70,7 +85,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
       target: JSON.stringify(s.target ?? null),
       coverage,
       // Counts stay in observe().coverage. Their fluctuations do not repeat the explanation.
-      omissions: JSON.stringify([coverage, !!s.meta.offscreen, !!s.meta.capped, this.viewportPosition(s.meta).maxScrollY > 0]),
+      omissions: JSON.stringify([coverage, !!s.meta.offscreen, !!s.meta.capped, viewportPosition(s.meta).maxScrollY > 0]),
       groups: JSON.stringify((s.groups ?? []).map((g) => ({
         label: g.label, members: g.members.filter((r) => shown.has(r)),
       })).filter((g) => g.members.length)),
@@ -83,7 +98,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
       groups: changed("groups"), ambiguity: changed("ambiguity"),
     };
     this.lastHeadContext = context;
-    this.contextKeep = changes.target && s.target ? [this.targetLine(s.target)] : [];
+    this.contextKeep = changes.target && s.target ? [targetLine(s.target)] : [];
     return changes;
   }
 
@@ -104,7 +119,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
     verdict: Verdict | null,
     opts: { afterAction?: string; surfaceChanged?: boolean },
   ): { body: string; obsKind: "full" | "delta"; headLines: number; effectNote: string | null } {
-    const bodyLines = this.renderBodyLines(snap);
+    const bodyLines = renderBodyLines(snap);
     // The ~470-char surfaces list is compared whole: ANY change brings the full line back.
     const tl = targetsLine(targets);
     const targetsUnchanged = tl !== null && tl === this.lastTargetsLine;
@@ -132,8 +147,8 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
         const ref = controlRef(line);
         const before = ref && this.lastElements.get(ref), after = ref && elements.get(ref);
         if (ref && removedRefs.has(ref) && before && after && before.role !== "text" && after.role !== "text"
-          && line === this.elementLine(after) && removedLines.has(this.elementLine(before))) {
-          modified.set(ref, this.changedElementLine(before, after));
+          && line === elementLine(after) && removedLines.has(elementLine(before))) {
+          modified.set(ref, changedElementLine(before, after));
         }
       }
       // Timer pages defeat the frozen verdict (something always ticks), so a swallowed click reads
@@ -185,7 +200,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
         const cost = opts.afterAction === "scroll" ? added.length : added.length + removed.length - modified.size;
         if (cost <= this.lastPrintableLen * 0.5) {
           obsKind = "delta";
-          lines.push(...this.renderDelta(added, removed, opts.afterAction === "scroll", modified));
+          lines.push(...renderDelta(added, removed, opts.afterAction === "scroll", modified));
         }
       }
     }
@@ -193,7 +208,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
       // The covered block between them is baseline-only, never shown: listing an element an
       // overlay covers invites a click that cannot land.
       const elementLines = bodyLines.slice(0, snap.elements.length);
-      const excerptLines = bodyLines.slice(snap.elements.length + this.coveredBaselineLines(snap).length);
+      const excerptLines = bodyLines.slice(snap.elements.length + coveredBaselineLines(snap).length);
       lines.push("Interactive elements (act by ref):");
       lines.push(...(elementLines.length ? elementLines : ["(none)"]));
       if (excerptLines.length) {
@@ -211,7 +226,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
     if (noEffectNote) lines.push(noEffectNote);
     this.lastBody = bodyLines;
     this.lastElements = elements;
-    this.lastPrintableLen = bodyLines.length - this.coveredBaselineLines(snap).length;
+    this.lastPrintableLen = bodyLines.length - coveredBaselineLines(snap).length;
     this.lastBodyUrl = snap.url;
     this.deltaRounds = obsKind === "delta" ? this.deltaRounds + 1 : 0;
     return { body: lines.join("\n"), obsKind, headLines, effectNote: noEffectNote };

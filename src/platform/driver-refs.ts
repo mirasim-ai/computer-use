@@ -7,12 +7,11 @@
  */
 
 import type { Snapshot } from "./types.ts";
-import { ComputerUseDriverVerdict } from "./driver-verdict.ts";
 
 /** Cap on remembered refs (they accumulate across observations); oldest evicted first. */
 const MAX_KNOWN_REFS = 2000;
 
-export abstract class ComputerUseDriverRefs extends ComputerUseDriverVerdict {
+export abstract class ComputerUseDriverRefs {
   /** Refs the model may act on, accumulated across observations. See {@link knownRef}. */
   private refs = new Set<string>();
   /** What each ref last named. NOT cleared by {@link forgetRefs}: it is what lets a refusal of

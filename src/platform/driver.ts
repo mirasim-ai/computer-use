@@ -21,7 +21,8 @@ import type {
 } from "./types.ts";
 import { SurfaceGoneError, SurfaceUnreadableError, text } from "./types.ts";
 
-import { type FrozenFacts } from "./driver-narrate.ts";
+import { observationCoverage, viewportPosition, type FrozenFacts } from "./driver-narrate.ts";
+import { frozenNote, snapshotSignature } from "./driver-verdict.ts";
 import { OBSERVE_FROZEN_NOTE } from "./driver-lines.ts";
 import {
   disclosureClosed,
@@ -157,7 +158,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
       });
     }
     this.publishPreview();
-    const sig = this.signature(snap);
+    const sig = snapshotSignature(snap);
     const surfaceChanged = this.takeSurfaceChange();
     const verdict: Verdict | null = surfaceChanged ? "changed"
       : this.prevSig === null ? null : this.prevSig === sig ? "frozen" : "changed";
@@ -184,7 +185,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     const pending = this.takePendingNote();
     if (pending) head += (head ? "\n" : "") + `NOTE: ${pending}.`;
     if (verdict === "frozen" && !contentRound) {
-      head += (head ? "\n" : "") + (opts.afterAction ? this.frozenNote(opts.afterAction, this.frozenFacts(actionsInRound)) : OBSERVE_FROZEN_NOTE);
+      head += (head ? "\n" : "") + (opts.afterAction ? frozenNote(opts.afterAction, this.frozenFacts(actionsInRound)) : OBSERVE_FROZEN_NOTE);
       const extra = this.frozenExtra();
       if (extra) head += `\n${extra}`;
     }
@@ -216,9 +217,9 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
       // Lines no trim may eat: once-delivered knowledge would otherwise be consumed and dropped,
       // and the swallowed-action note must never be hidden.
       keep: [...this.contextKeep, ...this.trimSurvivors(), ...(effectNote ? [effectNote] : [])],
-      coverage: this.observationCoverage(snap),
+      coverage: observationCoverage(snap),
       ...(snap.target ? { target: snap.target } : {}),
-      viewport: this.viewportPosition(snap.meta),
+      viewport: viewportPosition(snap.meta),
       ...(snap.meta.offscreen || snap.meta.capped
         ? { notListed: { offscreen: snap.meta.offscreen ?? 0, capped: snap.meta.capped ?? 0 } }
         : {}),

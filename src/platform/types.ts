@@ -276,7 +276,7 @@ export interface Snapshot {
      * State marks (nearly) every listed element carries, stated once in the header instead of
      * per line: a shared mark cannot say which element to act on. Set by drivers that render
      * such marks (macos: advertised AX actions); the header wording is the driver's, the same seam
-     * as {@link ComputerUseDriverNarrate.offscreenNote}.
+     * as `ComputerUseDriver.offscreenNote`.
      */
     sharedMarks?: string[] };
   /** Elements omitted because an unrelated element intercepts their click point.
