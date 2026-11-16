@@ -140,11 +140,6 @@ export class RelayConnection {
     this.close("Bridge stopped answering");
   }
 
-  /** Which pipe this connection runs on — 'native' or 'ws'. */
-  get transportKind() {
-    return this._transport.kind;
-  }
-
   get attachedTabs() {
     return this._attachedTabs;
   }
@@ -463,7 +458,6 @@ export class RelayConnection {
     if (message.method === "bridge.info") {
       const info = (message.params ?? [])[0];
       this.bridgeInfo = info && typeof info === "object" ? { name: String(info.name ?? ""), version: String(info.version ?? "") } : null;
-      this.onbridgeinfo?.();
       return {};
     }
     if (!ALLOWED_COMMANDS.has(message.method)) throw new Error(`Unknown method: ${message.method}`);

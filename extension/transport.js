@@ -8,18 +8,17 @@
  *  - **ws** — the one-shot relay a connect page handed over; only the end-to-end test seam
  *    (see background.js).
  *
- * A transport is `{kind, send(obj), close(reason), onmessage, onclose}` — assign the two
+ * A transport is `{send(obj), close(reason), onmessage, onclose}` — assign the two
  * handlers, then send. Both call `onclose` exactly once.
  */
 
-/** @typedef {{kind: 'native'|'ws', send: (msg: any) => void, close: (reason: string) => void, onmessage?: (msg: any) => void, onclose?: () => void}} Transport */
+/** @typedef {{send: (msg: any) => void, close: (reason: string) => void, onmessage?: (msg: any) => void, onclose?: () => void}} Transport */
 
 /** @param {chrome.runtime.Port} port @returns {Transport} */
 export function nativeTransport(port) {
   let closed = false;
   /** @type {Transport} */
   const transport = {
-    kind: "native",
     // Ports carry structured values — no stringify, and no 1 MB blind spot of our own: the
     // limit lives in Chrome and surfaces as a disconnect, which the reconnect loop handles.
     send: (msg) => {
@@ -48,7 +47,6 @@ export function nativeTransport(port) {
 export function webSocketTransport(ws) {
   /** @type {Transport} */
   const transport = {
-    kind: "ws",
     send: (msg) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     },

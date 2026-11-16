@@ -57,15 +57,12 @@ const ABSENT_RE = /native messaging host not found|native messaging host is forb
 class BridgeExtension {
   constructor() {
     this._activeGroup = null;
-    /** Transport of the active connection, for the status reply. */
-    this._transport = null;
     /** Set once every candidate answered "not installed" — stops the retry loop until
      *  something changes (a new install, or the user's explicit connect). */
     this._hostAbsent = false;
     this._connecting = false;
     this._attempt = 0;
     this._timer = null;
-    this._lastError = null;
     this._updateVersion = null;
     /** The user's access settings, held by every connection (access.js). */
     this._policy = new AccessPolicy();
@@ -85,16 +82,6 @@ class BridgeExtension {
             (e) => sendResponse({ success: false, error: e?.message ?? String(e) }),
           );
           return true;
-        case "bridge.status":
-          sendResponse({
-            connected: !!this._activeGroup,
-            transport: this._transport,
-            hostAbsent: this._hostAbsent,
-            reconnectAttempt: this._attempt,
-            error: this._lastError,
-            tabIds: this._activeGroup?.connectedTabIds() ?? [],
-          });
-          return false;
         default:
           // The panel and the ask window: this extension's own pages, nothing else.
           if (sender?.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
@@ -170,8 +157,6 @@ class BridgeExtension {
     }
     return {
       connected: !!group,
-      transport: this._transport,
-      error: group ? null : this._lastError,
       extension: chrome.runtime.getManifest().version,
       bridge: group?.bridgeInfo ?? null,
       paused: this._policy.paused,
@@ -200,7 +185,6 @@ class BridgeExtension {
         return;
       }
     } catch (e) {
-      this._lastError = e?.message ?? String(e);
       debugLog("native connect failed:", e);
     } finally {
       this._connecting = false;
@@ -252,7 +236,6 @@ class BridgeExtension {
       };
       const onDisconnect = () => {
         const message = chrome.runtime.lastError?.message ?? "";
-        this._lastError = message || "native host disconnected";
         finish(ABSENT_RE.test(message) ? "absent" : null);
       };
       const onMessage = (msg) => {
@@ -335,15 +318,12 @@ class BridgeExtension {
     group.onclose = () => {
       if (this._activeGroup !== group) return;
       this._activeGroup = null;
-      this._transport = null;
       void this._toolbar.refreshAll();
       // Native reconnects on its own; the ws path needs a new hand-over.
       if (transport === "native") this._scheduleRetry();
     };
     this._activeGroup = group;
-    this._transport = transport;
     this._attempt = 0;
-    this._lastError = null;
     this._clearRetry();
     // Armed WHILE connected, deliberately — see HEARTBEAT_MINUTES.
     this._armAlarm(HEARTBEAT_MINUTES);
