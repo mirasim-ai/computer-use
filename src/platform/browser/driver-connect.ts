@@ -219,6 +219,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         this.cfg,
       );
       this.attached = this.cfg.attached;
+      // What getting in took, when a tab of the browser had to be closed for it.
+      for (const note of acquired.notes ?? []) this.appendNote(note);
     }
     if (!this.browser) {
       const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");

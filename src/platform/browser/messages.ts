@@ -33,6 +33,29 @@ export const msgAttachedWhyHandshake = (): string => "its debugging port answers
 
 export const msgAttachedWhyNoPort = (): string => "it is already running, but without a debugging port";
 
+/** A tab as a sentence names it: its title when it has one, and where it is. */
+const tabNamed = (t: { title: string; url: string }): string => {
+  const url = t.url.length > 120 ? `${t.url.slice(0, 120)}…` : t.url;
+  return t.title && t.title !== t.url ? `«${t.title.slice(0, 80)}» (${url})` : url || "a tab with no address";
+};
+
+/** The user's own Chrome, with a tab that answers nothing: connecting waits on every tab, so that
+ *  one keeps the agent out, and it is theirs to close. */
+export const msgAttachedWhyStalledTab = (tabs: { title: string; url: string }[]): string =>
+  `the browser answers, but ${tabs.length === 1 ? "one of its tabs does" : `${tabs.length} of its tabs do`} not `
+  + `(${tabs.map(tabNamed).join("; ")}), and connecting waits on every tab; closing or reloading `
+  + `${tabs.length === 1 ? "that tab" : "those tabs"} is enough`;
+
+/**
+ * Said to the session that connected past a stuck tab (acquire.ts `adoptPastStalledTabs`): a tab
+ * of the shared browser was closed to let it in, which may have been its own, or another session's.
+ */
+export const stalledTabsClosedNote = (tabs: { title: string; url: string }[]): string =>
+  `${tabs.length === 1 ? "a tab" : `${tabs.length} tabs`} of this browser had stopped answering `
+  + `(${tabs.map(tabNamed).join("; ")}) and kept every session from connecting, so ${tabs.length === 1 ? "it was" : "they were"} closed — `
+  + "the browser and its other tabs were left as they were. If that page is needed, open it again; a page that hangs "
+  + "like this usually does so again on the same step";
+
 export const msgOwnWindowFailed = (): string => "mirasim-cu: could not open the agent's own window in the user's Chrome.";
 
 export function msgChromeBinaryUnrunnable(exe: string, code: string): string {

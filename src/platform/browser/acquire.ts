@@ -7,6 +7,9 @@
  *  - Adopt with a SHORT deadline: a dead session's leftover whose renderer the system froze still
  *    answers the HTTP ping, then hangs the CDP handshake for ~30s (two stacked CDP timeouts) —
  *    long enough for the agent to conclude the browser is gone. Replacing it takes ~1s.
+ *  - A missed deadline is not yet a frozen browser: the handshake waits on EVERY tab, so one tab
+ *    that answers nothing fails it for a browser other sessions are working in. The browser is
+ *    asked first, and only one that does not answer is replaced ({@link adoptPastStalledTabs}).
  *  - Exit-watcher on the port poll: a Chrome that refuses the profile EXITS within a few hundred
  *    ms; noticing that turns a 15s dead wait into an immediate, accurate failure.
  *  - Kill by identity: SIGTERM only to pids whose own command line names our `--user-data-dir`,
@@ -38,10 +41,19 @@ export { actionsFileFor, endpointFileFor, publishTabIdentity, shotsDirFor } from
 import { ensureBackgroundTab, newBackgroundPage } from "./tabs.ts";
 import { browserPids, killByProfileDir } from "./occupancy.ts";
 import { OFFSCREEN_POSITION, keepInBackground, parkWindowOffscreen, unparkWindow, userWantsVisible } from "./window-placement.ts";
-import { msgAttachedDeadEnd, msgAttachedWhyHandshake, msgAttachedWhyNoPage, msgAttachedWhyNoPort, msgChromeBinaryUnrunnable, msgChromeExitedImmediately, msgChromeNoPort, msgChromeRefusedAttach, msgChromeStartFailed } from "./messages.ts";
+import { msgAttachedDeadEnd, msgAttachedWhyHandshake, msgAttachedWhyNoPage, msgAttachedWhyNoPort, msgAttachedWhyStalledTab, msgChromeBinaryUnrunnable, msgChromeExitedImmediately, msgChromeNoPort, msgChromeRefusedAttach, msgChromeStartFailed, stalledTabsClosedNote } from "./messages.ts";
+import { closeTabs, unansweringTabs } from "./stalled-tabs.ts";
 
 /** HTTP-ping OK but CDP attach slower than this ⇒ a frozen leftover; kill and relaunch. */
 const ADOPT_TIMEOUT_MS = 3000;
+/** Attach budget for a browser that ANSWERS but missed {@link ADOPT_TIMEOUT_MS}: a loaded machine,
+ *  or many tabs to shake hands with. */
+const SLOW_ADOPT_TIMEOUT_MS = 15_000;
+/** How long one tab gets to answer a trivial question, each time it is asked. */
+const TAB_ANSWER_MS = 1_500;
+/** How long a tab that answers nothing is waited for before it is closed: a page can be busy for
+ *  seconds (a heavy render, a long task) and come back, and that one keeps its tab. */
+const STALLED_TAB_WAIT_MS = 8_000;
 /** Attach budget for a browser we JUST launched — it answered /json/version already. */
 const LAUNCH_CONNECT_TIMEOUT_MS = 5000;
 /** Cold Chrome needs ~1.3s to publish its port; refusals exit far earlier (see exit-watcher). */
@@ -140,7 +152,7 @@ async function connect(cdpUrl: string, timeoutMs: number): Promise<Browser | nul
 export async function acquireManagedBrowser(
   profileDir?: string,
   cfg: BrowserConfig = browserConfigFromEnv(),
-): Promise<{ browser: Browser; cdpUrl: string; profileDir: string }> {
+): Promise<{ browser: Browser; cdpUrl: string; profileDir: string; notes?: string[] }> {
   profileDir ??= cfg.profileDir;
   const attached = cfg.attached;
   mkdirSync(profileDir, { recursive: true });
@@ -171,7 +183,14 @@ export async function acquireManagedBrowser(
       await publishEndpoint(profileDir, existing, null, cfg);
       return { browser: adopted, cdpUrl, profileDir };
     }
-    // Pinged but no CDP within the short deadline: a frozen leftover, replaced (see header).
+    // Pinged but no CDP within the short deadline. A browser that still answers is not replaced:
+    // it is one of its tabs holding the handshake up, or the handshake only needs longer.
+    const live = await adoptPastStalledTabs(cdpUrl, profileDir, attached);
+    if (live) {
+      await publishEndpoint(profileDir, existing, null, cfg);
+      return { browser: live.browser, cdpUrl, profileDir, ...(live.notes.length ? { notes: live.notes } : {}) };
+    }
+    // A frozen leftover, replaced (see header).
     // ATTACHED: that would mean SIGTERM to the user's browser. Never; say what is wrong.
     if (attached) throw attachedDeadEnd(profileDir, msgAttachedWhyHandshake());
     await killByProfileDir(profileDir);
@@ -192,6 +211,38 @@ export async function acquireManagedBrowser(
     return await launchManaged(profileDir, cfg);
   }
 }
+
+/**
+ * The handshake with a running browser timed out. Ask the browser itself what is wrong, on a
+ * socket that waits on no tab ({@link unansweringTabs}):
+ *
+ *  - it does not answer: null, and the caller replaces it, as before;
+ *  - it answers and so does every tab: the handshake is only slow, so it gets a longer deadline;
+ *  - a tab answers nothing: that tab is what failed the handshake, and it would fail every later
+ *    one too, for every session. It is given {@link STALLED_TAB_WAIT_MS} to come back (a page that
+ *    is only busy keeps its tab), then that ONE tab is closed and the session told which. Killing
+ *    the browser for it, as this did, took every other session's pages along.
+ *
+ * ATTACHED: the tabs are the user's, so none is closed; the refusal names the one that is stuck.
+ */
+async function adoptPastStalledTabs(cdpUrl: string, profileDir: string, attached: boolean): Promise<{ browser: Browser; notes: string[] } | null> {
+  let silent = await unansweringTabs(cdpUrl, TAB_ANSWER_MS);
+  for (const deadline = Date.now() + STALLED_TAB_WAIT_MS; silent?.length && Date.now() < deadline;) {
+    await sleep(500);
+    silent = await unansweringTabs(cdpUrl, TAB_ANSWER_MS);
+  }
+  if (!silent) return null;
+  const notes: string[] = [];
+  if (silent.length) {
+    if (attached) throw attachedDeadEnd(profileDir, msgAttachedWhyStalledTab(silent));
+    await closeTabs(cdpUrl, silent.map((t) => t.targetId));
+    notes.push(stalledTabsClosedNote(silent));
+  }
+  const browser = await connect(cdpUrl, SLOW_ADOPT_TIMEOUT_MS);
+  return browser ? { browser, notes } : null;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** An attached profile's only outcome when the browser cannot be driven: an error naming the
  *  fix. Every branch that would otherwise reach for {@link killByProfileDir} ends here. */
