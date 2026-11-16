@@ -39,7 +39,7 @@ See "Shared native capture" in docs/embedding.md.`, true);
   },
 
   mcp: {
-    summary: "MCP stdio server — the runtime; atomic tools for Claude Code / Codex / any host",
+    summary: "MCP stdio server — the runtime; computer_repl for Claude Code / Codex / any host",
     run: async (rest) => {
       // Asked before anything loads: `mcp --help` must print this, not start a server.
       if (wantsHelp(rest)) {
