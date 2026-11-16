@@ -1,11 +1,13 @@
-/** A page keeps the user's media features under the agent (cdp-connection.ts keepUserMedia):
+/** A page keeps the user's media features under the agent (chromium/user-media.ts keepUserMedia):
  * Playwright attaches with `prefers-color-scheme: light` and no-preference reduced motion, so a
  * dark page turned light for as long as the agent held it. A throwaway Chrome that prefers dark
  * and reduced motion is read before any Playwright client, then through a plain connectOverCDP
- * (the override this guards against), then through connectBrowserCdp — an open page and a new one. */
+ * (the override this guards against), then through connectBrowserCdp — an open page and a new one —
+ * and through the Electron driver, which attaches to an app's windows the same way. */
 
 import { chromium, type Page } from "playwright-core";
 import { connectBrowserCdp } from "../src/platform/browser/cdp-connection.ts";
+import { ElectronDriver } from "../src/platform/electron/driver.ts";
 import { sleep, spawnChrome } from "./helpers.ts";
 import { RawCdp } from "./rig.ts";
 
@@ -59,7 +61,25 @@ async function main() {
     check("an open page keeps the user's media features", await probeUntil(open, USER) === USER);
     const fresh = await context.newPage();
     check("a new page keeps the user's media features", await probeUntil(fresh, USER) === USER);
+    // Left showing a page of its own: the Electron driver below takes no blank window for an app's.
+    await open.goto("data:text/html,<title>App window</title><h1>App</h1>");
     await browser.close();
+
+    // An app's window, driven through the Electron driver (Chrome stands in for the app, as in
+    // the other suites): read from outside while the driver is attached, since that is what
+    // the person sees.
+    const driver = new ElectronDriver({ cdpUrl: chrome.cdpUrl });
+    try {
+      await driver.listTargets();
+      let seen = "";
+      for (const deadline = Date.now() + 2000; Date.now() < deadline; await sleep(50)) {
+        seen = await rawProbe(chrome.cdpUrl);
+        if (seen === USER) break;
+      }
+      check("an app's window keeps the user's media features while the Electron driver is attached", seen === USER, seen);
+    } finally {
+      await driver.close();
+    }
   } finally {
     chrome.cleanup();
   }

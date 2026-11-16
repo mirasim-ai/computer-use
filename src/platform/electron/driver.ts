@@ -34,6 +34,7 @@ import { PASTE_VERB, SELECT_OPTION_VERB } from "../chromium/actions-value.ts";
 import { SELECT_TEXT_VERB } from "../chromium/select-text.ts";
 import { performRunJs } from "../chromium/run-js.ts";
 import { ensureRefSelector } from "../chromium/page-refs.ts";
+import { keepUserMedia } from "../chromium/user-media.ts";
 import { boundedTitle } from "../chromium/bounded-title.ts";
 import { SurfaceGoneError, type ActResult, type Snapshot, type TargetIdentity, type TargetInfo, type VerbSpec } from "../types.ts";
 import { closeWedgedAuxTargets, isAuxUrl, listTargets } from "./preflight.ts";
@@ -173,6 +174,9 @@ export class ElectronDriver extends ChromiumPageDriver {
     let browser: Browser;
     try {
       browser = await chromium.connectOverCDP(this.cdpUrl, { timeout: ATTACH_TIMEOUT_MS });
+      // Playwright pins light colours and no reduced motion on every window it attaches to: an
+      // app that follows a dark system turned light for as long as the agent was attached.
+      keepUserMedia(browser);
       await ensureRefSelector(browser);
     } catch (e) {
       const detail = e instanceof Error ? (e.message.split("\n")[0] ?? "") : String(e);
