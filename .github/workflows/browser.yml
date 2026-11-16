@@ -1,6 +1,8 @@
-# The driver suites against the runner's Chrome. The first gate of every publish (publish.yml
-# calls it, and nothing is published unless it passes); run it by hand from the Actions tab to
-# check a change before then.
+# The driver suites against a real Chrome, in two jobs: the `browser` group straight over CDP,
+# and the `extension` group through the real extension and the bridge, which is the path a
+# person's own browser is driven by. The first gate of every publish (publish.yml calls it, and
+# nothing is published unless both pass); run it by hand from the Actions tab to check a change
+# before then.
 name: browser tests
 
 on:
@@ -26,3 +28,21 @@ jobs:
       # The hosted runner ships Google Chrome at /usr/bin/google-chrome, where the suites look. The
       # attached-profile suite starts a windowed Chrome, so the run gets a virtual display.
       - run: xvfb-run -a npm run test:browser
+
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The runner's Google Chrome ignores --load-extension, so the suites load the extension into
+      # Playwright's Chromium (test/rig.ts), the version this playwright-core was built against.
+      - run: npx playwright-core install --with-deps chromium
+      # REQUIRE: with no browser to load the extension into, a suite fails instead of skipping.
+      - run: xvfb-run -a npm run test:extension
+        env:
+          COMPUTER_USE_TEST_REQUIRE_EXTENSION: "1"

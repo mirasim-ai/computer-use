@@ -17,11 +17,13 @@ variable; [docs/releasing.md](docs/releasing.md) covers publishing.
 |---|---|---|
 | `npm test` | typecheck + the `unit` group (no browser, no desktop) | CI on every push and PR |
 | `npm run test:browser` | the `browser` group against a throwaway headless Chrome | before every publish |
-| `npm run test:all` | unit + browser + managed-Chrome and extension suites | by hand |
+| `npm run test:extension` | the `extension` group: the real extension and the bridge, in Playwright's Chromium | before every publish |
+| `npm run test:all` | unit + browser + extension + the managed-Chrome suite | by hand |
 | `node scripts/test.mjs macos-live` / `windows-live` / `electron-live` | real apps on this desktop | by hand only |
 
 - A new suite `test/<name>.ts` runs nowhere until it is added to `GROUPS` in
-  `scripts/test.mjs`. Put it in `unit` if it needs no browser, else `browser`.
+  `scripts/test.mjs`. Put it in `unit` if it needs no browser, in `extension` if it drives
+  the browser through the extension, else `browser`.
 - The live suites are in no group and not in CI. A change under `src/platform/macos`,
   `src/platform/windows` or `src/platform/electron` needs the matching live suite run on a
   real desktop; say so in the commit if you could not run it.

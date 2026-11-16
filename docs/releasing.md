@@ -1,8 +1,9 @@
 # Releasing
 
 A release is a tag. Bump `version` in `package.json`, merge, then push `v<version>`:
-`.github/workflows/publish.yml` runs the browser suites (`browser.yml`, which also runs by hand from
-the Actions tab; nothing is published unless they pass), builds the four native helpers (Swift on macOS, Rust on
+`.github/workflows/publish.yml` runs the browser suites (`browser.yml`: the `browser` group and,
+through the real extension, the `extension` group; it also runs by hand from the Actions tab, and
+nothing is published unless both pass), builds the four native helpers (Swift on macOS, Rust on
 Windows), publishes each as `@mirasim/computer-use-<platform>-<arch>`, then lists them as
 exact-version optional dependencies of `@mirasim/computer-use` and publishes that last, so no
 published version ever names a helper the registry lacks. The tag must match `package.json`,
