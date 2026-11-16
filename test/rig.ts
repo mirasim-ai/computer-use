@@ -13,6 +13,20 @@ import WebSocket from "ws";
 import { MIRASIM_EXTENSION_ID } from "../src/platform/browser/bridge/extension-id.ts";
 import { chromeBinary, spawnChrome, type ThrowawayChrome } from "./helpers.ts";
 
+/**
+ * No browser here loads the extension. By hand that is a suite skipped, with how to enable it. As
+ * a release gate (`COMPUTER_USE_TEST_REQUIRE_EXTENSION=1`, set by the workflow) it is a failure:
+ * a gate that passes because it ran nothing is how this path went unchecked before.
+ */
+export function noExtensionBrowser(suite: string): void {
+  const why = "no browser that loads the extension (branded Chrome ignores --load-extension); npx playwright-core install chromium to enable";
+  if (process.env.COMPUTER_USE_TEST_REQUIRE_EXTENSION) {
+    console.log(`FAIL  ${suite}: ${why}`);
+    process.exit(1);
+  }
+  console.log(`SKIP  ${suite}: ${why}`);
+}
+
 /** A Chromium-flavored binary that still honors --load-extension. Branded Chrome
  *  dropped the flag, so the test needs Playwright's Chrome for Testing. */
 export function findLoadableChromium(): string | null {

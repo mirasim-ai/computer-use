@@ -5,7 +5,8 @@
  *
  *   node scripts/test.mjs unit             the suites that need no browser and no desktop (`npm test`)
  *   node scripts/test.mjs browser          the suites against a throwaway headless Chrome (`npm run test:browser`)
- *   node scripts/test.mjs all              unit + browser + the managed-Chrome and extension suites (`npm run test:all`)
+ *   node scripts/test.mjs extension        the suites through the real extension and the bridge (`npm run test:extension`)
+ *   node scripts/test.mjs all              unit + browser + extension + the managed-Chrome suite (`npm run test:all`)
  *   node scripts/test.mjs <name>... [--]   named suites, `test/<name>.ts` (e.g. `repl macos-forms`)
  *   node scripts/test.mjs <file> [args]    one suite file, with its own arguments
  *
@@ -37,7 +38,10 @@ const GROUPS = {
     'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why', 'page-opened-tabs', 'quick-misses', 'tab-note-ids', 'managed-stalled-tab', 'stuck-call', 'slow-click', 'iframe-editor', 'page-tabs-leftover', 'overlay-guard',
   ],
 };
-GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', 'extension-bridge', 'extension-access', 'extension-stalled-tab'];
+// Through the real extension, in a Chromium that still loads one from the command line
+// (Playwright's). The path people use, so it gates a publish too (.github/workflows/browser.yml).
+GROUPS.extension = ['extension-bridge', 'extension-access', 'extension-stalled-tab'];
+GROUPS.all = [...GROUPS.unit, ...GROUPS.browser, 'managed-chrome', ...GROUPS.extension];
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const tsx = createRequire(import.meta.url).resolve('tsx/cli');

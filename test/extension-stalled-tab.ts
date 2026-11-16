@@ -26,7 +26,7 @@ import { extensionDir } from "../src/platform/browser/bridge/extension-id.ts";
 import { createDriver } from "../src/platform/registry.ts";
 import { firstText } from "./harness.ts";
 import { sleep } from "./helpers.ts";
-import { RawCdp, evalInExtension, setAccess, spawnChromeWithExtension } from "./rig.ts";
+import { RawCdp, evalInExtension, noExtensionBrowser, setAccess, spawnChromeWithExtension } from "./rig.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -94,7 +94,7 @@ class Cdp {
 async function main() {
   const chrome = await spawnChromeWithExtension(extensionDir());
   if (!chrome) {
-    console.log("SKIP  extension-stalled-tab: no browser that loads the extension; npx playwright install chromium to enable");
+    noExtensionBrowser("extension-stalled-tab");
     return;
   }
   const site = await serveSite();

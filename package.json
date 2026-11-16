@@ -51,6 +51,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "npm run typecheck && node scripts/test.mjs unit",
     "test:browser": "node scripts/test.mjs browser",
+    "test:extension": "node scripts/test.mjs extension",
     "test:all": "npm run typecheck && node scripts/test.mjs all"
   },
   "dependencies": {

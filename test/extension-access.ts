@@ -21,7 +21,7 @@ import { BridgeServer } from "../src/platform/browser/bridge/server.ts";
 import { MIRASIM_EXTENSION_ID, extensionDir } from "../src/platform/browser/bridge/extension-id.ts";
 import { createDriver } from "../src/platform/registry.ts";
 import { spawnChrome, sleep } from "./helpers.ts";
-import { RawCdp, evalInExtension, findLoadableChromium, servePages, setAccess } from "./rig.ts";
+import { RawCdp, evalInExtension, findLoadableChromium, noExtensionBrowser, servePages, setAccess } from "./rig.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -42,7 +42,7 @@ async function refusal(run: () => Promise<unknown>): Promise<string> {
 async function main() {
   const binary = findLoadableChromium();
   if (!binary) {
-    console.log("SKIP  extension-access: no Chromium-flavored binary (branded Chrome cannot --load-extension); npx playwright install chromium to enable");
+    noExtensionBrowser("extension-access");
     return;
   }
 

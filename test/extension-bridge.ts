@@ -32,7 +32,7 @@ import { MIRASIM_EXTENSION_ID, extensionDir, extensionIdFromKey } from "../src/p
 import { createDriver } from "../src/platform/registry.ts";
 import { createHarness, firstText } from "./harness.ts";
 import { spawnChrome, sleep } from "./helpers.ts";
-import { RawCdp, evalInExtension, findLoadableChromium, servePages, setAccess } from "./rig.ts";
+import { RawCdp, evalInExtension, findLoadableChromium, noExtensionBrowser, servePages, setAccess } from "./rig.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -52,7 +52,7 @@ async function main() {
 
   const binary = findLoadableChromium();
   if (!binary) {
-    console.log("SKIP  extension-bridge: no Chromium-flavored binary (branded Chrome cannot --load-extension); npx playwright install chromium to enable");
+    noExtensionBrowser("extension-bridge");
     return;
   }
 
