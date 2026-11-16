@@ -10,6 +10,7 @@
  * the channel is bounded, reported and opt-in, and the schema says so.
  */
 
+import { cutText } from "../text-cut.ts";
 import { Script } from "node:vm";
 import type { Page } from "playwright-core";
 import type { ActResult } from "../types.ts";
@@ -29,7 +30,7 @@ export const RUN_JS_MS_DESC =
 
 /** Notes ride an observation prefix, so an enormous result must not drown the observation. */
 function clipResult(s: string, max = 2000): string {
-  return s.length <= max ? s : `${s.slice(0, max)}… (+${s.length - max} chars)`;
+  return s.length <= max ? s : `${cutText(s, max)}… (+${s.length - max} chars)`;
 }
 
 /** How much of a successful result the journal line repeats: the whole value goes back to the

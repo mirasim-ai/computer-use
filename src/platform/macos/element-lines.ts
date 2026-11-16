@@ -6,6 +6,7 @@
  * of it when every control shares them.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { AxElement } from "./element-shapes.ts";
 
 /**
@@ -67,10 +68,10 @@ export function roleOf(e: AxElement): string {
  * A VALUE is capped with the cut MARKED, so a trimmed value never reads as the whole value.
  */
 export const collapse = (s: string): string => (s ?? "").trim().replace(/\s+/g, " ");
-export const clean = (s: string): string => collapse(s).slice(0, 80);
+export const clean = (s: string): string => cutText(collapse(s), 80);
 const cut = (s: string): string => {
   const v = collapse(s);
-  return v.length > 60 ? v.slice(0, 60) + "\u2026" : v;
+  return v.length > 60 ? cutText(v, 60) + "\u2026" : v;
 };
 
 /**

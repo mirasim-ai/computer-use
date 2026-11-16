@@ -9,6 +9,7 @@
  * render announces what it left out.
  */
 
+import { cutText } from "./text-cut.ts";
 import { text, type ToolResult } from "./types.ts";
 
 export type DiagType =
@@ -49,7 +50,7 @@ export const CHROMIUM_DIAGNOSTICS: DiagnosticsAbout = {
 };
 
 function clip(s: string, max: number): string {
-  return s.length <= max ? s : `${s.slice(0, max)}… (+${s.length - max} chars)`;
+  return s.length <= max ? s : `${cutText(s, max)}… (+${s.length - max} chars)`;
 }
 
 /** A hash change is an in-page jump, not a load — compare everything else. */

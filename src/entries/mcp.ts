@@ -16,6 +16,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { resolveProfile, type Profile } from "../platform/profile.ts";
+import { wellFormed } from "../platform/text-cut.ts";
 import { SurfaceGoneError, type UserConsent } from "../platform/types.ts";
 import { ownVersion } from "../platform/version.ts";
 import { consentAnswer, consentForm } from "./consent.ts";
@@ -276,7 +277,7 @@ export async function serveMcp(): Promise<void> {
       const stop = e instanceof SurfaceGoneError
         ? " The surface is gone (window closed / device detached) — stop; do not retry or recreate it."
         : "";
-      return { content: [{ type: "text", text: `error: ${(e as Error).message}${stop}` }], isError: true };
+      return { content: [{ type: "text", text: wellFormed(`error: ${(e as Error).message}${stop}`) }], isError: true };
     } finally {
       extra.signal.removeEventListener("abort", cancelled);
     }

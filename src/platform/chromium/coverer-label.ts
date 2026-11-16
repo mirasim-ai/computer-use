@@ -15,7 +15,7 @@ import { NAME_JS, pageFn } from "./collect.ts";
  */
 export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target, out) => {
   const named = (node, label) => { if (out) out.node = node; return label; };
-  const clean = (s) => (s || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  const clean = (s) => (s || '').trim().replace(/\s+/g, ' ').slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
   const layer = hit.closest('[role="tooltip"], [role="dialog"], [role="alertdialog"], [role="menu"], dialog, [popover]');
   if (layer) {
     const role = layer.getAttribute('role') || (layer.tagName === 'DIALOG' ? 'dialog' : 'popover');
@@ -53,7 +53,7 @@ export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target, out) => {
     return named(pinned, kind + where + (who ? ' (' + who + ')' : ''));
   }
   const labelled = hit.closest('[aria-label]');
-  if (labelled) return named(labelled, 'element "' + nameOf(labelled).slice(0, 80) + '"');
+  if (labelled) return named(labelled, 'element "' + nameOf(labelled).slice(0, 80).replace(/[\uD800-\uDBFF]$/, '') + '"');
   return named(hit, hit.id ? 'element #' + hit.id : 'another element');
 }`;
 

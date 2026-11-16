@@ -7,6 +7,7 @@
  * fills {@link ElementActs.keys}.
  */
 
+import { cutText } from "../text-cut.ts";
 import { AxRequestError } from "./ax-client.ts";
 import { normName } from "./ax-shapes.ts";
 import { SECONDARY_ACTIONS, axActionName } from "./elements.ts";
@@ -267,7 +268,7 @@ export class ElementActs {
     const back = text === "" ? null : await this.readBackUntil(k.key, text);
     if (back === null) return { ok: true, note: `value set through accessibility (replaces the field's content).${where}` };
     if (!sameValue(back, text)) {
-      const cut = (v: string) => (v.length > 60 ? `${v.slice(0, 60)}…` : v);
+      const cut = (v: string) => (v.length > 60 ? `${cutText(v, 60)}…` : v);
       return { ok: true, verified: false,
         note: `WARNING: ${this.what(k, ref)} ${back ? `reads «${cut(back)}»` : "is still empty"} after the write, not what you sent — `
           + "the app accepted AXSetValue and discarded it. A control that takes typed input only (a slider, a search field "

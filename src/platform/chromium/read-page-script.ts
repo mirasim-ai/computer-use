@@ -69,7 +69,7 @@ export const TREE_JS = String.raw`(arg) => {
     return clean(t && t.textContent) || '';
   };
   const stateOf = (el) => { // mirrors collect-viewport.ts stateOf, condensed for leaf controls
-    const cut2 = (s) => { s = clean(s); return s.length > 60 ? s.slice(0, 60) + '…' : s; };
+    const cut2 = (s) => { s = clean(s); return s.length > 60 ? s.slice(0, 60).replace(/[\uD800-\uDBFF]$/, '') + '…' : s; };
     const cls = typeof el.className === 'string' ? el.className : '';
     const inv = (el.getAttribute && el.getAttribute('aria-invalid') === 'true')
       || /(^|[\s_-])(error|invalid)([\s_-]|$)/i.test(cls);
@@ -98,7 +98,7 @@ export const TREE_JS = String.raw`(arg) => {
     let t = clean(raw);
     if (!t) return null;
     if (/^(…|\.\.\.)/.test(t)) node.clipped = true;
-    if (t.length > cap) { t = t.slice(0, cap); node.cut = true; }
+    if (t.length > cap) { t = t.slice(0, cap).replace(/[\uD800-\uDBFF]$/, ''); node.cut = true; }
     node.text = t;
     return node;
   };

@@ -8,6 +8,7 @@
  * or reformat input, so the field is read back. Remote panel input keeps its owning-process route.
  */
 
+import { cutText } from "../text-cut.ts";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
 import type { AxCall } from "./act-element.ts";
@@ -93,7 +94,7 @@ async function readsBackAsTyped(
         // holding exactly the typed text, with that text gone, is the edit that was asked for.
         if (value !== expected && value === text && typedValue.trim() && !value.includes(typedValue.trim())) {
           return { verified: true, note: `matched — the field reads back exactly the typed text; what it read before input `
-            + `(${JSON.stringify(typedValue.trim().slice(0, 40))}) was an empty field's placeholder, which some web fields report as their value` };
+            + `(${JSON.stringify(cutText(typedValue.trim(), 40))}) was an empty field's placeholder, which some web fields report as their value` };
         }
         if (value === expected && expected === typedValue) {
           return { note: "unverified — the expected text was already present before input, so read-back cannot establish whether the keys took effect" };

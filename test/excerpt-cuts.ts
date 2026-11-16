@@ -107,6 +107,22 @@ async function main() {
     check("sitting past the cap reads as frozen, not perpetual change",
       stillOver.details?.verdict === "frozen", String(stillOver.details?.verdict));
     check("and the receipt is still there while frozen", receipt(stillOver.text, "chars") !== "", receipt(stillOver.text, "chars"));
+
+    // ── a cut never ends in half a character ─────────────────────────────────
+    // A name is cut at 80 UTF-16 units and a heading too; an emoji is two of them. Cut between
+    // the two, the name ends in a lone surrogate, which JSON writes as an escape a strict
+    // parser refuses: the client loses the whole observation over one button.
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    const face = "\u{1F600}";
+    await open(`<main><h1>${"H".repeat(79)}${face} heading tail</h1><button>${"N".repeat(79)}${face} name tail</button>`
+      + `<img alt="${"I".repeat(59)}${face} alt tail" width="20" height="20"></main>`);
+    const named = await elements();
+    check("a name cut inside an emoji ends before it", /button "N{79}"/.test(named), named.split("\n").find((l) => l.includes("NNNN"))?.slice(-40) ?? "no button line");
+    check("...and nothing in the observation is half a character, or stands in for one", !lone.test(named) && !named.includes("\uFFFD"),
+      JSON.stringify(named.match(/.{0,12}(?:[\uD800-\uDFFF]|\uFFFD).{0,6}/)?.[0] ?? ""));
+    const page = await fullText();
+    check("the whole-page read of the same page is well-formed too", !lone.test(page) && !page.includes("\uFFFD") && page.includes(face),
+      JSON.stringify(page.match(/.{0,12}\uFFFD.{0,6}/)?.[0] ?? ""));
   } finally {
     chrome.cleanup();
   }

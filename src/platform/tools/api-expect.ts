@@ -1,9 +1,10 @@
 /** A postcondition is a read, never a replay of the action it checks. */
+import { cutText } from "../text-cut.ts";
 import type { ComputerUseDriver } from "../driver.ts";
 import { options, type RunLedger } from "./api-contract.ts";
 import { nearText, type ClosestControls } from "./api-wait.ts";
 
-const clip = (s: string, max = 120) => (s.length > max ? `${s.slice(0, max)}… (+${s.length - max} chars)` : s);
+const clip = (s: string, max = 120) => (s.length > max ? `${cutText(s, max)}… (+${s.length - max} chars)` : s);
 
 export function expectVerb(
   driver: ComputerUseDriver,

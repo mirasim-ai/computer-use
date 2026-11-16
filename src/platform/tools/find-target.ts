@@ -9,6 +9,8 @@
  * Within any tier a control beats a text label, and `near` re-orders by distance when given.
  */
 
+import { cutText } from "../text-cut.ts";
+
 /**
  * A target as the script may name it: a `find()` handle, or a bare ref.
  *
@@ -281,7 +283,7 @@ function nearestFirst<T extends { ref: string; name: string; role: string; rect:
   const anchor = box ?? (all.find((e) => e.name.trim().toLowerCase() === want) ?? all.find((e) => e.name.toLowerCase().includes(want)))?.rect;
   if (!anchor) {
     const shown = ranked.slice(0, 4)
-      .map((e) => `${e.ref} ${e.role} "${e.name.trim().slice(0, 30)}" at x ${Math.round(e.rect.x)}, y ${Math.round(e.rect.y)}`).join("; ");
+      .map((e) => `${e.ref} ${e.role} "${cutText(e.name.trim(), 30)}" at x ${Math.round(e.rect.x)}, y ${Math.round(e.rect.y)}`).join("; ");
     throw new Error(`near: nothing on the surface is named "${near}", so it cannot pick between the matches`
       + (ranked.length > 1 ? ` (${shown}${ranked.length > 4 ? `; +${ranked.length - 4} more` : ""}) — act on one by its ref, or ` : " — ")
       + "read the surface with text() and name something that is really beside the one you mean");
@@ -432,11 +434,11 @@ export function nearMiss(elements: Named[], name: string, scope: FindScope = {},
   // the scope cost, naming the role that DOES carry it.
   if ((scope.role || scope.visible || scope.within) && loose) {
     if (offscreen) {
-      return scoped(`no match under visible:true — ${offscreen.ref} (${offscreen.name.slice(0, 40)}) carries the name `
+      return scoped(`no match under visible:true — ${offscreen.ref} (${cutText(offscreen.name, 40)}) carries the name `
         + "outside the viewport; scroll it into view, then find again, or drop visible");
     }
     const why = scope.role ? `role:'${scope.role}'` : scope.visible ? "visible:true" : `within:${scope.within}`;
-    return scoped(`no match under ${why} — without it the name finds ${loose.ref} (${loose.name.slice(0, 40)}); `
+    return scoped(`no match under ${why} — without it the name finds ${loose.ref} (${cutText(loose.name, 40)}); `
       + "widen the scope or name the control the surface actually carries");
   }
 
@@ -461,7 +463,7 @@ export function nearMiss(elements: Named[], name: string, scope: FindScope = {},
   if (!shortlist.length) {
     return { reason: unseen, note: `no match — nothing among the ${named.length} named controls is close to it${whatIsHere(named, scope)}${asText}` };
   }
-  const list = shortlist.map((x) => `${x.e.role} "${x.e.name.slice(0, 40)}"`).join(", ");
+  const list = shortlist.map((x) => `${x.e.role} "${cutText(x.e.name, 40)}"`).join(", ");
   return { reason: unseen, note: `no match — closest by name: ${list}${asText}` };
 }
 
@@ -484,7 +486,7 @@ function whatIsHere(named: Named[], scope: FindScope): string {
     return seen.has(k) ? false : (seen.add(k), true);
   });
   const shown = distinct.slice(0, HERE_SHOWN)
-    .map((e) => `${role ? "" : `${e.role} `}"${e.name.trim().slice(0, 40)}" (${e.ref})`).join(", ");
+    .map((e) => `${role ? "" : `${e.role} `}"${cutText(e.name.trim(), 40)}" (${e.ref})`).join(", ");
   const more = distinct.length - HERE_SHOWN;
   return `; ${role ? `the ${role} controls here` : "what is here"}: ${shown}${more > 0 ? `, +${more} more` : ""}`;
 }
@@ -512,7 +514,7 @@ export function ambiguityNote(h: Handle): string {
   if (h.incidental) {
     const also = n > 1 ? ` (${n} such matches)` : "";
     return `${h.ref} — nothing here is NAMED that${also}; the closest is the word inside `
-      + `«${h.name.slice(0, 60)}${h.name.length > 60 ? "…" : ""}», which is probably not the `
+      + `«${cutText(h.name, 60)}${h.name.length > 60 ? "…" : ""}», which is probably not the `
       + "control you meant — name it as the surface spells it, or observe() and pick a ref";
   }
   if (h.byShortName) {

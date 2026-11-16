@@ -6,6 +6,7 @@
  * Pure page-level logic, like actions.ts: no driver state, the caller passes its locate() in.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { Locator, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
@@ -44,7 +45,7 @@ export async function setTextWithFallbacks(page: Page, loc: Locator, a: Record<s
     stopForInputInterruption(e);
     fillError = (e instanceof Error ? e.message : String(e)).split("\n")[0] ?? "";
     // Playwright prefixes "locator.fill: " and appends call-log noise; keep the reason.
-    fillError = fillError.replace(/^locator\.fill:?\s*/i, "").slice(0, 140);
+    fillError = cutText(fillError.replace(/^locator\.fill:?\s*/i, ""), 140);
   }
   const rejected = fillError ? ` (fill rejected: ${fillError})` : "";
   // Not a FIELD is structural: the fallbacks cannot help, and their click is itself an action
@@ -85,7 +86,7 @@ async function confirmSetText(loc: Locator, want: string, how: string | null): P
     }, undefined, { timeout: 2000 }) as string | null;
   } catch { /* read-back is best-effort */ }
   if (now === null) return how ? { ok: true, note: how } : { ok: true };
-  const cut = (s: string) => (s.length > 60 ? `${s.slice(0, 60)}…` : s);
+  const cut = (s: string) => (s.length > 60 ? `${cutText(s, 60)}…` : s);
   if (now === want) {
     const note = `the field now contains «${cut(now)}»`;
     return { ok: true, note: how ? `${how}; ${note}` : note, verified: true };
@@ -246,7 +247,7 @@ const SELECT_OPTIONS_JS = `(el) => {
 /** How many option names a refusal lists before it counts the rest. */
 const LISTED_OPTIONS = 12;
 const listed = (names: string[]) =>
-  names.slice(0, LISTED_OPTIONS).map((n) => `"${n.slice(0, 40)}"`).join(", ")
+  names.slice(0, LISTED_OPTIONS).map((n) => `"${cutText(n, 40)}"`).join(", ")
   + (names.length > LISTED_OPTIONS ? `, +${names.length - LISTED_OPTIONS} more` : "");
 
 /**

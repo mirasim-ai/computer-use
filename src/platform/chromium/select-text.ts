@@ -6,6 +6,7 @@
  * and turns that into a real selection in the page.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { Locator, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
@@ -165,7 +166,7 @@ export async function performSelectText(
   // Read back: a Range can be built over unselectable text (a collapsed node, an overlay).
   const got = String(out.selected ?? "");
   if (got !== want) {
-    return { ok: true, note: `WARNING: the selection reads back as «${got.slice(0, 60)}», not the text you asked for — `
+    return { ok: true, note: `WARNING: the selection reads back as «${cutText(got, 60)}», not the text you asked for — `
       + "check the page before typing over it" };
   }
   return { ok: true, note: `selected "${want}"${where}${of} — paste({text}) replaces only this selection. setText(ref, text) replaces the whole field` };

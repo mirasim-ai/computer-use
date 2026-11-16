@@ -7,6 +7,6 @@ export const SCROLL_REGION_JS = String.raw`(el) => {
   const horizontal = /auto|scroll|overlay/.test(s.overflowX) && el.scrollWidth > el.clientWidth + 4;
   if (!vertical && !horizontal) return null;
   const labelled = (el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => document.getElementById(id)?.textContent || '').join(' ').trim();
-  const name = (el.getAttribute('aria-label') || labelled || el.id || 'Scrollable area').trim().replace(/\s+/g, ' ').slice(0, 80);
+  const name = (el.getAttribute('aria-label') || labelled || el.id || 'Scrollable area').trim().replace(/\s+/g, ' ').slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
   return { name, vertical, horizontal };
 }`;

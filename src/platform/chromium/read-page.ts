@@ -17,6 +17,7 @@
  *    full text only exists behind the item.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { ToolResult } from "../types.ts";
 import { text } from "../types.ts";
 import { pageFn } from "./collect.ts";
@@ -207,7 +208,7 @@ export async function readPage(
   let body = r.lines.join("\n");
   if (typeof res.exact === "string") {
     const cut = res.exact.length > EXACT_CAP;
-    const shown = cut ? res.exact.slice(0, EXACT_CAP) : res.exact;
+    const shown = cut ? cutText(res.exact, EXACT_CAP) : res.exact;
     const suffix = cut ? ` (first ${EXACT_CAP} of ${res.exact.length} chars)` : "";
     const ws = res.exact !== res.exact.trim() ? " — note the leading/trailing whitespace inside the quotes; it is part of the value" : "";
     body += `\nexact value${suffix} (JSON string — copy the contents verbatim): ${JSON.stringify(shown)}${ws}`;

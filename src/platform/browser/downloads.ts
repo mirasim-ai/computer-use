@@ -307,7 +307,7 @@ export class BrowserDownloads {
     try {
       // A unique directory prevents overwrites, including concurrent same-named downloads.
       const dir = join(computerUseHome(), "downloads", receipt.id);
-      const name = basename(receipt.filename.replace(/\\/g, "/")).replace(/[\x00-\x1f:<>"|?*]/g, "_").slice(0, 180);
+      const name = basename(receipt.filename.replace(/\\/g, "/")).replace(/[\x00-\x1f:<>"|?*]/g, "_").slice(0, 180).replace(/[\uD800-\uDBFF]$/, "");
       receipt.filename = name && name !== "." && name !== ".." ? name : "download";
       await mkdir(dir, { recursive: true, mode: 0o700 });
       const path = join(dir, receipt.filename);

@@ -56,7 +56,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
     // Truncation is marked (…) and edge whitespace called out: copy-exactly tasks judge
     // by strict equality, and a summary that silently trims is a receipt that lies.
     const cut = (s) => { s = (typeof s === 'string' ? s : '').trim().replace(/\s+/g, ' ');
-      return s.length > 60 ? s.slice(0, 60) + '…' : s; };
+      return s.length > 60 ? s.slice(0, 60).replace(/[\uD800-\uDBFF]$/, '') + '…' : s; };
     const tag = (el.tagName || '').toUpperCase();
     const base = (() => {
       if (el.isContentEditable) { const v = cut(el.innerText); return v ? ('filled:' + v) : 'empty'; }
@@ -430,7 +430,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
         // segment is the section's heading (document order puts a title before its items), so
         // remember that one segment and keep climbing until the spread ceiling stops the walk.
         if (t.length > __ROW_CAP__) {
-          if (!row) { row = t.slice(0, __ROW_CAP__) + '…'; break; }
+          if (!row) { row = t.slice(0, __ROW_CAP__).replace(/[\uD800-\uDBFF]$/, '') + '…'; break; }
           const lead = t.split(' · ')[0] || '';
           if (lead && row.indexOf(lead) < 0) head = lead;
           continue;
@@ -475,7 +475,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
   const labelGroups = [];
   for (const entry of byNode) {
     const label = (entry[0].getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
-    labelGroups.push({ label: label.slice(0, __GROUP_CAP__), members: entry[1] });
+    labelGroups.push({ label: label.slice(0, __GROUP_CAP__).replace(/[\uD800-\uDBFF]$/, ''), members: entry[1] });
   }
   let top = '', topN = 0;
   for (const key in coverers) if (coverers[key] > topN) { topN = coverers[key]; top = key; }
@@ -484,7 +484,7 @@ export const VIEWPORT_JS = String.raw`(startK) => {
            scrollY: window.scrollY, docH: de ? de.scrollHeight : 0,
            covered: coveredCount ? { count: coveredCount, top: top, topCount: topN,
              // Named only when EVERY covered control is behind it; else the overlay wording.
-             ...(modal && behindModal === coveredCount ? { modal: (nameOf(modal) || 'dialog').slice(0, 40) } : {}) } : null };
+             ...(modal && behindModal === coveredCount ? { modal: (nameOf(modal) || 'dialog').slice(0, 40).replace(/[\uD800-\uDBFF]$/, '') } : {}) } : null };
 }`.replace("__ROLES__", JSON.stringify(BROWSER_ROLES))
   .replace("__PAGE_REFS__", PAGE_REFS_JS)
   .replace("__NAME_OF__", NAME_JS)

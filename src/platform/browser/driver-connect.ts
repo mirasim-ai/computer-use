@@ -27,6 +27,7 @@ import { captureEvidenceShot } from "../chromium/shot.ts";
 import { ensureRefSelector } from "../chromium/page-refs.ts";
 import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
+import { cutText } from "../text-cut.ts";
 
 /** How long a disconnect waits for the pages to give the page-tabs script up, and a verb for a
  *  page to take it. */
@@ -401,7 +402,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         let landed = true;
         try { await (accept ? dialog.accept(armed?.text) : dialog.dismiss()); } catch { landed = false; }
         if (kind === "beforeunload") return; // plumbing, not a page fact worth a note
-        const said = `a JS dialog appeared: «${dialog.message().slice(0, 120)}»`;
+        const said = `a JS dialog appeared: «${cutText(dialog.message(), 120)}»`;
         const note = !landed
           ? `${said} — it was already answered before your ${accept ? "accept" : "dismiss"} `
             + "could land (another client shares this browser), so the page took an answer you did "
@@ -409,7 +410,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
           // The armed case says who decided; the default note's "did not happen" would lie here.
           : armed
             ? `${said} — ${accept ? "accepted" : "dismissed"} as you asked`
-              + (armed.text !== undefined ? ` with text «${armed.text.slice(0, 60)}»` : "")
+              + (armed.text !== undefined ? ` with text «${cutText(armed.text, 60)}»` : "")
             : `${said} — it was auto-${accept ? "accepted" : "dismissed"}; `
               + "if the flow needs a confirm, it did not happen";
         this.appendNote(note);

@@ -68,7 +68,7 @@ const PROBE_JS = String.raw`({ target, point, caret }) => {
         const cover = (rect.width * rect.height) / (window.innerWidth * window.innerHeight);
         if (cover > 0.1 && !holds(el)) {
           const label = el.getAttribute && (el.getAttribute("aria-label") || el.getAttribute("id") || el.getAttribute("class")) || el.tagName.toLowerCase();
-          return "a fixed overlay (\"" + String(label).slice(0, 40) + "\") at z=" + z + " covers " + Math.round(cover * 100) + "% of the viewport over the center";
+          return "a fixed overlay (\"" + String(label).slice(0, 40).replace(/[\uD800-\uDBFF]$/, '') + "\") at z=" + z + " covers " + Math.round(cover * 100) + "% of the viewport over the center";
         }
       }
     }

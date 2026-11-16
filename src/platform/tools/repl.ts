@@ -15,6 +15,7 @@
  * only the JS bindings; refs and change signatures live on the driver and survive.
  */
 
+import { cutText } from "../text-cut.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createContext, runInContext, type Context } from "node:vm";
 import { Type } from "typebox";
@@ -734,7 +735,7 @@ export function createReplTools(
       if (returned !== undefined) {
         const body = stringify(returned);
         lines.push(`Returned: ${body.length > RETURN_CAP && returned !== requestedHelp
-          ? `${body.slice(0, RETURN_CAP)}… (cut at ${RETURN_CAP} of ${body.length} chars — return a slice, a count or a filtered list instead of the whole thing)`
+          ? `${cutText(body, RETURN_CAP)}… (cut at ${RETURN_CAP} of ${body.length} chars — return a slice, a count or a filtered list instead of the whole thing)`
           : body}`);
       }
       // Nobody reads a cancelled call's answer, so nothing owed to the reader is spent on it.

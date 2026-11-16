@@ -2,6 +2,7 @@
  * gets identical tool names, schemas, and wording by construction. */
 
 import { SurfaceGoneError, SurfaceUnreadableError, spec, text, type ComputerUseToolSpec, type ToolCallOptions } from "../types.ts";
+import { wellFormed } from "../text-cut.ts";
 import { withoutBlankOptionals } from "./normalize.ts";
 import { createReplTools, type PlatformSlice } from "./repl.ts";
 import { argComplaint } from "./validate.ts";
@@ -19,6 +20,9 @@ import type { OwnershipProvider } from '../ownership.ts';
  *
  * It also drops blank optionals (normalize.ts) and THEN validates against the tool's schema. That
  * order is load-bearing: validating first would reject a call for blanks about to be deleted.
+ *
+ * And it is where a result's text is made well-formed (text-cut.ts): the one place every answer
+ * passes, whichever verb, page or app the text came from.
  */
 function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: number }): ComputerUseToolSpec {
   const inner = s.execute.bind(s);
@@ -34,12 +38,14 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
         const invalid = argComplaint(s.parameters, s.name, cleaned);
         if (invalid) return text(invalid, { error: "bad_arguments" });
         try {
-          return await inner(cleaned, call);
+          const result = await inner(cleaned, call);
+          for (const part of result.content) if (part.type === "text") part.text = wellFormed(part.text);
+          return result;
         } catch (e) {
-          if (e instanceof SurfaceGoneError) return text(e.message, { error: "surface_gone" });
+          if (e instanceof SurfaceGoneError) return text(wellFormed(e.message), { error: "surface_gone" });
           // The surface is readable again later (a locked screen, an off-screen window): the
           // reason is the answer, not a tool exception.
-          if (e instanceof SurfaceUnreadableError) return text(e.message, { error: "surface_unreadable" });
+          if (e instanceof SurfaceUnreadableError) return text(wellFormed(e.message), { error: "surface_unreadable" });
           throw e;
         }
       });

@@ -4,6 +4,7 @@
  * gave up looks exactly like one that succeeded unless it says so.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { ComputerUseDriver } from "../driver.ts";
 import type { ActResult } from "../types.ts";
 import { noteOf, options, type RunLedger } from "./api-contract.ts";
@@ -44,7 +45,7 @@ export function nearText(text: string, needle: string): string {
     .sort((a, b) => b.score - a.score || a.l.length - b.l.length)
     .filter((x) => (seen.has(x.l) ? false : (seen.add(x.l), true)))
     .slice(0, 2);
-  return near.length ? `closest in the readable text: ${near.map((x) => `«${x.l.length > 80 ? `${x.l.slice(0, 80)}…` : x.l}»`).join(", ")}` : "";
+  return near.length ? `closest in the readable text: ${near.map((x) => `«${x.l.length > 80 ? `${cutText(x.l, 80)}…` : x.l}»`).join(", ")}` : "";
 }
 
 /** The verb, over the driver's own wait primitives and the run's ledger. */

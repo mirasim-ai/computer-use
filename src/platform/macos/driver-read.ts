@@ -8,6 +8,7 @@
  * of the last walk (frame, rects, ref table) lives here and is `protected` for the verbs.
  */
 
+import { cutText } from "../text-cut.ts";
 import { SurfaceUnreadableError, type Element, type ScopedShot, type ShotScope, type Snapshot } from "../types.ts";
 import { MacosDriverApps } from "./driver-apps.ts";
 import { AxRequestError } from "./ax-client.ts";
@@ -237,7 +238,7 @@ export abstract class MacosDriverRead extends MacosDriverApps {
       // Carried, not only counted: `readElements` merges it with `offscreen: true`, which lets
       // `find` name a row scrolled out of a list.
       offscreenElements: mapped.offscreenElements,
-      text: mapped.text.length > TEXT_PREVIEW ? `${mapped.text.slice(0, TEXT_PREVIEW)}…` : mapped.text,
+      text: mapped.text.length > TEXT_PREVIEW ? `${cutText(mapped.text, TEXT_PREVIEW)}…` : mapped.text,
       meta: {
         scrollY: 0, viewportH: t.window.h, docH: t.window.h,
         // Found but not listed — the base narrates both counts with the way to reach them.

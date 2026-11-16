@@ -17,6 +17,7 @@
  * The final observation is the caller's, diffed against the screen before the run.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { ComputerUseDriver } from "../driver.ts";
 import { STATE_CHANGING_ACTIONS } from "../driver.ts";
 import type { ActResult, ShotScope, ToolResult, VerbSpec } from "../types.ts";
@@ -398,7 +399,7 @@ export function createComputerUseApi(
       // Charged like an action: the cap bounds what the JOURNAL can grow to, and a loop
       // that only logs is still a loop that has to stop.
       ledger().charge("log");
-      ledger().push("log", "", true, parts.map(stringify).join(" ").slice(0, 200));
+      ledger().push("log", "", true, cutText(parts.map(stringify).join(" "), 200));
     },
     act: async (kind: unknown, args: Record<string, unknown> = {}) => {
       // The wire-name escape hatch gets the same ref gate as the named verbs: it must not be

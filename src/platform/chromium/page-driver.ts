@@ -48,7 +48,7 @@ async function frameShutOutBy(frame: Frame): Promise<string | null> {
         const modal = el.ownerDocument.querySelector(":modal");
         if (!modal || modal.contains(el)) return null;
         const label = modal.getAttribute("aria-label") || modal.querySelector("h1, h2, h3")?.textContent || "";
-        return label.trim().slice(0, 60) || "a modal dialog";
+        return label.trim().slice(0, 60).replace(/[\uD800-\uDBFF]$/, "") || "a modal dialog";
       });
       if (why) return why;
     } catch { return null; }

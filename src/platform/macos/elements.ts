@@ -7,6 +7,7 @@
  * reads off it must land on the same element the tree lists.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { Element } from "../types.ts";
 import { clean, roleOf, secondaryActions, stateOf, ubiquitousHelp, ubiquitousMarks, helpBeyond, HELP_MAX } from "./element-lines.ts";
 import { foldTextRuns, textOf } from "./element-text.ts";
@@ -150,7 +151,7 @@ export function mapTree(tree: AxTree, refFor: RefAllocator = positional): Mapped
     const id = ident && r.role !== "text" && r.name && !r.name.startsWith("#") ? ident : "";
     const rawHelp = clean(r.e.help ?? "");
     const beyond = r.role !== "text" && !sharedHelp.has(rawHelp) ? helpBeyond(rawHelp, r.name) : "";
-    const help = beyond.length > HELP_MAX ? `${beyond.slice(0, HELP_MAX)}\u2026` : beyond;
+    const help = beyond.length > HELP_MAX ? `${cutText(beyond, HELP_MAX)}\u2026` : beyond;
     const el = { ref: r.ref, role: r.role, name: r.name, state: stateOf(r.e, r.role, focusIsExclusive, marks, r.name), rect: r.rect,
       ...(id ? { id } : {}), ...(help ? { help } : {}) };
     (r.e.off ? offscreenElements : elements).push(el);

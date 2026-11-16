@@ -8,6 +8,7 @@
  * window's listing read again, and the change notifications the app posts after the press.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { ActResult, Element } from "../types.ts";
 import type { AxCall, ElementActs } from "./act-element.ts";
 import { AxRequestError } from "./ax-client.ts";
@@ -335,7 +336,7 @@ export function changeNote(was: readonly Listed[] | undefined, now: readonly Lis
   const gone = named(was).filter((e) => !has.has(e.ref) && !e.offscreen);
   if (!appeared.length && !gone.length) return null;
   const list = (l: readonly Listed[], withRef: boolean) => l.slice(0, SHOWN)
-    .map((e) => `${e.role} "${e.name.length > 40 ? `${e.name.slice(0, 40)}…` : e.name}"${withRef ? ` ${e.ref}` : ""}${e.offscreen ? " (outside the window)" : ""}`)
+    .map((e) => `${e.role} "${e.name.length > 40 ? `${cutText(e.name, 40)}…` : e.name}"${withRef ? ` ${e.ref}` : ""}${e.offscreen ? " (outside the window)" : ""}`)
     .join(", ") + (l.length > SHOWN ? `, +${l.length - SHOWN} more` : "");
   return [appeared.length ? `appeared: ${list(appeared, true)}` : "", gone.length ? `gone: ${list(gone, false)}` : ""]
     .filter(Boolean).join("; ");

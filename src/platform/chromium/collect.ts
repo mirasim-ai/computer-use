@@ -69,7 +69,7 @@ export const STATE_CLASS_JS = String.raw`(cls) => {
  * surfaced as state (filled:...).
  */
 const TEXT_NAME_JS = String.raw`(el) => {
-  const clean = (s) => (typeof s === 'string' ? s : '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  const clean = (s) => (typeof s === 'string' ? s : '').trim().replace(/\s+/g, ' ').slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
   // Only submit/button/reset expose their value as a visible label; every other input's
   // value is user content and must not become the name (this also keeps passwords out).
   const LABEL_VALUE = new Set(['submit', 'button', 'reset']);
@@ -136,7 +136,7 @@ const TEXT_NAME_JS = String.raw`(el) => {
  * "disclosure" do not.
  */
 export const NAME_JS = String.raw`(el) => {
-  const clean = (s) => (typeof s === 'string' ? s : '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  const clean = (s) => (typeof s === 'string' ? s : '').trim().replace(/\s+/g, ' ').slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
   const text = (__TEXT_NAME__)(el);
   if (text) return text;
   if (!el.querySelector) return '';

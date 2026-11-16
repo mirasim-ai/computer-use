@@ -41,7 +41,7 @@ export const EXCERPT_JS = String.raw`() => {
       const st = getComputedStyle(n);
       if (st.visibility === 'hidden' || st.display === 'none') continue;
       if (out.length >= __LINE_CAP__) { lineCut = true; break; }
-      out.push('img "' + alt.slice(0, 60) + '"');
+      out.push('img "' + alt.slice(0, 60).replace(/[\uD800-\uDBFF]$/, '') + '"');
       continue;
     }
     const t = (n.nodeValue || '').trim().replace(/\s+/g, ' ');
@@ -60,7 +60,7 @@ export const EXCERPT_JS = String.raw`() => {
   const all = out.join('\n');
   if (all.length <= __CHAR_CAP__) return all;
   // The receipt is appended AFTER the slice so the cap never eats it.
-  return all.slice(0, __CHAR_CAP__) + '\n(cut at __CHAR_CAP__ chars — the page has the full text)';
+  return all.slice(0, __CHAR_CAP__).replace(/[\uD800-\uDBFF]$/, '') + '\n(cut at __CHAR_CAP__ chars — the page has the full text)';
 }`
   .replace(/__LINE_CAP__/g, String(EXCERPT_LINE_CAP))
   .replace(/__CHAR_CAP__/g, String(EXCERPT_CHAR_CAP));
@@ -149,7 +149,7 @@ export const FULL_TEXT_JS = String.raw`() => {
   // This IS the whole-page read, so a cut receipt cannot point at a narrower scope: it says the
   // page continues, which is what stops the model treating this as the end.
   const body = all.length <= __CAP__ ? all
-    : all.slice(0, __CAP__) + '\n(cut at __CAP__ chars — the page continues past this)';
+    : all.slice(0, __CAP__).replace(/[\uD800-\uDBFF]$/, '') + '\n(cut at __CAP__ chars — the page continues past this)';
   return { text: body, screens, un, framesRead: frames.read, outside };
 }`.replace(/__CAP__/g, String(FULL_TEXT_CHAR_CAP)).replace("__UNREACHED__", unreachedJs("document.body"))
   .replace("__FRAMES__", SAME_ORIGIN_FRAMES_JS);

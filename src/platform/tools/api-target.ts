@@ -6,6 +6,7 @@
  * hooks.
  */
 
+import { cutText } from "../text-cut.ts";
 import type { ComputerUseDriver } from "../driver.ts";
 import { anchorBox, coveredMiss, type FindMiss, type FindScope, type Handle, nearMiss, rankByName, tiedOthers } from "./find-target.ts";
 import type { ApiHooks } from "./api-contract.ts";
@@ -87,7 +88,7 @@ export function createTargeting(
       const { elements } = await driver.readElements();
       hooks.onRefs?.(elements.map((e) => e.ref));
       const same = elements.filter((e) => e.role === was.role && e.name === was.name && e.ref !== ref);
-      const what = `${ref} was ${was.role} "${was.name.slice(0, 60)}"`;
+      const what = `${ref} was ${was.role} "${cutText(was.name, 60)}"`;
       if (same.length === 1) return ` ${what}, which is ${same[0]!.ref} now.`;
       if (same.length > 1) {
         return ` ${what}; ${same.length} controls carry that role and name now (${same.slice(0, 4).map((e) => e.ref).join(", ")}`

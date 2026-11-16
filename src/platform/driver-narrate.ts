@@ -9,6 +9,7 @@
  * driver-render.ts, the verdict ring in driver.ts.
  */
 
+import { cutText } from "./text-cut.ts";
 import type { Element, HeaderChanges, ObservationCoverage, Snapshot, TargetIdentity, TargetInfo, ViewportPosition } from "./types.ts";
 
 /** Group-label budget per observation (chars), priced over the groups SHOWN, not the
@@ -29,7 +30,7 @@ export function targetsLine(targets: TargetInfo[]): string | null {
   // browser: its title may well name the same app on another port or build. Marked per surface,
   // because a caveat lines away from the id gets skipped.
   const earlier = (x: TargetInfo) => x.own !== false && x.mine === false;
-  const line = targets.map((x) => `${x.active ? "*" : ""}${x.id}:${x.title.slice(0, 40)}`
+  const line = targets.map((x) => `${x.active ? "*" : ""}${x.id}:${cutText(x.title, 40)}`
     + `${x.own === false ? "(user's)" : earlier(x) ? "(earlier)" : ""}`).join("  ");
   const notes = [
     ...(targets.some((x) => x.own === false)

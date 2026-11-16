@@ -9,6 +9,8 @@
  * machine tokens.
  */
 
+import { cutText } from "../text-cut.ts";
+
 export function msgChromeMissing(installHint: string): string {
   return (
     "mirasim-cu: Google Chrome was not found, so no browser could be started.\n"
@@ -35,8 +37,8 @@ export const msgAttachedWhyNoPort = (): string => "it is already running, but wi
 
 /** A tab as a sentence names it: its title when it has one, and where it is. */
 const tabNamed = (t: { title: string; url: string }): string => {
-  const url = t.url.length > 120 ? `${t.url.slice(0, 120)}…` : t.url;
-  return t.title && t.title !== t.url ? `«${t.title.slice(0, 80)}» (${url})` : url || "a tab with no address";
+  const url = t.url.length > 120 ? `${cutText(t.url, 120)}…` : t.url;
+  return t.title && t.title !== t.url ? `«${cutText(t.title, 80)}» (${url})` : url || "a tab with no address";
 };
 
 /** The user's own Chrome, with a tab that answers nothing: connecting waits on every tab, so that

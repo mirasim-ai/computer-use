@@ -4,6 +4,7 @@
  * of static text into one element for the listing's row budget.
  */
 
+import { cutText } from "../text-cut.ts";
 import { clean, collapse, roleOf } from "./element-lines.ts";
 import type { AxElement, AxTree } from "./element-shapes.ts";
 
@@ -82,7 +83,7 @@ export function foldTextRuns(elements: AxElement[]): AxElement[] {
       const joined = collapse(run.map((e) => e.value || e.title || e.desc).join(""));
       out.push({
         ...first,
-        value: joined.length > RUN_PREVIEW ? `${joined.slice(0, RUN_PREVIEW)}\u2026` : joined,
+        value: joined.length > RUN_PREVIEW ? `${cutText(joined, RUN_PREVIEW)}\u2026` : joined,
         // The count travels as the element's own fact; `stateOf` renders it.
         runOf: run.length,
       });

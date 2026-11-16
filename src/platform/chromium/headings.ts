@@ -19,7 +19,7 @@ export const HEADINGS_JS = String.raw`(visible, modal) => {
     if (!visible(h) || h.closest('[hidden], [inert], [aria-hidden="true"]')) continue;
     const r = h.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
-    const name = (h.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const name = (h.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
     if (!name) continue;
     const level = Number(h.getAttribute('aria-level')) || Number(h.tagName.slice(1)) || 0;
     out.push({ name, level, top: r.top, left: r.left, width: r.width, height: r.height });
