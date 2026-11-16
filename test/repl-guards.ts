@@ -15,6 +15,8 @@ import { createHarness } from "./harness.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { anchorBox, coveredMiss, nearMiss, rankByName } from "../src/platform/tools/find-target.ts";
+import { pickSurface } from "../src/platform/tools/repl-pick.ts";
+import type { MountedTarget } from "../src/platform/tools/repl-state.ts";
 import { apiReference } from "../src/platform/tools/repl-docs.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ElectronDriver } from "../src/platform/electron/driver.ts";
@@ -406,6 +408,36 @@ async function main() {
     budgets.text === 20_000 && budgets.control === 600 && notes.every((n) => !/default/.test(n)), `${JSON.stringify(budgets)} ${notes.join(" | ")}`);
 
   await driver.close();
+  // ── computer.surface(…): which surface a name, or no name, means ──────────────────────
+  // The decision alone (tools/repl-pick.ts), over listings a real session produces.
+  {
+    const slice = {} as MountedTarget["slice"];
+    const row = (id: string, title: string, more: Partial<MountedTarget> = {}): MountedTarget =>
+      ({ id, title, kind: "tab", active: false, slice, inner: id, ...more });
+    const none = () => "";
+    const refusal = (run: () => unknown) => { try { run(); return ""; } catch (e) { return (e as Error).message; } };
+    const tabs = [row("t1", "Inbox", { own: false }), row("t2", "Docs", { own: true, mine: false }),
+      row("t3", "Docs — draft", { own: true, mine: true, active: true })];
+    check("an id names its surface", pickSurface(tabs, "t2", none).id === "t2");
+    check("a whole title beats a title that only contains it", pickSurface(tabs, "docs", none).id === "t2");
+    check("a piece of one title is enough", pickSurface(tabs, "draft", none).id === "t3");
+    check("no name means this session's own surface, never the user's or an earlier session's",
+      pickSurface(tabs, undefined, none).id === "t3");
+    const noneMine = refusal(() => pickSurface(tabs.slice(0, 2), undefined, none));
+    check("...and with none of its own among several it is refused, with the list",
+      /2 surfaces are open — name one/.test(noneMine) && /left open by an earlier session/.test(noneMine), noneMine);
+    const windows = [row("1:1", "TextEdit (com.apple.TextEdit) — a.txt", { kind: "window" }),
+      row("1:2", "TextEdit (com.apple.TextEdit) — b.txt", { kind: "window", primary: true })];
+    check("an app with two windows means the one it says is in front",
+      pickSurface(windows, "com.apple.TextEdit", none).id === "1:2");
+    const twoPrimary = refusal(() => pickSurface(windows.map((w) => ({ ...w, primary: true })), "TextEdit", none));
+    check("...and is refused when it cannot say which", /2 surfaces match "TextEdit" — name one exactly/.test(twoPrimary), twoPrimary);
+    const missed = refusal(() => pickSurface(tabs, "Gamma", (q) => `${q} is not allowed here`));
+    check("a name nothing carries lists what is open, then the platform's own reason",
+      /no surface matches "Gamma" — the open ones are:/.test(missed) && missed.endsWith("\nGamma is not allowed here")
+        && missed.indexOf("t3") < missed.indexOf("t2") && missed.indexOf("t2") < missed.indexOf("t1"), missed);
+  }
+
   console.log(failures ? `\n${failures} check(s) failed` : "\nall repl guard checks passed");
   process.exit(failures ? 1 : 0);
 }

@@ -22,6 +22,7 @@ import { spec, text, type ComputerUseToolSpec, type TargetInfo, type ToolResult 
 import { ABANDON_DRAIN_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
+import { pickSurface } from "./repl-pick.ts";
 import { apiReference, platformReference, replDescription, RESET_DESCRIPTION } from "./repl-docs.ts";
 import { ComputerUseOwnership, IDLE_RELEASE_MS, OwnershipBusyError, type OwnershipProvider } from "../ownership.ts";
 import type { MountedTarget, PlatformSlice, Slice, SurfaceHandle } from "./repl-state.ts";
@@ -386,52 +387,10 @@ export function createReplTools(
     return h;
   };
 
-  /**
-   * Which surface the script named, or a refusal that lists the candidates — never a guess.
-   *
-   * Tried in order: the opaque `id`, the whole title, a piece of the title. The title carries the
-   * human names (macOS: "TextEdit (com.apple.TextEdit) — Untitled"), hence ONE entry point and no
-   * per-platform app()/tab(). NO ARGUMENT is not "the one in front of the user": it binds the
-   * surface the call's host named (`hostBound`, settled before this is asked), else the only
-   * surface, else the one THIS runtime opened or claimed (TargetInfo.mine) — the one it is on when
-   * it has several. Tabs an earlier session left in a shared browser, and the user's, are never
-   * the default; with no surface of its own among several the call is refused.
-   */
-  const pick = (ts: MountedTarget[], want: unknown): MountedTarget => {
-    // This session's own surfaces first and marked, so they stand out among the user's tabs and
-    // the ones an earlier session left behind.
-    const mark = (t: TargetInfo) => t.mine ? "  (yours — opened by this session)"
-      : t.own && t.mine === false ? "  (left open by an earlier session)" : "";
-    const rank = (t: TargetInfo) => (t.mine ? 0 : t.own ? 1 : 2);
-    const lines = (rows: TargetInfo[]) => [...rows].sort((a, b) => rank(a) - rank(b))
-      .map((t) => `  ${t.id}  ${t.title}${mark(t)}`).join("\n");
-    if (!ts.length) throw new Error("this driver has no surface right now");
-    if (want === undefined) {
-      if (ts.length === 1) return ts[0]!;
-      const mine = ts.filter((t) => t.mine);
-      const here = mine.filter((t) => t.active);
-      if (here.length === 1) return here[0]!;
-      if (mine.length === 1) return mine[0]!;
-      throw new Error(`${ts.length} surfaces are open — name one, computer.surface('<id or title>'):\n${lines(ts)}`);
-    }
-    const q = String(want).trim();
-    const byId = ts.filter((t) => t.id === q);
-    if (byId.length === 1) return byId[0]!;
-    const lower = q.toLowerCase();
-    const exact = ts.filter((t) => t.title.toLowerCase() === lower);
-    const hits = exact.length ? exact : ts.filter((t) => t.title.toLowerCase().includes(lower));
-    if (hits.length === 1) return hits[0]!;
-    // An APP with two windows is not an ambiguous NAME: the app says which window is in front
-    // (TargetInfo.primary). Only when exactly one match claims it.
-    const primaries = hits.filter((t) => t.primary);
-    if (primaries.length === 1) return primaries[0]!;
-    if (!hits.length) {
-      // A filtered list cannot explain its own gaps — @see ComputerUseDriver.explainMiss
-      const why = [...new Set(slices.map((sl) => sl.driver.explainMiss(q)).filter(Boolean))].join("\n");
-      throw new Error(`no surface matches ${JSON.stringify(q)} — the open ones are:\n${lines(ts)}${why ? `\n${why}` : ""}`);
-    }
-    throw new Error(`${hits.length} surfaces match ${JSON.stringify(q)} — name one exactly:\n${lines(hits)}`);
-  };
+  /** {@link pickSurface} over this runtime's platforms: which surface the script named. */
+  const pick = (ts: MountedTarget[], want: unknown): MountedTarget => pickSurface(ts, want,
+    // A filtered list cannot explain its own gaps — @see ComputerUseDriver.explainMiss
+    (q) => [...new Set(slices.map((sl) => sl.driver.explainMiss(q)).filter(Boolean))].join("\n"));
 
   /**
    * The host's `target` rides EVERY call and usually names an app. When that app has several
