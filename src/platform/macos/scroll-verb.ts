@@ -48,7 +48,7 @@ async function pageRung(
 ): Promise<ActResult | null> {
   if (direction !== "up" && direction !== "down") return null;
   try {
-    const r = await host.call<{ applied: number; moved: boolean; delta: number; unit: string; area: string }>(
+    const r = await host.call<{ applied: number; moved: boolean; delta: number; unit: string; area: string; outOfTime?: boolean }>(
       "scrollpage",
       { pid: host.pid(), ...(key ? { key } : {}), ...at, direction, pages: to ? MAX_SCROLL_PAGES : screens },
     );
@@ -58,11 +58,19 @@ async function pageRung(
     // `applied` is what the area actually turned: fewer than asked means it reached the end, which
     // is how a `to` request answers honestly without macOS having a seek.
     const pages = `${r.applied} page${r.applied === 1 ? "" : "s"}`;
-    const short = !to && r.applied < screens ? ` (asked for ${screens}, the area ended after ${r.applied})` : "";
+    // `outOfTime`: the helper stops turning pages after a few seconds so that one long scroll
+    // cannot outlast a request. The area was still moving, so this is not its end.
+    const short = !to && r.applied < screens
+      ? r.outOfTime ? ` (asked for ${screens}; ${r.applied} is as many as one call turns — scroll again for the rest)`
+        : ` (asked for ${screens}, the area ended after ${r.applied})`
+      : "";
     return {
       ok: true,
       note: to
-        ? `scrolled ${where} to the ${to} — ${pages} through the app's own scrolling area, so the pointer never moved and nothing had to come forward`
+        ? r.outOfTime
+          ? `scrolled ${where} ${pages} towards the ${to} and it is not there yet: that is as many as one call turns — scroll to the ${to} again to go on. `
+            + "Through the app's own scrolling area, so the pointer never moved"
+          : `scrolled ${where} to the ${to} — ${pages} through the app's own scrolling area, so the pointer never moved and nothing had to come forward`
         : `scrolled ${pages} ${direction} in ${where}${short} — through the app's own scrolling area, so the pointer never moved`,
       journal: { rung: "axpage", pages: r.applied, delta: Math.round(r.delta * 100) / 100, unit: r.unit },
     };

@@ -396,6 +396,19 @@ async function main() {
     Number(findCall(stub.calls, "scrollpage")?.params.pages) > 20 && /to the bottom/.test(toEnd) && /3 pages/.test(toEnd),
     toEnd.split("\n")[0]);
   check("...and no longer claims macOS has no jump", !/no jump-to/.test(toEnd));
+  // A document longer than one request turns: the helper stops on its clock, and the answer
+  // must not read as having arrived.
+  stub.scrollAt = 0;
+  stub.scrollBudgetPages = 2;
+  const partway = firstText(await h.act("scroll", { to: "bottom" }));
+  check("a jump the helper ran out of time on says it is not there yet, and how to go on",
+    /2 pages towards the bottom/.test(partway) && /not there yet/.test(partway) && /scroll to the bottom again/.test(partway) && !/to the bottom —/.test(partway), partway.split("\n")[0]);
+  stub.scrollAt = 0;
+  const someOf = firstText(await h.act("scroll", { direction: "down", count: 3 }));
+  check("...and a counted scroll cut short by the clock is not reported as the area's end",
+    /as many as one call turns/.test(someOf) && !/the area ended/.test(someOf), someOf.split("\n")[0]);
+  stub.scrollBudgetPages = Infinity;
+  stub.scrollAt = stub.scrollMax; // back at the end, where the jump above left it
 
   // Already at the end is an ANSWER, not a reason to try the wheel — which would only turn it
   // into a covered-window refusal.

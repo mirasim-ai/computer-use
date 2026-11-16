@@ -18,7 +18,9 @@ import {
 export interface Stub {
   transport: AxTransport; calls: Array<{ op: string; params: Record<string, unknown> }>;
   trusted: boolean; resultRow: boolean; overflow: number; launchReady: boolean;
-  scrollArea: boolean; scrollAt: number; scrollMax: number; scrolledAway: boolean; lazyRows: number; findBar: boolean; launchWindowless: boolean; launchPanelOnly: boolean; windowsGone: boolean;
+  scrollArea: boolean; scrollAt: number; scrollMax: number;
+  /** Pages one `scrollpage` turns before it answers `outOfTime` (the helper's clock, as a count). */
+  scrollBudgetPages: number; scrolledAway: boolean; lazyRows: number; findBar: boolean; launchWindowless: boolean; launchPanelOnly: boolean; windowsGone: boolean;
   /** Leave exactly one drivable app in the enumeration, by bundle id. Set, never read back. */
   only(bundle: string): void;
   /** Static text the walk counted instead of listing — the budget that is NOT the control cap. */
@@ -162,6 +164,7 @@ export interface Stub {
 
 export function stubTransport(): Stub {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+  let scrollBudgetPages = Infinity;
   let restoreAnswer = 1;
   const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, saysOnPress: null as Record<string, number> | null, said: {} as Record<string, number>, talking: false, unprompted: null as number | null, spoken: 0, noWatch: false, pressReveals: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
   // The helper's two views of what is running, kept apart exactly as the real one has them:
@@ -388,13 +391,16 @@ export function stubTransport(): Stub {
           const want = Math.max(1, Number(params.pages) || 1);
           const from = state.scrollAt;
           let applied = 0, last = state.scrollAt;
+          let outOfTime = false;
           for (let i = 0; i < want; i++) {
+            // The real helper stops on a clock; here, after `scrollBudgetPages` pages.
+            if (applied >= scrollBudgetPages) { outOfTime = true; break; }
             state.scrollAt = Math.max(0, Math.min(state.scrollMax, state.scrollAt + dir));
             if (state.scrollAt === last) break;   // applied counts pages that MOVED, not attempts
             applied += 1;
             last = state.scrollAt;
           }
-          return { applied, moved: state.scrollAt !== from, delta: Math.abs(state.scrollAt - from), unit: "bar", area: "AXScrollArea" };
+          return { applied, outOfTime, moved: state.scrollAt !== from, delta: Math.abs(state.scrollAt - from), unit: "bar", area: "AXScrollArea" };
         }
         case "menu": {
           // Frontmost, AppKit validates the key-window commands as enabled — but only once it
@@ -490,6 +496,7 @@ export function stubTransport(): Stub {
   /** Which page the area sits on, and how many it has. */
   get scrollAt() { return state.scrollAt; }, set scrollAt(v: number) { state.scrollAt = v; },
   get scrollMax() { return state.scrollMax; }, set scrollMax(v: number) { state.scrollMax = v; },
+    get scrollBudgetPages() { return scrollBudgetPages; }, set scrollBudgetPages(v: number) { scrollBudgetPages = v; },
   /** Two rows the window does not show — what `find` must still be able to name. */
   get scrolledAway() { return state.scrolledAway; }, set scrolledAway(v: boolean) { state.scrolledAway = v; },
   get lazyRows() { return state.lazyRows; }, set lazyRows(v: number) { state.lazyRows = v; },

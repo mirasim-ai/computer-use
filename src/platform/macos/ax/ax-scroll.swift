@@ -29,6 +29,12 @@ let MAX_SCROLL_PAGES = 60
 /// catches the animation.
 private let PAGE_SETTLE_US: UInt32 = 250_000
 
+/// How long one request keeps turning pages. {@link MAX_SCROLL_PAGES} pages at
+/// {@link PAGE_SETTLE_US} each is fifteen seconds, which is the client's limit for a request:
+/// a long document scrolled `to:'bottom'` got the helper stopped mid-way, and with it every
+/// app's refs. Past this the request answers with what it turned and says it ran out of time.
+private let SCROLL_BUDGET_S: Double = 8
+
 extension AXEngine {
   /// `scrollpage {pid, key?, x?, y?, direction, pages}` → `{applied, moved, delta, unit, area}`.
   ///
@@ -62,7 +68,10 @@ extension AXEngine {
     let before = position(of: area)
     var applied = 0
     var last = before
+    let started = Date()
+    var outOfTime = false
     for _ in 0..<want {
+      if Date().timeIntervalSince(started) >= SCROLL_BUDGET_S { outOfTime = true; break }
       _ = AXUIElementPerformAction(area, action as CFString)  // the code lies; displacement does not
       usleep(PAGE_SETTLE_US)
       let now = position(of: area)
@@ -76,6 +85,8 @@ extension AXEngine {
     let n = read(area)
     return [
       "applied": applied,
+      // Stopped by the clock with pages still asked for and the area still moving: there is more.
+      "outOfTime": outOfTime,
       "moved": raw >= 0.5,
       // A fraction of the document for the bar, points for a frame; the scaling above exists only
       // so one threshold serves both.
