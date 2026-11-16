@@ -14,7 +14,7 @@ interface Command {
   /** One line for the top-level table — what this command is FOR, not how to call it. */
   readonly summary: string;
   /** Called with argv after the command name. Every body is a lazy import: nothing this
-   *  command does not need may load (`mirasim-cu mcp` must not pay for the model layer). */
+   *  command does not need may load. */
   readonly run: (rest: string[]) => Promise<void>;
 }
 

@@ -3,7 +3,7 @@
  * there is no model or loop on this side. Platforms come from env (COMPUTER_USE_PLATFORMS),
  * surface targeting from the platform env knobs
  * (COMPUTER_USE_PROFILE_DIR / COMPUTER_USE_CDP_URL / COMPUTER_USE_ELECTRON_CDP_URL) — so a host
- * keys one child per surface, and refs stay valid between an observe and the act that uses them.
+ * keys one child per surface.
  * Whether a macOS app may be driven is asked back over the same link ({@link consentChannel}).
  *
  * Uses the low-level Server (not McpServer) so TypeBox schemas — plain JSON Schema — pass
