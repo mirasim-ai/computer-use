@@ -225,7 +225,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
    * a close_tab({all}) that ends a job would otherwise report itself as a failed re-observation —
    * and a run on the user's browser that only listed tabs holds none yet ({@link NO_TAB_YET_NOTE}).
    * Everything else reaches {@link page} and gets the same note from there. */
-  override async observeElements(opts: { prefix?: string; forceImage?: boolean; afterAction?: string } = {}): Promise<ToolResult> {
+  override async observeElements(opts: { prefix?: string; afterAction?: string } = {}): Promise<ToolResult> {
     const none = await this.noTabNote();
     if (none) return this.noTabObservation(none, opts.prefix);
     try { return await super.observeElements(opts); }

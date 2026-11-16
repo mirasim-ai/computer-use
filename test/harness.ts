@@ -58,7 +58,7 @@ export interface ComputerUseApi {
 
 /** What a read asks for — one channel, chosen by `what`. */
 export interface Look {
-  what?: "elements" | "text" | "page" | "screenshot" | "full" | "diagnostics";
+  what?: "elements" | "text" | "page" | "screenshot" | "diagnostics";
   ref?: string;
   depth?: number;
   node?: string;
@@ -129,7 +129,6 @@ export function createHarness(driver: ComputerUseDriver, opts: { diagnostics?: b
         if (scope.ref && !driver.knownRef(scope.ref)) return text(driver.staleRefNote(scope.ref), { error: "stale_ref" });
         return driver.observeImage({ modelInitiated: true, ...(scoped ? { scope } : {}) });
       }
-      case "full": return driver.observeElements({ forceImage: true });
       case "diagnostics": return driver.readDiagnostics({ id: look.id });
       case "page":
         if (!driver.readPage) return text("page reading is not supported on this platform yet — use text()");

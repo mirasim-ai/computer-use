@@ -93,7 +93,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     }
   }
 
-  async observeElements(opts: { prefix?: string; forceImage?: boolean; afterAction?: string } = {}): Promise<ToolResult> {
+  async observeElements(opts: { prefix?: string; afterAction?: string } = {}): Promise<ToolResult> {
     let capture: SnapshotCapture;
     try {
       capture = await this.bounded("observe", this.captureSnapshot());
@@ -223,14 +223,6 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
         ? { notListed: { offscreen: snap.meta.offscreen ?? 0, capped: snap.meta.capped ?? 0 } }
         : {}),
     });
-    if (opts.forceImage) {
-      const image = capture.image ?? await this.screenshot()
-        .then((bytes) => ({ bytes, mimeType: this.screenshotMimeType }))
-        .catch(() => null);
-      if (image) {
-        result.content.push({ type: "image", data: image.bytes.toString("base64"), mimeType: image.mimeType });
-      }
-    }
     return result;
   }
 

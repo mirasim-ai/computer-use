@@ -91,7 +91,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
    * Render one element observation, full or incremental. Header lines orient each read; coverage
    * and grouping explanations are sent on changes. The body is a delta when safe AND worth it —
    * full on: first round · URL changed · MAX_DELTA_ROUNDS deltas since the last full · diff over
-   * half the old body · an attached image (`forceImage`) · COMPUTER_USE_OBS_DELTA=0 (process-wide).
+   * half the old body · COMPUTER_USE_OBS_DELTA=0 (process-wide).
    *
    * Only this decides; no caller can ask for a full render, and none needs to: `readElements`
    * (the script's `observe()`) returns every element and leaves this base untouched — the delta
@@ -102,7 +102,7 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
     snap: Snapshot,
     targets: TargetInfo[],
     verdict: Verdict | null,
-    opts: { forceImage?: boolean; afterAction?: string; surfaceChanged?: boolean },
+    opts: { afterAction?: string; surfaceChanged?: boolean },
   ): { body: string; obsKind: "full" | "delta"; headLines: number; effectNote: string | null } {
     const bodyLines = this.renderBodyLines(snap);
     // The ~470-char surfaces list is compared whole: ANY change brings the full line back.
@@ -178,7 +178,6 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
       }
       if (
         process.env.COMPUTER_USE_OBS_DELTA !== "0"
-        && !opts.forceImage
         && this.deltaRounds < MAX_DELTA_ROUNDS
       ) {
         // The 50% valve: a diff over half the old body is a rewrite — a full list reads better AND
