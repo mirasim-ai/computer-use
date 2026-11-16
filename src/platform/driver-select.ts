@@ -12,10 +12,48 @@
 
 import type { Element, Heading, ObservationCoverage, Snapshot, TargetIdentity } from "./types.ts";
 import { observationCoverage } from "./driver-narrate.ts";
-import { ComputerUseDriverRefs } from "./driver-refs.ts";
+import { RefBook } from "./driver-refs.ts";
 
-export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
+export abstract class ComputerUseDriverSelect {
   abstract readonly platform: string;
+
+  // ── Refs (driver-refs.ts) ────────────────────────────────────────────────────────────
+  /** Which refs the model may act on, and what each last named. */
+  protected readonly refs = new RefBook({ scrollsInto: () => this.scrollsInto, staleCause: () => this.staleRefCause() });
+  /** Can `scroll({into: ref})` bring one control, a covered one included, to the middle of the
+   *  viewport? DECLARED, not inferred: the API reference and the cover notes offer it only where
+   *  it exists. */
+  readonly scrollsInto: boolean = false;
+  /** Does a read collect the controls an overlay sits on ({@link Snapshot.coveredElements})?
+   *  DECLARED like `scrollsInto`: only where it does can `find(…, {why})` answer `covered`. */
+  readonly readsCovered: boolean = false;
+
+  /** Is this ref one the model has legitimately seen? Refs accumulate (capped) and die with the
+   * surface. A courtesy filter, never the last line of defense; when it says no, answer with
+   * {@link staleRefNote}. */
+  knownRef(ref: string): boolean {
+    return this.refs.known(ref);
+  }
+
+  /** The role and name `ref` carried when it was last listed — also after the surface that
+   *  minted it is gone, so a refusal can say what it was. Undefined for a ref never handed out. */
+  refWas(ref: string): { role: string; name: string } | undefined {
+    return this.refs.was(ref);
+  }
+
+  /** Why a ref the caller sent cannot be used; the three cases are {@link RefBook.staleNote}'s. */
+  staleRefNote(ref: string): string {
+    return this.refs.staleNote(ref);
+  }
+
+  /**
+   * How refs stop being valid on THIS platform, as one clause with no leading capital. Declared
+   * variance: browser mechanisms (navigation, tab switch) named on a native window send the model
+   * looking for a page that was never there; the default names no mechanism.
+   */
+  protected staleRefCause(): string {
+    return "the surface has changed since it was handed out";
+  }
 
   // ── Implemented further down the chain (driver-base.ts), called from here ──────────
   protected abstract snapshot(): Promise<Snapshot>;
@@ -70,7 +108,7 @@ export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
     const snapshot = await this.bounded("observe", this.snapshot());
     const off = (snapshot.offscreenElements ?? []).map((e) => ({ ...e, offscreen: true }));
     const all = [...snapshot.elements, ...off];
-    this.rememberRefs({ ...snapshot, elements: all });
+    this.refs.remember({ ...snapshot, elements: all });
     return { url: snapshot.url, title: snapshot.title, elements: all,
       coverage: observationCoverage(snapshot), ...(snapshot.target ? { target: snapshot.target } : {}),
       ...(snapshot.groups?.length ? { groups: snapshot.groups } : {}),

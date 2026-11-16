@@ -105,7 +105,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
       this.forgetDeltaBase(); // continuity is gone — the next successful observation renders full
       // Before the rethrows: those are exactly the states where a later ref refusal would
       // otherwise blame a navigation that never happened.
-      this.noteObserveFailure((e as Error).message);
+      this.refs.noteFailure((e as Error).message);
       // Gone / unreadable surfaces reach the tool layer whole: flattened into "(observe failed)"
       // a model reads them as "try again" and loops.
       if (e instanceof SurfaceGoneError) throw e;
@@ -174,7 +174,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     this.lastGeomChange = this.geometryChanges(snap);
     this.lastRects = new Map(snap.elements.map((e) => [e.ref, e.rect]));
     this.lastScrollY = snap.meta.scrollY;
-    this.rememberRefs(snap);
+    this.refs.remember(snap);
     if (verdict === "frozen") this.journalVerdict?.("frozen");
 
     const actionsInRound = this.takeActionsInRound();

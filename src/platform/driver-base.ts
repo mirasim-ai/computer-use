@@ -215,7 +215,7 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
     this.prevSig = null;
     this.prevElSig = null;
     this.prevElSigSubstantive = null;
-    this.forgetRefs();
+    this.refs.forget();
     this.lastRects = null;
     this.lastScrollY = null;
     this.pendingSurfaceChange = false;
