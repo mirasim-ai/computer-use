@@ -42,6 +42,10 @@ host passes the same values as `ProfileOptions` instead; the table is the mappin
 | `COMPUTER_USE_MACOS_CAPTURE_SOCKET` / `_TOKEN` / `_LEASE` | a host-owned native capture service shared by its runtimes; see [Shared native capture](#shared-native-capture-macos) |
 | `COMPUTER_USE_SHOTS_KEEP` | per-action evidence screenshots kept in the run dir's `shots/` (rolling; default 500, `0` disables) |
 | `COMPUTER_USE_ATTACHED=1` | the profile dir is the USER'S own Chrome: agent takes its own window, never kills by profile (Managed-browser settings below) |
+| `COMPUTER_USE_DIAGNOSTICS` | `0` turns off the diagnostics channel (`diagnostics()` and the one-line note about new page or console errors), which `mirasim-cu mcp` has on by default. An in-process host has it off unless it passes `diagnostics: true` or sets `1` |
+| `COMPUTER_USE_OBS_DELTA` | `0` renders every observation as the full element list instead of a diff against the previous one. For comparing output and for tests; costs tokens on every call |
+| `COMPUTER_USE_ENDING_WAIT_MS` | how long a call still running gets to finish when a turn ends or the process shuts down, before it is ended from outside; default 5000. A seam for tests, not a setting to tune |
+| `COMPUTER_USE_PREVIEW_WORKER` | set by computer-use itself on the macOS helper it starts only to stream a preview; a host never sets it |
 
 Switching a host from one platform to another is therefore a spawn-env
 change, not a new interface.
