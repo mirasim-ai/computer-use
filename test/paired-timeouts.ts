@@ -63,7 +63,7 @@ const BRIDGE = "src/platform/browser/bridge";
 
 // ── The bridge and the extension ─────────────────────────────────────────────────────────
 {
-  const commandTimeout = constant(`${BRIDGE}/server-core.ts`, "EXTENSION_COMMAND_TIMEOUT_MS");
+  const commandTimeout = constant(`${BRIDGE}/extension-connection.ts`, "EXTENSION_COMMAND_TIMEOUT_MS");
   const askWait = constant("extension/group.js", "ASK_WAIT_MS");
   check("the extension stops waiting for the user's answer before the bridge gives up on the command that asked",
     askWait < commandTimeout, `${askWait} < ${commandTimeout}`);
@@ -88,12 +88,12 @@ const BRIDGE = "src/platform/browser/bridge";
   check("...and longer than a client's handshake waits by itself",
     firstConnect > extensionWait, `${firstConnect} > ${extensionWait}`);
 
-  const slowRounds = constant(`${BRIDGE}/server-core.ts`, "SLOW_COMMAND_ROUNDS");
+  const slowRounds = constant(`${BRIDGE}/extension-connection.ts`, "SLOW_COMMAND_ROUNDS");
   const runJsMax = constant("src/platform/chromium/run-js.ts", "RUN_JS_MAX_MS");
   check("a command on a tab that still answers may run as long as the longest run_js",
     slowRounds * commandTimeout >= runJsMax, `${slowRounds} × ${commandTimeout} ≥ ${runJsMax}`);
 
-  const slowWarn = constant(`${BRIDGE}/server-core.ts`, "SLOW_CALL_WARN_MS");
+  const slowWarn = constant(`${BRIDGE}/extension-connection.ts`, "SLOW_CALL_WARN_MS");
   const shot = constant("src/platform/chromium/shot.ts", "SHOT_TIMEOUT_MS");
   const nav = constant("src/platform/browser/navigate.ts", "NAV_TIMEOUT_MS");
   const click = constant("src/platform/chromium/actions.ts", "CLICK_BUDGET_MS");

@@ -7,7 +7,9 @@
  *
  * `server-core.ts` is the other half: the lifecycle (start, the extension handshake, keepalive) and
  * the HTTP façade that makes this look like a Chrome DevTools endpoint. They are one class, in the
- * order they run: nothing here can happen before the core has an extension on the line.
+ * order they run: nothing here can happen before the core has an extension on the line. What
+ * talking to that extension means (calls, answers, a call never answered) is
+ * `extension-connection.ts`.
  */
 
 import http from "node:http";
@@ -16,7 +18,8 @@ import type { Duplex } from "node:stream";
 import { WebSocket, type RawData } from "ws";
 import { type CdpMessage } from "./model.ts";
 
-import { BridgeServerCore, ExtensionConnection } from "./server-core.ts";
+import { ExtensionConnection } from "./extension-connection.ts";
+import { BridgeServerCore } from "./server-core.ts";
 import { webSocketChannel, type ExtensionChannel } from "./extension-channel.ts";
 import { parseExtensionRuntime } from './extension-updates.ts';
 import { ownVersion } from "../../version.ts";
