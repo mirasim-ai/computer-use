@@ -1,5 +1,7 @@
-/** Regression coverage for stale COMPUTER_USE_CDP_URL values and strict explicit endpoints. */
+/** Regression coverage for stale COMPUTER_USE_CDP_URL values, strict explicit endpoints, and an
+ *  endpoint one of whose tabs answers nothing. */
 
+import { chromium } from "playwright-core";
 import { BrowserDriver } from "../src/platform/browser/driver.ts";
 import { sleep, spawnChrome } from "./helpers.ts";
 
@@ -53,6 +55,33 @@ async function main() {
     replacement.cleanup();
     if (previous === undefined) delete process.env.COMPUTER_USE_CDP_URL;
     else process.env.COMPUTER_USE_CDP_URL = previous;
+  }
+
+  // An endpoint the session was pointed at, with one tab stuck in a script that never returns:
+  // connecting waits on every tab, so this used to end after 30 s in a bare timeout.
+  const shared = await spawnChrome({});
+  try {
+    const setup = await chromium.connectOverCDP(shared.cdpUrl);
+    const context = setup.contexts()[0]!;
+    await (context.pages()[0] ?? await context.newPage()).goto("data:text/html,<title>Fine</title><h1>fine</h1>");
+    const stuck = await context.newPage();
+    await stuck.goto("data:text/html,<title>Stuck</title><h1>hangs</h1>");
+    await stuck.evaluate("setTimeout(() => { for (;;) {} }, 100)");
+    await setup.close();
+    await sleep(500);
+    const pointed = new BrowserDriver(shared.cdpUrl);
+    const started = Date.now();
+    let refused = "";
+    try { await pointed.listTargets(); }
+    catch (e) { refused = (e as Error).message; }
+    finally { await pointed.close(); }
+    const ms = Date.now() - started;
+    check("an endpoint with a tab that answers nothing is refused in seconds, naming the tab",
+      /one of its tabs does not/.test(refused) && /«Stuck»/.test(refused) && /no tab was closed/.test(refused) && ms < 12_000, `${ms} ms: ${refused.slice(0, 220)}`);
+    const targets = await (await fetch(`${shared.cdpUrl}/json/list`)).json() as Array<{ type: string; title: string }>;
+    check("...and that tab is left open, in someone else's browser", targets.some((t) => t.type === "page" && t.title === "Stuck"));
+  } finally {
+    shared.cleanup();
   }
 
   console.log(failures === 0 ? "\nCONNECTION RECOVERY OK" : `\nCONNECTION RECOVERY FAILED (${failures})`);

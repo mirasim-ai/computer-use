@@ -28,7 +28,11 @@ async function browserSocket(cdpUrl: string): Promise<{ send: (method: string, p
   let wsUrl: string;
   try {
     const res = await fetch(`${cdpUrl.replace(/\/$/, "")}/json/version`, { signal: AbortSignal.timeout(BROWSER_ANSWER_MS) });
-    wsUrl = ((await res.json()) as { webSocketDebuggerUrl?: string }).webSocketDebuggerUrl ?? "";
+    const version = (await res.json()) as { Browser?: string; webSocketDebuggerUrl?: string };
+    // Never the extension bridge: a page asked there is a tab of the user's the bridge would
+    // attach a debugger to, and it has its own answer for a tab that stops answering.
+    if (version.Browser === "mirasim-bridge") return null;
+    wsUrl = version.webSocketDebuggerUrl ?? "";
   } catch {
     return null;
   }

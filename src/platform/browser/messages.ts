@@ -123,6 +123,13 @@ export function isBridgeExtensionGone(e: unknown): boolean {
   return /Bridge extension not connected|bridge extension did not connect/i.test(e instanceof Error ? e.message : String(e));
 }
 
+/** A browser this session did not start, with a tab that answers nothing: connecting waits on
+ *  every tab, and the tab is not this session's to close. */
+export const endpointStalledTabs = (tabs: { title: string; url: string }[]): string =>
+  `the browser answers, but ${tabs.length === 1 ? "one of its tabs does" : `${tabs.length} of its tabs do`} not `
+  + `(${tabs.map(tabNamed).join("; ")}), and connecting waits on every tab. This browser was not started by `
+  + `computer-use, so no tab was closed: close or reload ${tabs.length === 1 ? "that tab" : "those tabs"} and try again`;
+
 export function msgEndpointUnavailable(cdpUrl: string, detail: string): string {
   return `mirasim-cu: explicit CDP endpoint ${cdpUrl} is unavailable.\n(${detail})`;
 }

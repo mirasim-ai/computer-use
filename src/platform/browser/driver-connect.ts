@@ -11,13 +11,14 @@
  * managed Chrome, adopt-or-launch on a persistent profile (acquire.ts has the ladder).
  */
 
-import type { Frame, Page } from "playwright-core";
+import type { Browser, Frame, Page } from "playwright-core";
 import { connectBrowserCdp } from "./cdp-connection.ts";
+import { unansweringTabs } from "./stalled-tabs.ts";
 import { acquireManagedBrowser, openBlankTab, publishTabIdentity } from "./acquire.ts";
 import { acquireBridge, bridgeJustStarted, extensionHeldElsewhere, waitForExtension } from "./bridge/acquire-bridge.ts";
 import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, newBackgroundPageIn, pageTargetInfo } from "./tabs.ts";
 import { bridgeBrowserSession } from "./bridge-tabs.ts";
-import { BROWSER_SWITCHED_NOTE, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote, tabUnansweredNote } from "./messages.ts";
+import { BROWSER_SWITCHED_NOTE, endpointStalledTabs, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote, tabUnansweredNote } from "./messages.ts";
 import { SurfaceUnreadableError } from "../types.ts";
 import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_HOLD, PAGE_TABS_JS, PAGE_TABS_OFF } from "./page-tabs.ts";
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
@@ -30,6 +31,12 @@ import { BrowserDriverTabs } from "./driver-tabs.ts";
 /** How long a disconnect waits for the pages to give the page-tabs script up, and a verb for a
  *  page to take it. */
 const PAGE_TABS_WAIT_MS = 1_500;
+
+/** How long a connect may take before the browser is asked whether one of its tabs is holding it up. */
+const SLOW_CONNECT_MS = 4_000;
+
+/** The endpoint answers, and a tab of it does not: nothing a blank tab or a retry gets past. */
+class StalledTabs extends Error {}
 
 export abstract class BrowserDriverConnect extends BrowserDriverTabs {
   private endpoints(): string[] {
@@ -193,13 +200,13 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     let lastError: unknown;
     for (const url of attempted) {
       try {
-        this.browser = await connectBrowserCdp(url);
+        this.browser = await this.connectPastSlowness(url);
       } catch (e) {
         lastError = e;
         // A browser with zero page targets rejects Playwright's handshake; one blank tab over
         // HTTP revives it. EXTERNAL endpoints only: for the managed browser a closed window is
         // the user's decision.
-        if (await openBlankTab(url)) {
+        if (!(e instanceof StalledTabs) && await openBlankTab(url)) {
           try { this.browser = await connectBrowserCdp(url); }
           catch (retryError) { lastError = retryError; }
         }
@@ -270,6 +277,32 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       if (known === "ours") ours ??= p;
     }
     return ours;
+  }
+
+  /**
+   * Connect to an endpoint, and when that is slow, find out why before waiting it out. The
+   * handshake waits on every open tab, so one tab that answers nothing fails it after the full
+   * 30 s with a bare timeout, in a browser whose other tabs are fine. Past
+   * {@link SLOW_CONNECT_MS} the browser is asked which of its tabs answer (stalled-tabs.ts): with
+   * one that does not, the connect is given up at once and the error names that tab. Nothing is
+   * closed here: an endpoint we were pointed at is someone else's browser.
+   */
+  private async connectPastSlowness(url: string): Promise<Browser> {
+    const connecting = connectBrowserCdp(url);
+    connecting.catch(() => {});
+    let timer: NodeJS.Timeout | undefined;
+    const slow = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), SLOW_CONNECT_MS); });
+    try {
+      const first = await Promise.race([connecting, slow]);
+      if (first) return first;
+    } finally {
+      clearTimeout(timer);
+    }
+    const silent = await unansweringTabs(url, 1_500).catch(() => null);
+    if (!silent?.length) return await connecting;
+    // The handshake left behind ends by itself; should it get through after all, it is let go.
+    void connecting.then((late) => late.close().catch(() => {}), () => {});
+    throw new StalledTabs(endpointStalledTabs(silent));
   }
 
   /** After every claim, a tab surface records in its endpoint file WHICH slice of the shared
