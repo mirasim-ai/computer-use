@@ -249,4 +249,17 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
     if (!id) { id = `t${this.nextTabId++}`; this.tabIds.set(p, id); }
     return id;
   }
+
+  /**
+   * A tab's id as a NOTE names it: the id the session's listing gives that tab. With several
+   * platforms mounted every surface id carries its platform (`browser/t3`, tools/repl.ts), and a
+   * note that said `t3` handed the model an id `computer.surface('t3')` matches nothing by.
+   */
+  protected shownId(id: string): string {
+    return `${this.surfaceIdPrefix}${id}`;
+  }
+
+  protected shownTabId(p: Page): string {
+    return this.shownId(this.tabId(p));
+  }
 }

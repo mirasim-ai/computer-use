@@ -70,7 +70,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     // Waking after the session closed its last tab, ensure() has just opened a blank tab of the
     // session's own: new_tab takes THAT one, as above, rather than leave it blank beside another.
     if (kind === "new_tab" && waking && !this.wokeAfterSelfClose && this.active && (!this.active.url() || this.active.url() === "about:blank")) {
-      openedTab = this.tabId(this.active);
+      openedTab = this.shownTabId(this.active);
       if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
       kind = "open_url";
     }
@@ -79,7 +79,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
       this.active = await newBackgroundPage(this.context);
       this.claim(this.active);
       if (kind === "new_tab") {
-        openedTab = this.tabId(this.active);
+        openedTab = this.shownTabId(this.active);
         if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
         kind = "open_url"; // what is left of new_tab is the navigation
       }
@@ -278,7 +278,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         // the new page will mint again from e0).
         this.active = tab;
         this.resetObservationState();
-        const id = this.tabId(tab);
+        const id = this.shownTabId(tab);
         if (typeof a.url === "string" && a.url) {
           try {
             await tab.goto(a.url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
@@ -335,6 +335,8 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         // With several platforms mounted, computer.surfaces() lists ids as "browser/t1"; accept the
         // id exactly as that listing gave it.
         const id = typeof a.id === "string" && a.id ? a.id.replace(`${this.platform}/`, "") : this.tabId(page);
+        // What the notes below call it: the id as the listing shows it.
+        const shown = this.shownId(id);
         let target = own.find((p) => this.tabId(p) === id);
         let theirs = false;
         if (!target) {
@@ -343,9 +345,9 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
           const visible = (await this.visiblePages()).find((p) => this.tabId(p) === id);
           if (!visible) {
             const dormant = await this.closeDormantTab(id, a.confirmed === true);
-            return dormant ?? { ok: false, note: `no tab with id ${id} — call computer.surfaces() for current ids` };
+            return dormant ?? { ok: false, note: `no tab with id ${shown} — call computer.surfaces() for current ids` };
           }
-          if (!a.confirmed) return { ok: false, note: userTabCloseRefusal(id) };
+          if (!a.confirmed) return { ok: false, note: userTabCloseRefusal(shown) };
           target = visible;
           theirs = true;
         }
@@ -354,17 +356,17 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         // Say whose it was: a model repeats its last note to the person, who needs to see "closed
         // one of your tabs" if the asking went wrong.
         const whose = theirs ? " — the user's own, closed on the agreement you reported" : "";
-        if (!wasActive) return { ok: true, note: `closed tab ${id}${whose}; the target is unchanged` };
+        if (!wasActive) return { ok: true, note: `closed tab ${shown}${whose}; the target is unchanged` };
         // Closing the tab you are ON moves the target: refs are minted per page and collide
         // across tabs, so the note carries the tab-switch warning.
         const next = own.find((p) => p !== target && !p.isClosed());
         if (!next) {
           this.closedItsLastTab = true;
-          return { ok: true, note: `closed tab ${id}${whose} — this session has no tab left; open_url or new_tab starts a fresh one` };
+          return { ok: true, note: `closed tab ${shown}${whose} — this session has no tab left; open_url or new_tab starts a fresh one` };
         }
         this.active = next;
         this.resetObservationState();
-        return { ok: true, note: `closed tab ${id}${whose}; the target moved to ${this.tabId(next)} — re-observe before acting on any earlier ref` };
+        return { ok: true, note: `closed tab ${shown}${whose}; the target moved to ${this.shownTabId(next)} — re-observe before acting on any earlier ref` };
       }
     }
     // The seven universal verbs: ChromiumPageDriver owns them, shared with the electron driver.

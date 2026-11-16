@@ -426,7 +426,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     } catch (e) {
       landed = `asked to open ${url}: ${navVerdict(e).note ?? "its navigation did not finish"}`;
     }
-    this.appendNote(pageOpenedNote(this.tabId(tab), landed));
+    this.appendNote(pageOpenedNote(this.shownTabId(tab), landed));
   }
 
   /**

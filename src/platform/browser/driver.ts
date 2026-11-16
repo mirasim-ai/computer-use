@@ -437,11 +437,11 @@ export class BrowserDriver extends BrowserDriverVerbs {
   protected override async closeDormantTab(id: string, confirmed: boolean): Promise<ActResult | null> {
     const dormant = DORMANT_ID.exec(id);
     if (!dormant || !this.browser || this.browser.version() !== "mirasim-bridge") return null;
-    if (!confirmed) return { ok: false, note: userTabCloseRefusal(id) };
+    if (!confirmed) return { ok: false, note: userTabCloseRefusal(this.shownId(id)) };
     if (this.dormantSelection?.id === id) this.dormantSelection = null;
     try { await closeBridgeTab(this.browser, Number(dormant[1]), dormant[2]!); }
-    catch (e) { return { ok: false, note: `could not close tab ${id}: ${e instanceof Error ? e.message : String(e)}` }; }
-    return { ok: true, note: `closed tab ${id} — the user's own, closed on the agreement you reported; the target is unchanged` };
+    catch (e) { return { ok: false, note: `could not close tab ${this.shownId(id)}: ${e instanceof Error ? e.message : String(e)}` }; }
+    return { ok: true, note: `closed tab ${this.shownId(id)} — the user's own, closed on the agreement you reported; the target is unchanged` };
   }
 
   async close(): Promise<void> {
