@@ -9,7 +9,9 @@
  *   · its next call takes the target back when nobody else did, and is refused when another
  *     runtime took it meanwhile — the stale-MCP-server case: a host that keeps an idle server
  *     alive must not hold a window from the next session;
- *   · a dead owner whose pid the OS has handed to another process is gone, not alive.
+ *   · a dead owner whose pid the OS has handed to another process is gone, not alive, and so
+ *     is a dead owner's helper;
+ *   · telling the two apart is done before the store's write lock is taken.
  */
 
 import { MacosDriver } from "../src/platform/macos/driver.ts";
@@ -17,7 +19,9 @@ import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ComputerUseOwnership, type OwnershipProvider } from "../src/platform/ownership.ts";
 import type { OwnershipResource } from "../src/platform/types.ts";
-import { homedir } from "node:os";
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -116,6 +120,92 @@ async function main() {
       check("a claim whose pid now names a process started at another time is taken over", took === "taken", took);
     }
     await a.releaseAll();
+    await b.releaseAll();
+  }
+
+  // ── A helper's pid is not an identity either ─────────────────────────────────────────
+  // A session that was killed leaves its claim and its helper's record. The helper stands in as
+  // this very process (alive), the session as a pid nothing holds.
+  if (process.platform !== "win32") {
+    const file = join(homedir(), ".mirasim-computer-use", "ownership", "claims.sqlite");
+    const res = [{ key: "test:helper-pid-reuse", mode: "exclusive" as const }];
+    const b = new ComputerUseOwnership();
+    await b.claim("warm", [{ key: "test:warm", mode: "exclusive" as const }]); // creates the store and its columns
+    const deadPid = 2 ** 22 - 3; // above any pid macOS or Linux hands out by default
+    const db = new DatabaseSync(file);
+    const plant = (owner: string, started: string): void => {
+      db.prepare("INSERT INTO claims VALUES (?,?,?,?,?)").run(res[0]!.key, owner, "g", deadPid, "exclusive");
+      db.prepare("INSERT INTO executors (owner,runtime,pid,started) VALUES (?,?,?,?)").run(owner, deadPid, process.pid, started);
+    };
+    // This process's own start as the store spells it on this system: B's row, the one the
+    // block above did not rewrite.
+    const mine = (db.prepare("SELECT started FROM runtimes WHERE pid=? AND started NOT LIKE '%1970'").get(process.pid) as { started: string }).started;
+
+    plant("dead-session-live-helper", mine);
+    const held = await b.claim("g", res).then(() => "taken", (e: Error) => e.name);
+    check("a dead session whose helper is still running keeps its claim", held === "OwnershipBusyError", held);
+
+    db.prepare("DELETE FROM claims WHERE owner='dead-session-live-helper'").run();
+    db.prepare("DELETE FROM executors WHERE owner='dead-session-live-helper'").run();
+    plant("dead-session-reused-helper-pid", "Thu Jan  1 00:00:00 1970");
+    const took = await b.claim("g", res).then(() => "taken", (e: Error) => e.name);
+    check("a dead session whose helper pid now names another process is taken over", took === "taken", took);
+    await b.release("g");
+
+    // A store from before the column: the helper is judged by its pid alone, as it was.
+    plant("dead-session-old-record", "");
+    const old = await b.claim("g", res).then(() => "taken", (e: Error) => e.name);
+    check("a helper recorded without its start is still judged by its pid", old === "OwnershipBusyError", old);
+    db.prepare("DELETE FROM claims WHERE owner='dead-session-old-record'").run();
+    db.prepare("DELETE FROM executors WHERE owner='dead-session-old-record'").run();
+
+    // The helper this runtime registers carries its start.
+    await b.trackProcess(process.pid);
+    const row = db.prepare("SELECT started FROM executors WHERE pid=? AND started<>''").get(process.pid) as { started: string } | undefined;
+    check("a registered helper records when it started", row?.started === mine, JSON.stringify(row));
+
+    // Deciding who is gone must not hold the write lock. Where it is `ps` that says when a
+    // process started (macOS; Linux reads /proc, which is instant), `ps` is made slow (a shim first on PATH)
+    // and another PROCESS writes meanwhile, waiting at most 100 ms for the lock: `ps` blocks this
+    // process's own event loop, so a writer in here would prove nothing.
+    if (process.platform !== "darwin") {
+      console.log("SKIP  writing while ps is asked: this system reads a process's start from /proc");
+    } else {
+    const a = new ComputerUseOwnership();
+    await a.claim("g", res);
+    db.prepare("UPDATE runtimes SET started='Thu Jan  1 00:00:00 1970' WHERE pid=?").run(process.pid); // makes B ask ps about A
+    const shim = mkdtempSync(join(tmpdir(), "slow-ps-"));
+    writeFileSync(join(shim, "ps"), "#!/bin/sh\nsleep 0.4\nexec /bin/ps \"$@\"\n", { mode: 0o755 });
+    const path = process.env.PATH;
+    process.env.PATH = `${shim}:${path}`;
+    const writer = spawn(process.execPath, ["-e", `
+      const { DatabaseSync } = require("node:sqlite");
+      const db = new DatabaseSync(${JSON.stringify(file)});
+      db.exec("PRAGMA busy_timeout=100");
+      let locked = 0, wrote = 0; const end = Date.now() + 1500;
+      const tick = () => {
+        try { db.prepare("INSERT OR REPLACE INTO runtimes VALUES ('probe',${deadPid},'x')").run(); wrote += 1; } catch { locked += 1; }
+        if (Date.now() < end) setTimeout(tick, 5); else { console.log(JSON.stringify({ locked, wrote })); db.close(); }
+      };
+      tick();`], { stdio: ["ignore", "pipe", "inherit"] });
+    let out = "";
+    writer.stdout.on("data", (d) => { out += d; });
+    const done = new Promise<void>((resolve) => writer.once("exit", () => resolve()));
+    await sleep(150);
+    // A is alive under a rewritten start, so B's claim asks the slow `ps` and takes the resource over.
+    const started = Date.now();
+    await b.claim("g", res).catch(() => {});
+    const claimMs = Date.now() - started;
+    await done;
+    process.env.PATH = path;
+    rmSync(shim, { recursive: true, force: true });
+    const told = JSON.parse(out || "{}") as { locked?: number; wrote?: number };
+    check("another runtime can write while this one asks ps who is gone", claimMs >= 350 && told.locked === 0 && (told.wrote ?? 0) > 20,
+      `the claim took ${claimMs} ms; the other process wrote ${told.wrote} times and found the store locked ${told.locked} times`);
+    db.prepare("DELETE FROM runtimes WHERE owner='probe'").run();
+    await a.releaseAll();
+    }
+    db.close();
     await b.releaseAll();
   }
 

@@ -74,6 +74,15 @@ function processStart(pid: number): string {
   }
 }
 
+/** A recorded helper is still running: its pid is alive and, where its start was recorded and
+ *  can be read now, the process there started when the helper did. */
+function helperAlive(helper: { pid: number; started: string }): boolean {
+  if (!alive(helper.pid)) return false;
+  if (!helper.started) return true;
+  const now = processStart(helper.pid);
+  return now === "" || now === helper.started;
+}
+
 export class ComputerUseOwnership implements OwnershipProvider {
   private readonly owner = randomUUID();
   private db: DatabaseSync | null = null;
@@ -97,24 +106,33 @@ export class ComputerUseOwnership implements OwnershipProvider {
       // another process does not keep a dead owner's claims alive. Owners written by a build
       // without this table have no row and are judged by pid alone, as before.
       + "CREATE TABLE IF NOT EXISTS runtimes (owner TEXT PRIMARY KEY, pid INTEGER NOT NULL, started TEXT NOT NULL)");
+    // A helper's start, for the same reason as a runtime's: a dead session's helper pid handed to
+    // another process kept that session's claims for as long as the other process lived. A store
+    // created by an earlier build gains the column; its rows read "" and are judged by pid alone.
+    const columns = db.prepare("PRAGMA table_info(executors)").all() as unknown as { name: string }[];
+    if (!columns.some((c) => c.name === "started")) {
+      try { db.exec("ALTER TABLE executors ADD COLUMN started TEXT NOT NULL DEFAULT ''"); }
+      catch { /* another runtime added it between the check and here */ }
+    }
     this.started ??= processStart(process.pid);
     db.prepare("INSERT OR REPLACE INTO runtimes VALUES (?,?,?)").run(this.owner, process.pid, this.started);
     for (const r of db.prepare("SELECT owner,pid FROM runtimes").all() as unknown as { owner: string; pid: number }[]) {
       if (!alive(r.pid)) db.prepare("DELETE FROM runtimes WHERE owner=?").run(r.owner);
     }
-    const rows = db.prepare("SELECT owner,runtime,pid FROM executors").all() as unknown as { owner: string; runtime: number; pid: number }[];
+    const rows = db.prepare("SELECT owner,runtime,pid,started FROM executors").all() as unknown as { owner: string; runtime: number; pid: number; started: string }[];
     for (const r of rows) {
-      if (!alive(r.runtime) && !alive(r.pid)) db.prepare("DELETE FROM executors WHERE owner=? AND pid=?").run(r.owner, r.pid);
+      if (!alive(r.runtime) && !helperAlive(r)) db.prepare("DELETE FROM executors WHERE owner=? AND pid=?").run(r.owner, r.pid);
     }
     this.db = db;
     return db;
   }
 
-  /** The runtime and every helper it registered have exited. */
+  /** The runtime and every helper it registered have exited. May run `ps` (up to 2 s): never
+   *  call it while holding the store's write lock, see {@link claim}. */
   private gone(db: DatabaseSync, owner: string, pid: number): boolean {
     if (alive(pid) && !this.reused(db, owner, pid)) return false;
-    const helpers = db.prepare("SELECT pid FROM executors WHERE owner=?").all(owner) as unknown as { pid: number }[];
-    return !helpers.some((h) => alive(h.pid));
+    const helpers = db.prepare("SELECT pid,started FROM executors WHERE owner=?").all(owner) as unknown as { pid: number; started: string }[];
+    return !helpers.some(helperAlive);
   }
 
   /** The owner's pid now names a process that started at another time than the owner did. */
@@ -127,13 +145,24 @@ export class ComputerUseOwnership implements OwnershipProvider {
 
   async claim(group: string, resources: OwnershipResource[]): Promise<void> {
     const db = await this.database();
+    // Who of the current holders is gone is settled BEFORE the write lock is taken. Telling a
+    // reused pid from a live owner asks `ps`, which can take up to two seconds, and every other
+    // runtime waits one second for the lock: decided inside the transaction, one slow `ps` here
+    // failed someone else's claim with "database is locked". An owner that takes a resource
+    // between this look and the lock has no verdict and is alive, having just claimed.
+    const verdicts = new Map<string, boolean>();
+    for (const resource of resources) {
+      const rows = db.prepare("SELECT owner,pid,mode FROM claims WHERE resource=? AND owner<>?")
+        .all(resource.key, this.owner) as unknown as Claim[];
+      for (const row of rows) if (!verdicts.has(row.owner)) verdicts.set(row.owner, this.gone(db, row.owner, row.pid));
+    }
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const resource of resources) {
         const rows = db.prepare("SELECT owner,pid,mode FROM claims WHERE resource=? AND owner<>?")
           .all(resource.key, this.owner) as unknown as Claim[];
         for (const row of rows) {
-          if (this.gone(db, row.owner, row.pid)) {
+          if (verdicts.get(row.owner) === true) {
             db.prepare("DELETE FROM claims WHERE owner=?").run(row.owner);
             db.prepare("DELETE FROM executors WHERE owner=?").run(row.owner);
             db.prepare("DELETE FROM runtimes WHERE owner=?").run(row.owner);
@@ -168,6 +197,6 @@ export class ComputerUseOwnership implements OwnershipProvider {
    *  is on disk before the helper can dispatch anything. */
   async trackProcess(pid: number): Promise<void> {
     const db = await this.database();
-    db.prepare("INSERT OR IGNORE INTO executors VALUES (?,?,?)").run(this.owner, process.pid, pid);
+    db.prepare("INSERT OR IGNORE INTO executors (owner,runtime,pid,started) VALUES (?,?,?,?)").run(this.owner, process.pid, pid, processStart(pid));
   }
 }
