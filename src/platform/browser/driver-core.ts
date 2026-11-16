@@ -68,6 +68,8 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   protected pageTabsInstalled = false;
   /** Pages whose already-loaded documents were given the page-tabs script (driver-connect.ts `seedPageTabs`). */
   protected readonly pageTabsSeeded = new WeakSet<Page>();
+  /** This driver's name in the documents it holds the page-tabs script in (page-tabs.ts `PAGE_TABS_HOLD`). */
+  protected readonly pageTabsHolder = Math.random().toString(36).slice(2);
   /** Page-tab requests being answered right now. `perform` waits for them, so the tab a click
    *  opened is listed and observed in the run that clicked. */
   protected readonly pageTabJobs = new Set<Promise<void>>();

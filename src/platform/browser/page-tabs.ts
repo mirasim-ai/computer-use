@@ -66,15 +66,32 @@ export const PAGE_TAB_ANSWER = "__computerUseTabAnswer";
  *  answers in milliseconds; a late one is told the page stopped waiting and opens nothing. Well
  *  inside Chrome's 5s of transient activation, so the page's own open is still allowed. */
 export const PAGE_TAB_ANSWER_MS = 1000;
+/**
+ * The page functions by which a driver says it is there, and that it is leaving:
+ * `hold(who)` and `off(who)`, `who` a name of the driver's own. A driver holds every document
+ * it runs this script in, and lets go of them when it disconnects (driver-connect.ts
+ * `removePageTabs`): the script it registered for LATER documents goes with its connection, but a
+ * document already loaded keeps what ran in it, and with nobody answering every request for a
+ * tab waited {@link PAGE_TAB_ANSWER_MS} and `window.open` handed the page a stand-in that is no
+ * window. The script takes itself out of a document when the LAST driver holding it lets go:
+ * several drivers share one browser, and one leaving must not take it from the others' pages.
+ */
+export const PAGE_TABS_HOLD = "__computerUsePageTabsHold";
+export const PAGE_TABS_OFF = "__computerUsePageTabsOff";
 
 // As quoted property names: the build minifies this script on its own and takes a hole only
 // where a value goes (scripts/build.mjs).
 const BINDING = JSON.stringify(PAGE_TABS_BINDING);
 const ANSWER = JSON.stringify(PAGE_TAB_ANSWER);
+const OFF = JSON.stringify(PAGE_TABS_OFF);
+const HOLD = JSON.stringify(PAGE_TABS_HOLD);
 
 export const PAGE_TABS_JS = `(() => {
   if (window.__computerUsePageTabs) return;
   window.__computerUsePageTabs = true;
+  // Set by the driver when it leaves: from then on every route below is the page's own again.
+  let off = false;
+  const openBefore = window.open;
   const nativeOpen = window.open.bind(window);
   const nav = window.navigation;
   const activated = () => !navigator.userActivation || navigator.userActivation.isActive;
@@ -133,9 +150,9 @@ export const PAGE_TABS_JS = `(() => {
   const afterPage = (type, e, fn) => window.addEventListener(type, (late) => {
     if (late === e && !late.defaultPrevented) fn(late);
   }, { once: true });
-  window.addEventListener('click', (e) => {
+  const onClick = (e) => {
     release();
-    if (!activated()) return;
+    if (off || !activated()) return;
     // composedPath() pierces shadow roots, where e.target is the host and closest() is blind.
     const path = e.composedPath ? e.composedPath() : [e.target];
     const a = path.find((n) => n && n.nodeType === 1 && /^(a|area)$/i.test(n.localName));
@@ -158,24 +175,24 @@ export const PAGE_TABS_JS = `(() => {
       late.preventDefault();
       ask(url, () => nativeOpen(url, '_blank', opener ? undefined : 'noopener'));
     });
-  }, true);
-  if (nav) {
-    nav.addEventListener('navigate', (e) => {
-      // A held POST form (below) is not a link: its navigation goes ahead in this frame.
-      if (!held || !held.link) return;
-      // Only the navigation the held link started: a handler's own location.assign() during
-      // the same click has no source element.
-      const src = 'sourceElement' in e ? e.sourceElement : held.el;
-      if (!src || !(src === held.el || held.el.contains(src))) return;
-      const opener = held.link.opener;
-      release();
-      if (e.downloadRequest != null) return;
-      const url = e.destination.url;
-      if (!e.cancelable) { tell({ op: 'kept', what: 'link', url }); return; }
-      e.preventDefault();
-      ask(url, () => nativeOpen(url, '_blank', opener ? undefined : 'noopener'));
-    });
-  }
+  };
+  window.addEventListener('click', onClick, true);
+  const onNavigate = (e) => {
+    // A held POST form (below) is not a link: its navigation goes ahead in this frame.
+    if (off || !held || !held.link) return;
+    // Only the navigation the held link started: a handler's own location.assign() during
+    // the same click has no source element.
+    const src = 'sourceElement' in e ? e.sourceElement : held.el;
+    if (!src || !(src === held.el || held.el.contains(src))) return;
+    const opener = held.link.opener;
+    release();
+    if (e.downloadRequest != null) return;
+    const url = e.destination.url;
+    if (!e.cancelable) { tell({ op: 'kept', what: 'link', url }); return; }
+    e.preventDefault();
+    ask(url, () => nativeOpen(url, '_blank', opener ? undefined : 'noopener'));
+  };
+  if (nav) nav.addEventListener('navigate', onNavigate);
 
   // ── Forms ────────────────────────────────────────────────────────────────────────────────
   // Not through the navigate event: a form's navigation is SCHEDULED, CDP announces it when it
@@ -183,9 +200,9 @@ export const PAGE_TABS_JS = `(() => {
   // navigate event cancels it — the driver's own client would wait on a navigation that never
   // comes. So a GET form's destination is worked out here and its submit is cancelled instead.
   const attrOf = (form, by, formAttr, attr) => by && by.hasAttribute(formAttr) ? by.getAttribute(formAttr) : form.getAttribute(attr);
-  window.addEventListener('submit', (e) => {
+  const onSubmit = (e) => {
     const form = e.target;
-    if (!activated() || !form || form.localName !== 'form') return;
+    if (off || !activated() || !form || form.localName !== 'form') return;
     const by = e.submitter || null;
     const target = attrOf(form, by, 'formtarget', 'target');
     if (!opensTab(target === null ? baseTarget() : target)) return;
@@ -213,17 +230,18 @@ export const PAGE_TABS_JS = `(() => {
       late.preventDefault();
       ask(url, () => nativeOpen(url, '_blank'));
     });
-  }, true);
+  };
+  window.addEventListener('submit', onSubmit, true);
 
   // ── window.open ──────────────────────────────────────────────────────────────────────────
   const blank = (u) => !u || /^(about:blank|#)$/i.test(String(u).trim());
   // A features string asking for a separate WINDOW (the popup token or any geometry) — the
   // OAuth/captcha handshake idiom. A tab-shaped open has no such features.
   const popup = (f) => !!f && /(^|[\\s,])(popup|width|height|left|top|innerWidth|innerHeight|outerWidth|outerHeight|screenX|screenY)(\\s*=|$|[\\s,])/i.test(String(f));
-  window.open = function (url, name, features) {
+  const ours = function (url, name, features) {
     const href = blank(url) ? null : absolute(url);
     const target = name === undefined || name === null || name === '' ? '_blank' : String(name);
-    if (!href || /^javascript:/i.test(href) || popup(features) || !opensTab(target) || !activated()) {
+    if (off || !href || /^javascript:/i.test(href) || popup(features) || !opensTab(target) || !activated()) {
       return nativeOpen.apply(null, arguments);
     }
     const id = ask(href, () => { nativeOpen(url, name, features); });
@@ -239,5 +257,27 @@ export const PAGE_TABS_JS = `(() => {
       set location(v) { go(v); },
     };
     return win;
+  };
+  window.open = ours;
+
+  // ── Leaving ──────────────────────────────────────────────────────────────────────────────
+  // A driver is going; with others still holding this document nothing changes. With the last
+  // one gone, what was asked and not answered yet opens the page's own way; the listeners come
+  // off; window.open is the one that was there, unless the page has put its own over ours since
+  // (then ours stays underneath it, passing everything through).
+  const holders = new Set();
+  window[${HOLD}] = (who) => { holders.add(String(who)); };
+  window[${OFF}] = (who) => {
+    holders.delete(String(who));
+    if (holders.size) return;
+    off = true;
+    release();
+    for (const id of Array.from(waiting.keys())) settle(id, false);
+    window.removeEventListener('click', onClick, true);
+    window.removeEventListener('submit', onSubmit, true);
+    if (nav) nav.removeEventListener('navigate', onNavigate);
+    if (window.open === ours) window.open = openBefore;
+    window.__computerUsePageTabs = false;
+    try { delete window[${ANSWER}]; delete window[${OFF}]; delete window[${HOLD}]; } catch (e) {}
   };
 })()`;

@@ -19,7 +19,7 @@ import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, ne
 import { bridgeBrowserSession } from "./bridge-tabs.ts";
 import { BROWSER_SWITCHED_NOTE, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote, tabUnansweredNote } from "./messages.ts";
 import { SurfaceUnreadableError } from "../types.ts";
-import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_JS } from "./page-tabs.ts";
+import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_HOLD, PAGE_TABS_JS, PAGE_TABS_OFF } from "./page-tabs.ts";
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
 import { ActionJournal } from "./journal.ts";
 import { captureEvidenceShot } from "../chromium/shot.ts";
@@ -27,7 +27,8 @@ import { ensureRefSelector } from "../chromium/page-refs.ts";
 import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
 
-/** How long a verb waits for a page to take the page-tabs script. */
+/** How long a disconnect waits for the pages to give the page-tabs script up, and a verb for a
+ *  page to take it. */
 const PAGE_TABS_WAIT_MS = 1_500;
 
 export abstract class BrowserDriverConnect extends BrowserDriverTabs {
@@ -353,7 +354,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         this.pageTabJobs.add(job);
         void job.finally(() => this.pageTabJobs.delete(job));
       });
-      await this.context.addInitScript(PAGE_TABS_JS);
+      await this.context.addInitScript(this.pageTabsScript());
     } catch {
       this.pageTabsInstalled = false;
     }
@@ -367,13 +368,49 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
    * until it next navigated: Chrome opened that page's tabs itself, and raised the browser doing
    * it. Called before each verb for the page it acts on; one that answers nothing is not waited on.
    */
+  /** The page-tabs script, and this driver's hold on the document it runs in (page-tabs.ts
+   *  `PAGE_TABS_HOLD`): another driver's copy may have got there first, and the hold is what
+   *  keeps the script in the document when that one leaves. */
+  private pageTabsScript(): string {
+    const hold = JSON.stringify(PAGE_TABS_HOLD);
+    return `${PAGE_TABS_JS};typeof window[${hold}] === "function" && window[${hold}](${JSON.stringify(this.pageTabsHolder)});`;
+  }
+
   protected async seedPageTabs(page: Page): Promise<void> {
     if (!this.pageTabsInstalled || this.attached || this.pageTabsSeeded.has(page)) return;
     this.pageTabsSeeded.add(page);
     const frames = page.frames().filter((f) => f.parentFrame() === null || f.url() !== "");
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([
-      Promise.all(frames.map((f) => f.evaluate(PAGE_TABS_JS).catch(() => {}))),
+      Promise.all(frames.map((f) => f.evaluate(this.pageTabsScript()).catch(() => {}))),
+      new Promise((resolve) => { timer = setTimeout(resolve, PAGE_TABS_WAIT_MS); }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  /**
+   * Take the page-tabs script out of the documents this session leaves open, before it
+   * disconnects (page-tabs.ts `PAGE_TABS_OFF`). The tabs stay, and with the script still in them
+   * the person's own clicks waited a second on a driver that is gone, and `window.open` gave the
+   * page's code a stand-in that is no window.
+   *
+   * Every page of the context, since the init script reached every one of them. On a browser
+   * several sessions share those include the others' pages, which is why a document is HELD by
+   * each driver and gives the script up only with the last (page-tabs.ts `PAGE_TABS_OFF`).
+   * Bounded: a page that answers nothing must not hold a disconnect up, and it loses the script
+   * with its next document anyway.
+   */
+  protected async removePageTabs(): Promise<void> {
+    const installed = this.pageTabsInstalled;
+    // Whatever happens below, the connection this was installed on is ending.
+    this.pageTabsInstalled = false;
+    if (!installed || !this.browser?.isConnected()) return;
+    const pages = this.context.pages().filter((p) => !p.isClosed());
+    const off = `typeof window[${JSON.stringify(PAGE_TABS_OFF)}] === "function" && window[${JSON.stringify(PAGE_TABS_OFF)}](${JSON.stringify(this.pageTabsHolder)})`;
+    const frames = pages.flatMap((p) => p.frames().filter((f) => f.parentFrame() === null || f.url() !== ""));
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      Promise.all(frames.map((f) => f.evaluate(off).catch(() => {}))),
       new Promise((resolve) => { timer = setTimeout(resolve, PAGE_TABS_WAIT_MS); }),
     ]);
     clearTimeout(timer);

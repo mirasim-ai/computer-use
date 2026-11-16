@@ -454,9 +454,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
         if (page.url() === "about:blank") await page.close().catch(() => {});
       }
     }
-    // The binding and the init script that open a page's tabs go with this connection: the next
-    // one installs them again. Left set, every reconnect drove pages Chrome opened tabs for itself.
-    this.pageTabsInstalled = false;
+    // The pages stay open; what was put into them to open their tabs for them does not.
+    await this.removePageTabs();
     // Disconnect only — never close the browser. Attached ones belong to the user; the managed
     // one is a device that outlives the command: its profile keeps logins and its published
     // port lets the next session adopt it instead of paying a launch (acquire.ts).
