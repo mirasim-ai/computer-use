@@ -1,11 +1,11 @@
 /**
- * The VERDICT half of the shared narration: how `find` reports matches, what a delta says, and
- * what a run is told when the surface did not change. `driver-narrate.ts` RENDERS what was
+ * The VERDICT half of the shared narration: what a delta says, and what a run is told when the
+ * surface did not change. `driver-narrate.ts` RENDERS what was
  * observed; this JUDGES it. Both stay in the base class: the wording was tuned against real
  * failures, and a platform fork would teach the model what the other platforms contradict.
  */
 
-import type { Element, Snapshot } from "./types.ts";
+import type { Snapshot } from "./types.ts";
 import { ComputerUseDriverNarrate, type FrozenFacts } from "./driver-narrate.ts";
 import { controlRef, splitTextChurn, TEXT_CHURN_MAX } from "./driver-lines.ts";
 
@@ -47,59 +47,6 @@ const FROZEN_REPEAT_NOTE =
   "Repeating it a third time will not help — change target or approach.";
 
 export abstract class ComputerUseDriverVerdict extends ComputerUseDriverNarrate {
-  /**
-   * The query observation behind `find('…')`. Opens with a RECEIPT — what was searched (control
-   * names), how many, how many outside the viewport — so "not found" is a claim the tool makes,
-   * not an absence the model infers. It says "controls", never "the page": what this channel
-   * cannot see is what a wrong answer turns on. Matches are GROUPED by on/off screen, not
-   * annotated per line: the split is actionable (click now vs the click scrolls it into view), a
-   * header costs one line, and per-line suffixes would un-anchor `stripFocus` ({@link elementLine}).
-   */
-  protected renderMatches(
-    s: Snapshot, query: string,
-    inView: Element[], offView: Element[],
-    searched: number, offscreenSearched: number,
-    dropped: { inViewport: number; offscreen: number },
-  ): string[] {
-    const shown = inView.length + offView.length;
-    const cut = dropped.inViewport + dropped.offscreen;
-    const lines = [`Title: ${s.title} | ${s.url}`];
-    const scope = `${searched} control${searched === 1 ? "" : "s"} searched`
-      + (offscreenSearched ? `, ${offscreenSearched} of them outside the viewport` : "");
-    if (cut) {
-      // Actionable half first: leading with "narrow the query" frames a result CONTAINING the
-      // target as a failed search. Which SIDE was cut is stated, as the ways out differ: an
-      // on-screen omission is one observe() away, an off-screen one reachable only by narrowing.
-      const where = dropped.offscreen && dropped.inViewport
-        ? `${dropped.inViewport} of them in the viewport, ${dropped.offscreen} outside it`
-        : dropped.offscreen
-          ? "all of them outside the viewport — narrow the query to reach those"
-          : "all of them in the viewport — a plain observe() lists those";
-      lines.push(`find "${query}" — ${shown} of ${shown + cut} matches shown, ${cut} not listed `
-        + `(${where}). ${scope}. If what you want is below, act on it; narrow the query only if it is not.`);
-    } else {
-      lines.push(`find "${query}" — ${shown} match${shown === 1 ? "" : "es"} (${scope}).`);
-    }
-    if (shown === 0) {
-      // Name the boundary: what WAS searched (so a zero is trustworthy) and what was not (so it is
-      // not read as "nothing like that here"). The row caveat is literal: a control whose name
-      // identifies it carries no ⟨row⟩, so its surrounding text is unsearchable here.
-      lines.push("Searched every control's name, and the ⟨row⟩ context of controls that have one "
-        + "(a control whose name already identifies it carries none). Page text outside those is a "
-        + "different channel — read it with page().");
-      return lines;
-    }
-    if (inView.length) {
-      lines.push("In the viewport (act by ref):");
-      lines.push(...inView.map((e) => this.elementLine(e)));
-    }
-    if (offView.length) {
-      lines.push("Outside the viewport (act by ref — the click scrolls it into view, no need to scroll first):");
-      lines.push(...offView.map((e) => this.elementLine(e)));
-    }
-    return lines;
-  }
-
   /** The delta body. After a scroll, lines that left the viewport are summarized, not listed as
    * removals (a wall of "-" taught models to re-observe in full). The summary stays NEUTRAL: hover
    * menus close on scroll and virtual lists recycle DOM, so never promise those refs are alive. */

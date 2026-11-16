@@ -1,6 +1,6 @@
 /**
- * Selection-based observation — reads that answer with a SUBSET of the surface (`find('…')`,
- * the repl's `observe()`).
+ * Selection-based observation — the read that answers with the surface as DATA (the repl's
+ * `observe()` and `find(name)`).
  *
  * Its own slice of the chain (`…Refs` → `…Select` → `ComputerUseDriver`) because of one hard
  * rule: it must never touch the change-verdict ring. `prevSig` / `prevElSig` / `lastBody` /
@@ -9,13 +9,8 @@
  * needs from below is declared abstract and implemented in ComputerUseDriver.
  */
 
-import type { Element, Heading, ObservationCoverage, SnapshotCapture, TargetIdentity, ToolResult } from "./types.ts";
-import { SurfaceGoneError, text } from "./types.ts";
+import type { Element, Heading, ObservationCoverage, SnapshotCapture, TargetIdentity } from "./types.ts";
 import { ComputerUseDriverRefs } from "./driver-refs.ts";
-
-/** Per-query match cap, far below the walk's ref cap: a query matching 300 controls has
- *  narrowed nothing, and one line saying so is cheaper than 300 lines. */
-const MATCH_CAP = 25;
 
 export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
   abstract readonly platform: string;
@@ -81,73 +76,4 @@ export abstract class ComputerUseDriverSelect extends ComputerUseDriverRefs {
       ...(snapshot.coveredElements?.length
         ? { covered: { by: snapshot.covered?.top || "an overlay", elements: snapshot.coveredElements } } : {}) };
   }
-
-  /**
-   * Query observation (behind `find('…')`): every control whose NAME (or row) contains the query,
-   * viewport or not, each with the ref to act on.
-   *
-   * Separate from {@link observeElements} because it must NOT touch the verdict ring (see the
-   * file header); a filtered set would also leave the delta base describing a fiction. It does
-   * share {@link rememberRefs} over the matches (a matched off-viewport ref must pass `knownRef`;
-   * the walk already minted it) and the push-to-act counter (a query spree is a looking spree).
-   *
-   * Known gap: an in-viewport match may have lost its row to the row budget (`meta.rowsCut`)
-   * while an off-viewport one keeps it; fix by re-pricing rows for the matched set if it bites.
-   */
-  async observeMatches(query: string): Promise<ToolResult> {
-    let capture: SnapshotCapture;
-    try {
-      capture = await this.bounded("observe", this.captureSnapshot());
-    } catch (e) {
-      if (e instanceof SurfaceGoneError) throw e; // the stop instruction path stays
-      return text(`(query failed: ${(e as Error).message})`, { verdict: "unknown" });
-    }
-    const snap = capture.snapshot;
-    const offscreen = snap.offscreenElements ?? [];
-    const hit = matcher(query);
-    const inView = snap.elements.filter(hit);
-    const offView = offscreen.filter(hit);
-    // OFF-viewport matches fill the cap FIRST: on-screen ones are also listed by a plain
-    // `observe()`, while a dropped off-viewport match loses a ref available nowhere else.
-    // Selection order only — the render still leads with the viewport group.
-    const keptOff = offView.slice(0, MATCH_CAP);
-    const keptIn = inView.slice(0, Math.max(0, MATCH_CAP - keptOff.length));
-    const droppedOff = offView.length - keptOff.length;
-    const droppedIn = inView.length - keptIn.length;
-    const kept = [...keptIn, ...keptOff];
-    this.rememberRefs({ ...snap, elements: kept });
-    const lines = this.renderMatches(
-      snap, query, keptIn, keptOff,
-      snap.elements.length + offscreen.length, offscreen.length,
-      { inViewport: droppedIn, offscreen: droppedOff },
-    );
-    if (++this.observesSinceAction >= 3) {
-      lines.push(`NOTE: ${this.observesSinceAction} observations in a row without acting — `
-        + "more looking will not reveal more; act (click / set_text / drag / scroll) before looking again.");
-    }
-    return text(lines.join("\n"), {
-      url: snap.url, query, matches: inView.length + offView.length,
-      searched: snap.elements.length + offscreen.length,
-      offscreenMatches: offView.length, dropped: droppedIn + droppedOff,
-      droppedInViewport: droppedIn, droppedOffscreen: droppedOff,
-      // NOT "full": a query result is neither the full list nor a diff.
-      obsKind: "find",
-      viewport: this.viewportPosition(snap.meta),
-    });
-  }
-
-}
-
-/**
- * Query matching: case-insensitive substring over whitespace-normalized name OR row context.
- * Substring, not regex: a regex costs schema text on every host and turns a typo into an error.
- * Row is searched because among thirty same-named Delete buttons the row (`user23@example.com`)
- * IS the disambiguator. But `row` exists only where a name needed help, so a uniquely named
- * control's row text is not searchable — see {@link Element.row}.
- */
-function matcher(query: string): (e: Element) => boolean {
-  const norm = (t: string) => t.trim().toLowerCase().replace(/\s+/g, " ");
-  const q = norm(query);
-  if (!q) return () => false;
-  return (e) => norm(e.name).includes(q) || (!!e.row && norm(e.row).includes(q));
 }

@@ -94,9 +94,9 @@ async function main() {
     await h.observe({});
     const obs = firstText(await h.observe({}));
     check("no stale error note on a quiet page", !/new page\/console error/.test(obs), obs.slice(0, 200));
-    // Refs come from the query channel: repeated observations render deltas, whose body
-    // carries no element lines to parse.
-    const q = async (name: string) => firstText(await h.observe({ query: name })).match(/\b(e\d+)\b/)?.[1];
+    // Refs come from find(): repeated observations render deltas, whose body carries no element
+    // lines to parse.
+    const q = async (name: string) => (await h.api.find(name))?.ref;
     const refm = await q("Save");
     check("fixture button has a ref", !!refm);
     let noteText = "";

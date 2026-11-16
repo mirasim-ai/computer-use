@@ -59,7 +59,6 @@ export interface ComputerUseApi {
 /** What a read asks for — one channel, chosen by `what`. */
 export interface Look {
   what?: "elements" | "text" | "page" | "screenshot" | "full" | "diagnostics";
-  query?: string;
   ref?: string;
   depth?: number;
   node?: string;
@@ -117,7 +116,6 @@ export function createHarness(driver: ComputerUseDriver, opts: { diagnostics?: b
       const r = await driver.focusTarget(look.target);
       if (!r.ok) return text(`Cannot focus target: ${r.note}`, { error: "bad_target" });
     }
-    if (look.query !== undefined) return driver.observeMatches(look.query);
     switch (look.what ?? "elements") {
       case "text": return driver.observeFullText();
       case "screenshot": {
