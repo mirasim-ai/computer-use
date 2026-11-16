@@ -88,6 +88,9 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     // `open_url` is answered above `dispatchPage`, where the read paths attach it. Missed, the
     // session's FIRST navigation gets no post-nav wait and hands back a shell.
     this.hookNavigation();
+    // A page bound after the connection was made has the page-tabs script only in its later
+    // documents: give it to the one it shows now, before a click in it asks for a tab.
+    if (this.active && !this.active.isClosed()) await this.seedPageTabs(this.active);
     await this.ensureComposited();
     // Before anything can raise it: was this browser already the user's frontmost app?
     const hadFocus = await isFrontmost(this.browserPid());

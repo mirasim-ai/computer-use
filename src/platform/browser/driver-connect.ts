@@ -27,6 +27,9 @@ import { ensureRefSelector } from "../chromium/page-refs.ts";
 import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
 
+/** How long a verb waits for a page to take the page-tabs script. */
+const PAGE_TABS_WAIT_MS = 1_500;
+
 export abstract class BrowserDriverConnect extends BrowserDriverTabs {
   private endpoints(): string[] {
     if (this.explicit) return [this.cdpUrl];
@@ -167,6 +170,9 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     }
     if (this.browser) {
       this.browser = null;
+      // The binding and the init script went with that connection: the next one installs them
+      // again. Left set, every reconnect drove pages Chrome opened tabs for by itself.
+      this.pageTabsInstalled = false;
       // The managed browser died under us; the ladder below relaunches it off-screen, and the
       // model is told so it re-observes instead of trusting stale refs.
       if (this.managedProfileDir) this.pendingNote = REOPENED_NOTE;
@@ -351,7 +357,26 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     } catch {
       this.pageTabsInstalled = false;
     }
-    await page?.evaluate(PAGE_TABS_JS).catch(() => {});
+    if (page) await this.seedPageTabs(page);
+  }
+
+  /**
+   * Run the page-tabs script in the documents `page` ALREADY holds, once per page. The init
+   * script only reaches documents created after it was registered, so a tab that was open before
+   * this connection (the person's tab a session binds, its own tab after a reconnect) had none
+   * until it next navigated: Chrome opened that page's tabs itself, and raised the browser doing
+   * it. Called before each verb for the page it acts on; one that answers nothing is not waited on.
+   */
+  protected async seedPageTabs(page: Page): Promise<void> {
+    if (!this.pageTabsInstalled || this.attached || this.pageTabsSeeded.has(page)) return;
+    this.pageTabsSeeded.add(page);
+    const frames = page.frames().filter((f) => f.parentFrame() === null || f.url() !== "");
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      Promise.all(frames.map((f) => f.evaluate(PAGE_TABS_JS).catch(() => {}))),
+      new Promise((resolve) => { timer = setTimeout(resolve, PAGE_TABS_WAIT_MS); }),
+    ]);
+    clearTimeout(timer);
   }
 
   /** Is this frame, or one it is nested in, an iframe whose `sandbox` withholds allow-popups?

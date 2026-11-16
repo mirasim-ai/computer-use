@@ -66,6 +66,8 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   protected armedChooser: ((fc: { setFiles(p: string[]): Promise<void> }) => void) | null = null;
   /** Whether this context already carries the page-tabs binding and init script (page-tabs.ts). */
   protected pageTabsInstalled = false;
+  /** Pages whose already-loaded documents were given the page-tabs script (driver-connect.ts `seedPageTabs`). */
+  protected readonly pageTabsSeeded = new WeakSet<Page>();
   /** Page-tab requests being answered right now. `perform` waits for them, so the tab a click
    *  opened is listed and observed in the run that clicked. */
   protected readonly pageTabJobs = new Set<Promise<void>>();
