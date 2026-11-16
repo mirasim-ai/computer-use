@@ -371,11 +371,4 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     };
   }
 
-  async observeFullText(): Promise<ToolResult> {
-    const t = await this.bounded("read text", this.readText());
-    // Empty is ambiguous (not rendered yet vs no text); naming the likely cause keeps the model
-    // on the cheapest whole-page read instead of falling back to scrolling.
-    return text(t || "(no readable text — the page may still be rendering; wait, then observe again)", { chars: t.length });
-  }
-
 }

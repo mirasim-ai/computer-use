@@ -117,7 +117,7 @@ export function createHarness(driver: ComputerUseDriver, opts: { diagnostics?: b
       if (!r.ok) return text(`Cannot focus target: ${r.note}`, { error: "bad_target" });
     }
     switch (look.what ?? "elements") {
-      case "text": return driver.observeFullText();
+      case "text": { const t = await driver.readText(); return text(t, { chars: t.length }); }
       case "screenshot": {
         const scope: ShotScope = {
           ...(look.ref ? { ref: look.ref } : {}),

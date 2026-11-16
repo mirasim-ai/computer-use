@@ -395,7 +395,7 @@ async function main() {
       check("...and selecting it attaches nothing yet", !(await debuggerOn(readingTab)));
       await bindDriver.prepareTarget();
       check("preparing the bound tab attaches it", await debuggerOn(readingTab));
-      const read = firstText(await bindDriver.observeFullText());
+      const read = await bindDriver.readText();
       check("...and reads THAT page", read.includes("THE USER'S PAGE"), read.slice(0, 120));
       check("...with the id it was listed under", (await bindDriver.activeTarget()) === reading!.id);
       const scheme = await bindDriver.perform("run_js", { code: `matchMedia("(prefers-color-scheme: dark)").matches` });
@@ -407,7 +407,7 @@ async function main() {
       check("going idle lets the user's tab go", !(await debuggerOn(readingTab)));
       check("...and keeps it selected", (await bindDriver.activeTarget()) === reading!.id);
       await bindDriver.prepareTarget();
-      const again = firstText(await bindDriver.observeFullText());
+      const again = await bindDriver.readText();
       check("the next bind reads it again", again.includes("THE USER'S PAGE") && await debuggerOn(readingTab), again.slice(0, 120));
 
       // A popup of the bound tab is borrowed with it: taken over, and let go of the same way. A
