@@ -11,6 +11,7 @@
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
 import type { AxCall } from "./act-element.ts";
+import { AxRequestError } from "./ax-errors.ts";
 
 export const TYPE_VERB: VerbSpec = {
   kind: "type",
@@ -29,6 +30,30 @@ export const TYPE_VERB: VerbSpec = {
  * already costs more than this.
  */
 export const TYPE_AFTER_KEY_MS = 250;
+
+/**
+ * Characters posted per helper request when the text goes in parts. The helper posts one character
+ * about every 5 ms (measured: 1000 in 4.6 s), and on the foreground route nothing bounds a request
+ * from inside — while a request that outlasts 15 s gets the helper stopped (ax-client.ts),
+ * mid-text, and with it every ref of the session: about 3300 characters as one request. In parts,
+ * a long text is several requests of under five seconds each.
+ */
+export const TYPE_PART = 1000;
+
+/** `text` in parts of `size` user-perceived characters, as the helper counts them: a boundary
+ *  inside one (a surrogate pair, a letter and its combining mark) would post it as two keys. */
+function inPartsOf(text: string, size: number): string[] {
+  const out: string[] = [];
+  let part = "";
+  let count = 0;
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
+    part += segment;
+    count += 1;
+    if (count === size) { out.push(part); part = ""; count = 0; }
+  }
+  if (part) out.push(part);
+  return out;
+}
 
 interface TypeReceipt {
   postedCount?: number;
@@ -85,19 +110,45 @@ async function readsBackAsTyped(
   return { note: "unverified — the original target field could not be read after input; inspect it before editing further, and do not automatically replay the input" };
 }
 
+/**
+ * `inParts`: send a long text as several requests ({@link TYPE_PART}). For the foreground route
+ * only — background typing sets up and takes down its protected key window around every request
+ * and stops itself at its own 10 s budget, saying how far it got.
+ */
 export async function typeVerb(
-  call: AxCall, pid: number, appName: string, text: string, lastKeyAt = 0,
+  call: AxCall, pid: number, appName: string, text: string, lastKeyAt = 0, inParts = false,
 ): Promise<ActResult> {
   if (!text) return { ok: false, note: "type needs text" };
   const since = lastKeyAt ? Math.max(0, Date.now() - lastKeyAt) : Number.POSITIVE_INFINITY;
   const waited = since < TYPE_AFTER_KEY_MS ? Math.ceil(TYPE_AFTER_KEY_MS - since) : 0;
   if (waited) await new Promise((r) => setTimeout(r, waited));
-  const receipt = await call<TypeReceipt>("type", { pid, text });
+  const parts = inParts ? inPartsOf(text, TYPE_PART) : [text];
+  // The field as it was before the FIRST character: what the read-back is compared against.
+  let receipt: TypeReceipt | undefined;
+  let posted = 0;
+  for (const [i, part] of parts.entries()) {
+    let answer: TypeReceipt | undefined;
+    try {
+      answer = await call<TypeReceipt>("type", { pid, text: part });
+    } catch (e) {
+      if (parts.length === 1 || !(e instanceof AxRequestError)) throw e;
+      // The helper counted within its own part; the caller asked for the whole text.
+      const requested = (parts.length - 1) * TYPE_PART + inPartsOf(parts[parts.length - 1]!, 1).length;
+      const sofar = posted + (e.postedCount ?? 0);
+      const own = /^\d+ of \d+ characters were posted before interruption\. /;
+      throw new AxRequestError(e.code, own.test(e.message)
+        ? e.message.replace(own, `${sofar} of ${requested} characters were posted before interruption. `)
+        : `at least ${sofar} of ${requested} characters were posted before this. ${e.message}`,
+        e.ax, sofar, requested, e.capture);
+    }
+    if (i === 0) receipt = answer;
+    posted += answer?.postedCount ?? part.length;
+  }
   const verification = await readsBackAsTyped(call, text, receipt ?? {});
   return {
     ok: true,
     ...verification,
-    note: `posted ${receipt?.postedCount ?? text.length} characters at ${appName}'s keyboard focus with key events`
+    note: `posted ${posted} characters at ${appName}'s keyboard focus with key events`
       + (waited ? `, after ${waited} ms for the key before it to finish moving the focus — a field that commits on Enter hands it on asynchronously, and a character posted into that gap is lost with no error` : "")
       + `; ${verification.note}`,
   };

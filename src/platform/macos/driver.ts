@@ -197,10 +197,10 @@ export class MacosDriver extends MacosDriverTargets {
     return owner;
   }
 
-  private async typingChannel(pid: number): Promise<{ to: number; call: AxCall }> {
+  private async typingChannel(pid: number): Promise<{ to: number; background: boolean; call: AxCall }> {
     const to = await this.keyPid(pid);
     const background = to === pid && !(await this.menu.isFrontmost(pid));
-    return { to, call: <T>(op: string, params?: Record<string, unknown>) => {
+    return { to, background, call: <T>(op: string, params?: Record<string, unknown>) => {
       if (background && op === "type") {
         return this.call<T>("backgroundtype", { ...params, window: this.windowId });
       }
@@ -520,11 +520,11 @@ export class MacosDriver extends MacosDriverTargets {
       case "set_text": {
         if (a.ref) return this.acts.setValue(a.ref, a.name, String(a.text ?? ""));
         const channel = await this.typingChannel(pid);
-        return typeVerb(channel.call, channel.to, this.app!.name, String(a.text ?? ""), this.lastKeyAt);
+        return typeVerb(channel.call, channel.to, this.app!.name, String(a.text ?? ""), this.lastKeyAt, !channel.background);
       }
       case "type": {
         const channel = await this.typingChannel(pid);
-        return typeVerb(channel.call, channel.to, this.app!.name, String(a.text ?? ""), this.lastKeyAt);
+        return typeVerb(channel.call, channel.to, this.app!.name, String(a.text ?? ""), this.lastKeyAt, !channel.background);
       }
       case "keys": {
         // Symbols first: the menu listing prints ⌥⌘N, so that is what a model sends back.

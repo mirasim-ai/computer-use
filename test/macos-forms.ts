@@ -8,7 +8,8 @@
  */
 
 import { createHarness } from "./harness.ts";
-import { TYPE_AFTER_KEY_MS, typeVerb } from "../src/platform/macos/type-verb.ts";
+import { TYPE_AFTER_KEY_MS, TYPE_PART, typeVerb } from "../src/platform/macos/type-verb.ts";
+import { AxRequestError } from "../src/platform/macos/ax-errors.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { findCall, ONE_APP, stubTransport } from "./macos-fixtures.ts";
 
@@ -161,6 +162,56 @@ async function main() {
       Date.now() - t1 < 50 && !/finish moving the focus/.test(plain.note ?? ""), `${Date.now() - t1} ms`);
   }
 
+  // ── A long text in front goes to the helper in parts ─────────────────────────────────
+  // The helper posts a character about every 5 ms and a request that outlasts 15 s gets it
+  // stopped, mid-text and with every ref of the session: a few thousand characters as ONE
+  // request is exactly that.
+  {
+    // 999 letters, then a thumbs-up with a skin tone (two code points, four UTF-16 units) as
+    // the 1000th character: the first part must end after the whole of it.
+    const long = "a".repeat(TYPE_PART - 1) + "👍🏽" + "e\u0301".repeat(TYPE_PART) + "尾".repeat(500);
+    const sent: string[] = [];
+    const before = { typedKey: "k1", typedValue: "", typedRange: { start: 0, length: 0 } };
+    const whole = (async (op: string, params: { text?: string }) => {
+      if (op === "textvalue") return { value: long };
+      sent.push(params.text ?? "");
+      return sent.length === 1 ? { ...before, postedCount: TYPE_PART } : { typedKey: "k1", typedValue: sent.slice(0, -1).join(""), typedRange: { start: 0, length: 0 }, postedCount: sent.length === 2 ? TYPE_PART : 500 };
+    }) as never;
+    const typed = await typeVerb(whole, 1, "Pages", long, 0, true);
+    check("a long text in front is sent in parts of a thousand characters", sent.length === 3 && sent.join("") === long, `${sent.length} requests`);
+    check("...no part ends inside a character", sent[0]!.endsWith("👍🏽") && sent[1]!.startsWith("e\u0301") && sent[1]!.endsWith("e\u0301") && sent[2] === "尾".repeat(500),
+      JSON.stringify([sent[0]!.slice(-4), sent[1]!.slice(0, 2)]));
+    check("...the count is the whole text's, and it is read back against the field as it was before the first part",
+      /posted 2500 characters/.test(typed.note ?? "") && typed.verified === true, (typed.note ?? "").slice(0, 90));
+
+    sent.length = 0;
+    const once = await typeVerb(whole, 1, "Pages", long, 0);
+    check("background typing still sends the whole text as one request", sent.length === 1 && sent[0] === long && once.ok === true);
+
+    // The second part is interrupted 300 characters in: the helper counted within its part.
+    sent.length = 0;
+    const cut = (async (op: string, params: { text?: string }) => {
+      sent.push(params.text ?? "");
+      if (sent.length === 2) throw new AxRequestError("ax_error", "300 of 1000 characters were posted before interruption. the app quit", undefined, 300, 1000);
+      return { postedCount: TYPE_PART };
+    }) as never;
+    const failed = await typeVerb(cut, 1, "Pages", long, 0, true).then(() => null, (e: unknown) => e);
+    check("a part cut short reports how far the WHOLE text got, and nothing more is sent",
+      failed instanceof AxRequestError && failed.postedCount === 1300 && failed.requestedCount === 2500 && sent.length === 2
+        && /^1300 of 2500 characters were posted before interruption\. the app quit$/.test(failed.message),
+      failed instanceof Error ? failed.message : String(failed));
+    sent.length = 0;
+    const stopped = (async (op: string, params: { text?: string }) => {
+      sent.push(params.text ?? "");
+      if (sent.length === 3) throw new AxRequestError("helper_gone", "ax helper closed");
+      return { postedCount: TYPE_PART };
+    }) as never;
+    const gone = await typeVerb(stopped, 1, "Pages", long, 0, true).then(() => null, (e: unknown) => e);
+    check("a part that fails without a count still says how much went before it",
+      gone instanceof AxRequestError && gone.code === "helper_gone" && gone.postedCount === 2000 && /^at least 2000 of 2500 characters were posted before this\. ax helper closed$/.test(gone.message),
+      gone instanceof Error ? gone.message : String(gone));
+  }
+
   // ── Polling with wait() is not "the same action twice" ───────────────────────────────
   // `wait` acts on nothing, and its whole job is to be called while the screen has not moved
   // yet, so it must not earn "You already tried this exact action".
@@ -234,6 +285,12 @@ async function main() {
   stub.calls.length = 0;
   await h.act("type", { text: "/tmp" });
   check("type likewise", findCall(stub.calls, "type")?.params.pid === 9999, JSON.stringify(findCall(stub.calls, "type")?.params));
+  // In front of the user (here: the panel's own process holds the focus) nothing in the helper
+  // bounds a type, so a long text goes in parts; behind, it stays one guarded request.
+  stub.calls.length = 0;
+  await h.act("type", { text: "长".repeat(TYPE_PART * 2 + 1) });
+  const frontParts = stub.calls.filter((c) => c.op === "type").map((c) => String(c.params.text).length);
+  check("a long text typed on the foreground route reaches the helper in parts", JSON.stringify(frontParts) === JSON.stringify([TYPE_PART, TYPE_PART, 1]), JSON.stringify(frontParts));
   stub.frontmost = true;
   stub.panelUp = true;
   stub.calls.length = 0;
