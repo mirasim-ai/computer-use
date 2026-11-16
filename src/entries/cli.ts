@@ -33,7 +33,7 @@ Runs the one ScreenCaptureKit helper a host shares among its computer-use runtim
 It takes no arguments: the host passes COMPUTER_USE_MACOS_CAPTURE_SOCKET, _TOKEN and _LEASE.
 See "Shared native capture" in docs/embedding.md.`, true);
       }
-      const { runCaptureServer } = await import("./commands/capture-server.ts");
+      const { runCaptureServer } = await import("../platform/macos/capture-server.ts");
       await runCaptureServer();
     },
   },

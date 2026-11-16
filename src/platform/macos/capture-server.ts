@@ -1,10 +1,11 @@
-/** One host-owned ScreenCaptureKit process; this endpoint exposes no input or AX-key operations. */
+/** One host-owned ScreenCaptureKit process; this endpoint exposes no input or AX-key operations.
+ *  The server half of `capture-client.ts`: `mirasim-cu capture-server` runs it. */
 import http from "node:http";
 import net from "node:net";
 import { chmodSync, existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { AxHelperProcess } from "../../platform/macos/ax-client.ts";
-import { AxRequestError } from "../../platform/macos/ax-errors.ts";
+import { AxHelperProcess } from "./ax-client.ts";
+import { AxRequestError } from "./ax-errors.ts";
 
 type Params = Record<string, unknown>;
 function object(value: unknown): Params {
