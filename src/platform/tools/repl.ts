@@ -673,13 +673,19 @@ export function createReplTools(
         ? `Run STOPPED after ${journal.length} steps (${elapsed}s): ${failure}`
         : `Run completed ${journal.length} steps in ${elapsed}s.`;
       const lines = [head, ...renderJournal(journal)];
+      /** A result that is the ledger alone, with no observation under it: `tail` goes after the
+       *  ledger's lines without counting as one, `attach` after the text. */
+      const ledgerOnly = (attach: ToolResult["content"], tail = "", extra: Record<string, unknown> = {}): ToolResult => {
+        const r = text(`${lines.join("\n")}${tail}`, { verdict: "unknown", ledgerLines: lines.length, timing: timing(),
+          ...(failure ? { error: "run_stopped" } : {}), ...extra });
+        r.content.push(...attach);
+        return r;
+      };
       // A call ended from outside is not observed: its surface is the one that stopped answering
       // (or was just let go of), and its runtime is gone, so there is nothing still bound to name.
       if (ended.why !== null) {
         lines.push("The next call starts a fresh runtime: nothing declared so far survives, and every surface is bound again from computer.surface().");
-        const r = text(lines.join("\n"), { verdict: "unknown", ledgerLines: lines.length, timing: timing(), error: "run_stopped", ended: true });
-        r.content.push(...images);
-        return r;
+        return ledgerOnly(images, "", { error: "run_stopped", ended: true });
       }
       // A throw ends the call before `return`; say here what survives a stop.
       if (failure && journal.length > 0) {
@@ -728,31 +734,20 @@ export function createReplTools(
       else if (refused) landed.driver.noteContentRead();
       const after = acted ? { afterAction: acted } : {};
       const permissionRefusal = slices.find(sl => sl.driver.permissionRefusal)?.driver.permissionRefusal;
-      if (requestedHelp && journal.length === 0) {
-        const r = text(lines.join("\n"), { verdict: "unknown", ledgerLines: lines.length, timing: timing(),
-          ...(failure ? { error: "run_stopped" } : {}) });
-        r.content.push(...docs);
-        return r;
-      }
+      if (requestedHelp && journal.length === 0) return ledgerOnly(docs);
       if (permissionRefusal || ownershipRefusal) {
         // Binding can be denied before an app becomes active. Observing afterwards would
         // either ask again, read the previous app, or misreport "no app was named".
         const refusal = permissionRefusal || ownershipRefusal!;
         if (!failure?.includes(refusal)) lines.push(`Observation skipped: ${refusal}`);
-        const r = text(lines.join("\n"), { verdict: "unknown", ledgerLines: lines.length, timing: timing(),
-          ...(failure ? { error: "run_stopped" } : {}),
-          ...(permissionRefusal ? { permissionRefused: true } : { ownershipRefused: true }) });
-        r.content.push(...images, ...docs);
-        return r;
+        return ledgerOnly([...images, ...docs], "", permissionRefusal ? { permissionRefused: true } : { ownershipRefused: true });
       }
       try {
         if (resetPending || (lastBound && (!leaseGroups.has(lastBound)
             || !(await landed.driver.isActiveTarget(owner.get(lastBound)!.inner))))) {
           const note = landed.driver.takeNoteForResult();
-          const r = text(`${lines.join("\n")}${note ? `\nNOTE: ${note}.` : ""}\nObservation skipped: the bound target was released, closed or replaced. List surfaces and bind the intended target before continuing.`,
-            { verdict: "unknown", ledgerLines: lines.length, timing: timing(), ...(failure ? { error: "run_stopped" } : {}) });
-          r.content.push(...images, ...docs);
-          return r;
+          return ledgerOnly([...images, ...docs], `${note ? `\nNOTE: ${note}.` : ""}\nObservation skipped: the bound target was `
+            + "released, closed or replaced. List surfaces and bind the intended target before continuing.");
         }
         const observeStarted = Date.now();
         const obs = await landed.driver.observeElements({ prefix: lines.join("\n"), ...after });
@@ -769,9 +764,7 @@ export function createReplTools(
         // The run usually stopped for the same reason the re-read fails: say it once.
         const why = (e as Error).message;
         const again = failure && failure.includes(why) ? "for the same reason" : `${why} — observe again before the next action`;
-        const r = text(`${lines.join("\n")}\n(re-observation failed: ${again}.)`, { verdict: "unknown", ledgerLines: lines.length, timing: timing(), ...(failure ? { error: "run_stopped" } : {}) });
-        r.content.push(...images, ...docs);
-        return r;
+        return ledgerOnly([...images, ...docs], `\n(re-observation failed: ${again}.)`);
       }
     },
   });
