@@ -58,19 +58,47 @@ export const COVERER_LABEL_JS = String.raw`(hit, nameOf, target, out) => {
 }`;
 
 /**
- * Is `el` an editor's input proxy that `hit` sits on by design? A code editor keeps the text
- * entry it types through BEHIND its own rendered text (Monaco's `.inputarea` and
- * `.native-edit-context` in VS Code: z-index -10) and moves it to the caret. The point a click
- * aims at lands on that text, inside the same editor, and the editor puts the caret there and
- * focuses the proxy: what a person's click does, not a cover. Only a negative z-index qualifies,
- * and only a hit inside the proxy's own parent: anything else on top (a notification over the
- * editor) is still a cover.
+ * Is `hit`, which sits over the text entry `el`, part of how that entry is BUILT rather than a
+ * cover? Two shapes, and in both a click at that point is the one a person makes there:
+ *
+ *  · An editor's input proxy. A code editor keeps the text entry it types through BEHIND its own
+ *    rendered text (Monaco's `.inputarea` and `.native-edit-context` in VS Code: z-index -10) and
+ *    moves it to the caret. The point a click aims at lands on that text, inside the same editor,
+ *    and the editor puts the caret there and focuses the proxy. Only a negative z-index
+ *    qualifies, and only a hit inside the proxy's own parent.
+ *
+ *  · An empty entry's placeholder. A rich-text editor draws "Write something…" as an element of
+ *    its own laid over the empty entry (Draft.js: a positioned sibling of the editable's wrapper),
+ *    and an empty body is one line high, so the placeholder holds the entry's whole click point.
+ *    Taken for a cover, the body of a new document was listed nowhere, find() answered "covered",
+ *    and the advice (dismiss it, scroll clear of it) named nothing that can be done: there is no
+ *    layer to close. It qualifies only while the entry is EMPTY, when it sits in the entry's own
+ *    container (its parent, or that one's parent) and inside that container's box, and when it is
+ *    plain text: nothing in or around it takes a click of its own.
+ *
+ * Anything else on top (a notification over the editor, a modal's backdrop) is still a cover.
  */
 export const EDITOR_PROXY_JS = String.raw`(el, hit) => {
   const tag = el.tagName;
   const entry = tag === 'TEXTAREA' || tag === 'INPUT' || el.isContentEditable || el.getAttribute('role') === 'textbox';
-  if (!entry || !hit || !el.parentElement || !el.parentElement.contains(hit)) return false;
-  return parseInt(el.ownerDocument.defaultView.getComputedStyle(el).zIndex, 10) < 0;
+  if (!entry || !hit || !el.parentElement) return false;
+  const win = el.ownerDocument.defaultView;
+  if (el.parentElement.contains(hit) && parseInt(win.getComputedStyle(el).zIndex, 10) < 0) return true;
+  // The placeholder of an empty entry.
+  if (hit === el || el.contains(hit) || hit.contains(el)) return false;
+  const held = typeof el.value === 'string' ? el.value : (el.innerText || '');
+  if (held.trim()) return false;
+  const body = el.ownerDocument.body;
+  let box = el.parentElement;
+  if (!box.contains(hit)) box = box.parentElement;
+  if (!box || box === body || box === el.ownerDocument.documentElement || !box.contains(hit)) return false;
+  // Plain text: nothing between it and the container takes a click of its own, nor inside it.
+  const TAKES_CLICKS = 'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [tabindex], [onclick], [contenteditable=""], [contenteditable="true"]';
+  const LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="tooltip"], dialog, [popover]';
+  for (let n = hit; n && n !== box; n = n.parentElement) if (n.matches(TAKES_CLICKS) || n.matches(LAYER)) return false;
+  if (hit.querySelector(TAKES_CLICKS) || !(hit.textContent || '').trim()) return false;
+  const h = hit.getBoundingClientRect(), b = box.getBoundingClientRect();
+  return h.left >= b.left - 2 && h.top >= b.top - 2 && h.right <= b.right + 2 && h.bottom <= b.bottom + 2;
 }`;
 
 /** {@link EDITOR_PROXY_JS} for one element, probed at its click point now. */
