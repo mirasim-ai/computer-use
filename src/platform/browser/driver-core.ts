@@ -47,9 +47,22 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   protected readonly downloads = new BrowserDownloads();
   protected browser: Browser | null = null;
   protected context!: BrowserContext;
+  private current: Page | undefined;
   /** The page every verb acts on. Unset until connected, and on the extension bridge until the
-   *  session opens a tab or binds one — it starts holding none there (tabs.ts `claimSessionTab`). */
-  protected active: Page | undefined;
+   *  session opens a tab or binds one — it starts holding none there (tabs.ts `claimSessionTab`).
+   *  Read-only: it changes through {@link setActive}, so the ledger always knows which tab the
+   *  session is on. */
+  protected get active(): Page | undefined {
+    return this.current;
+  }
+  /** Put the session on a page, or on none. The ONE place `active` changes, whoever asked: an
+   *  adopt path ({@link makeActive}, which also says so), the script (`focus`, `new_tab`,
+   *  `close_tab`), a connection being made. Holding none forgets nothing: the tab it was on is
+   *  still the one to come back to. */
+  protected setActive(p: Page | undefined): void {
+    this.current = p;
+    if (p) this.tabs.noteActive(p);
+  }
   /** Which tabs are this session's, by object and by Chrome's targetId, and the ids the model
    *  knows them by (tab-ledger.ts). */
   protected readonly tabs = new TabLedger(() => this.active);
@@ -186,8 +199,7 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
    */
   protected makeActive(p: Page, why: string | null): void {
     if (this.active === p) return;
-    this.active = p;
-    this.tabs.remember(p);
+    this.setActive(p);
     // Observation continuity does not survive a surface move (see resetObservationState). Stale
     // refs are caught by the per-page identity mark in locate(), not the ref table: ref NUMBERS
     // are minted per page and COLLIDE across tabs. The reset is for the delta base and rect

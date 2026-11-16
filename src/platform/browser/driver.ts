@@ -71,7 +71,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const { page, reloaded, viewport } = await restoreBridgeTab(this.browser!, selected.tabId, selected.targetId, selected.browserSession);
     this.tabs.nameId(page, selected.id);
     this.borrowed.set(page, selected);
-    this.active = page;
+    this.setActive(page);
     this.reported = page; // the bridge holds it for us already (restoreTab)
     this.dormantSelection = null;
     this.resetObservationState();
@@ -129,7 +129,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const active = this.active;
     const selected = active ? this.borrowed.get(active) : undefined;
     if (!selected) return;
-    this.active = undefined;
+    this.setActive(undefined);
     this.borrowed.clear();
     await this.syncHeld();
     this.dormantSelection = selected;
@@ -312,6 +312,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
     // would protect nothing; ownership does: `own: false` cannot be closed.
     const own = new Set(await this.ownPages());
     const pages = await this.visiblePages();
+    // Before any of them is given an id: a tab back under a new page object keeps the one it had.
+    await this.tabs.identify(pages);
     const targets: TargetInfo[] = await Promise.all(pages.map(async (p) => ({
       id: this.tabId(p), kind: "tab" as const,
       title: (await boundedTitle(p)) || p.url(), active: !this.dormantSelection && p === this.active,
@@ -380,10 +382,12 @@ export class BrowserDriver extends BrowserDriverVerbs {
     let res: ActResult = { ok: false, note: `no target with id ${id}; call computer.surfaces() for current ids` };
     // Visible, not own: switching INTO the user's tab is the point of seeing it. What stays
     // refused is closing it — see the close_tab branch.
-    for (const p of await this.visiblePages()) {
+    const visible = await this.visiblePages();
+    await this.tabs.identify(visible);
+    for (const p of visible) {
       if (p.isClosed() || this.tabId(p) !== id) continue;
       this.dormantSelection = null;
-      this.active = p;
+      this.setActive(p);
       // Binding a tab ends the dormancy close_tab left behind; left set, `page()` would refuse
       // every read and act on the tab just bound (new_tab included).
       this.closedItsLastTab = false;
@@ -399,7 +403,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
       const browserSession = dormant[2]!;
       const { targetId } = await bridgeRequest<{ targetId: string }>(this.browser!, "Mirasim.tabTarget", { tabId, browserSession });
       this.dormantSelection = { id, tabId, targetId, browserSession };
-      this.active = undefined;
+      this.setActive(undefined);
       this.closedItsLastTab = false; // holds a target again — see the visible-tab branch above
       return { ok: true };
     }

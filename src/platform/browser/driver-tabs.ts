@@ -41,7 +41,9 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
   /** {@link TabLedger.recognise}, and a page found to be ours gets what a claim gives one. */
   protected async recognise(p: Page): Promise<"same" | "ours" | null> {
     const known = await this.tabs.recognise(p);
-    if (known) this.armSavePicker(p); // a re-minted page lost the old object's init script
+    // A re-minted page lost the old object's init script. Only on a tab that is the session's:
+    // the one it was on may be the user's.
+    if (known && this.tabs.owns(p)) this.armSavePicker(p);
     return known;
   }
 

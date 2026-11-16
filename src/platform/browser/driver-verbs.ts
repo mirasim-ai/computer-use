@@ -80,10 +80,11 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     }
     if (!this.active) {
       if (kind !== "open_url" && kind !== "new_tab") return { ok: false, note: NO_TAB_YET_NOTE };
-      this.active = await newBackgroundPage(this.context);
-      this.claim(this.active);
+      const fresh = await newBackgroundPage(this.context);
+      this.setActive(fresh);
+      this.claim(fresh);
       if (kind === "new_tab") {
-        openedTab = this.shownTabId(this.active);
+        openedTab = this.shownTabId(fresh);
         if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
         kind = "open_url"; // what is left of new_tab is the navigation
       }
@@ -288,7 +289,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         // A model-requested move, like focusTarget: assigned, never raised, no announcement —
         // but observation continuity ends here (the delta base and rect table are keyed by refs
         // the new page will mint again from e0).
-        this.active = tab;
+        this.setActive(tab);
         this.resetObservationState();
         const id = this.shownTabId(tab);
         if (typeof a.url === "string" && a.url) {
@@ -376,7 +377,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
           this.closedItsLastTab = true;
           return { ok: true, note: `closed tab ${shown}${whose} — this session has no tab left; open_url or new_tab starts a fresh one` };
         }
-        this.active = next;
+        this.setActive(next);
         this.resetObservationState();
         return { ok: true, note: `closed tab ${shown}${whose}; the target moved to ${this.shownTabId(next)} — re-observe before acting on any earlier ref` };
       }

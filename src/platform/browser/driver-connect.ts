@@ -110,7 +110,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     this.bridgeSession = session;
     if (!before || before === session) return false;
     this.resetObservationState();
-    this.active = undefined;
+    this.setActive(undefined);
     this.appendNote(BROWSER_SWITCHED_NOTE);
     return true;
   }
@@ -141,14 +141,16 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         // extension reconnection — found by Chrome's targetId, never by "some open page", which on
         // this endpoint is as likely the user's.
         const reminted = this.attached || this.tab ? null : await this.findReminted();
-        this.active = reminted ?? (this.attached ? await this.openOwnWindow()
+        const landed = reminted ?? (this.attached ? await this.openOwnWindow()
           : this.tab ? await this.reclaimTab()
           : await newBackgroundPage(this.context));
-        this.claim(this.active);
+        this.setActive(landed);
+        // The tab it was on comes back as whose it was: its own again, or still not its own.
+        if (!reminted) this.claim(landed);
         // What happened is readable from what we landed on: our tab found again, or a re-claimed
         // one with a URL, means nothing closed and the ids were re-minted under us; a blank page
         // means the tab (or browser) really went away.
-        const blank = !this.active.url() || this.active.url() === "about:blank";
+        const blank = !landed.url() || landed.url() === "about:blank";
         this.pendingNote = reminted || !blank ? SURFACE_REIDENTIFIED_NOTE
           : this.wokeAfterSelfClose ? TAB_REOPENED_AFTER_SELF_CLOSE_NOTE
           : this.managedProfileDir && !this.tab ? REOPENED_NOTE
@@ -176,6 +178,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       }
       return;
     }
+    // Whether a connection this driver held went away under it, as against one it closed itself.
+    const dropped = !!this.browser;
     if (this.browser) {
       this.browser = null;
       // The binding and the init script went with that connection: the next one installs them
@@ -185,8 +189,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       // model is told so it re-observes instead of trusting stale refs.
       if (this.managedProfileDir) this.pendingNote = REOPENED_NOTE;
       this.resetObservationState();
-      // Its page died with that connection; the claim below names the next one, or none.
-      this.active = undefined;
+      // Its page object died with that connection; the claim below names the next one, or none.
+      this.setActive(undefined);
     }
 
     // Extension mode without a named endpoint: find this home's bridge, or start one. Asked on
@@ -247,23 +251,65 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       // The profile is the user's: taking one of their tabs, even a blank one, puts the agent in
       // a window they are looking at. Open our own; `ownPages` keeps every other window out of
       // reach (see {@link openOwnWindow}).
-      this.active = await this.openOwnWindow();
+      this.setActive(await this.openOwnWindow());
     } else if (this.tab?.isolated) {
       // The claim picks the context. `this.context` stays the wrapper (where page events fire);
       // the ID is what separates our pages from everyone else's.
       const claim = await claimIsolatedTab(this.browser, this.tab.key);
-      this.active = claim.page;
+      this.setActive(claim.page);
       this.ctxId = claim.ctxId;
       this.pageCtxIds.set(claim.page, claim.ctxId);
-      this.context = this.active.context();
+      this.context = claim.page.context();
     } else {
-      // Tab selection policy (new tab / reuse / named claim / none) lives with acquisition.
-      this.active = (await claimSessionTab(this.context, this.tab?.key ?? null, this.cfg)) ?? undefined;
+      // A connection this driver has made before (a turn ended and closed it, or it dropped):
+      // the tabs the session owned are still open, under new page objects. They are its own
+      // again, and it goes back to the one it was on. Taking a fresh tab instead left its own
+      // listed as somebody else's, each under a new id, with the session on a blank page.
+      const known = this.tab ? null : await this.reclaimOwn();
+      // Not on one of its own when the connection went (on the user's tab, or its tab has been
+      // closed since): another of its own, where the alternative is opening one more. Not on the
+      // extension bridge, where a session holds no tab until it opens or binds one.
+      const back = known?.same ?? (this.browser.version() === "mirasim-bridge" ? null : known?.other ?? null);
+      if (back) {
+        this.setActive(back);
+        // Refs from before the drop are dead; after a close of its own there were none to keep.
+        if (dropped) this.pendingNote = SURFACE_REIDENTIFIED_NOTE;
+      } else {
+        // Tab selection policy (new tab / reuse / named claim / none) lives with acquisition.
+        const claimed = await claimSessionTab(this.context, this.tab?.key ?? null, this.cfg);
+        this.setActive(claimed ?? undefined);
+      }
     }
     if (this.active) this.claim(this.active);
     this.wireContext();
     await this.installPageTabs(this.active);
     await this.publishClaim();
+  }
+
+  /**
+   * Make the session's tabs its own again on a connection made anew, by Chrome's identity.
+   * Answers the one it was on (`same`) when that was its own and is still open, and another of
+   * its own (`other`: the last with real content, else the last) when any is. Null on a first
+   * connection.
+   */
+  private async reclaimOwn(): Promise<{ same: Page | null; other: Page | null } | null> {
+    if (!this.tabs.ownsAny()) return null;
+    const open = this.context.pages().filter((p) => !p.isClosed());
+    // Bounded: a tab that answers nothing must not hold up the connection being made.
+    await this.tabs.identify(open);
+    let same: Page | null = null;
+    const others: Page[] = [];
+    for (const p of open) {
+      if (!this.tabs.identified(p)) continue;
+      const known = await this.recognise(p).catch(() => null);
+      // Its own only: the tab it was on may have been the user's, bound by the script. A session
+      // that connects again starts on a tab of its own, as a new one does.
+      if (!known || !this.tabs.owns(p)) continue;
+      if (known === "same") same ??= p;
+      else others.push(p);
+    }
+    // A stray about:blank must not shadow the page the task lives in.
+    return { same, other: others.filter((p) => p.url() !== "about:blank").at(-1) ?? others.at(-1) ?? null };
   }
 
   /** An open page that is one of this session's tabs by Chrome's identity although not by object
