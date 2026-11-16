@@ -12,8 +12,6 @@ import { WebSocket } from "ws";
 import { BROWSER_TO_HOST_MAX, encodeFrame, FrameDecoder, HOST_TO_BROWSER_MAX } from "./native-frames.ts";
 
 export interface ExtensionChannel {
-  /** Which transport this line runs on — for logs and for the status a host reports. */
-  readonly kind: "ws" | "native";
   readonly isOpen: boolean;
   /** Throws `FrameTooLargeError` for a message the transport cannot carry, having sent nothing. */
   send(text: string): void;
@@ -25,7 +23,6 @@ export interface ExtensionChannel {
 /** The relay transport: a WebSocket the extension opened. */
 export function webSocketChannel(ws: WebSocket): ExtensionChannel {
   return {
-    kind: "ws",
     get isOpen() {
       return ws.readyState === WebSocket.OPEN;
     },
@@ -55,7 +52,6 @@ export function socketChannel(socket: Duplex, onError: (e: Error) => void): Exte
   socket.on("close", shut);
   socket.on("error", shut);
   return {
-    kind: "native",
     get isOpen() {
       return open && socket.writable;
     },

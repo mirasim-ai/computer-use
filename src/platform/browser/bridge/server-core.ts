@@ -120,11 +120,6 @@ export class ExtensionConnection {
     channel.onClose(() => this.dispose());
   }
 
-  /** Which transport this connection came in on. */
-  get transport(): ExtensionChannel["kind"] {
-    return this.channel.kind;
-  }
-
   get pendingCount(): number { return this.callbacks.size; }
 
   get isOpen(): boolean { return this.channel.isOpen; }
