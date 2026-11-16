@@ -58,10 +58,7 @@ export interface ToolResult {
  */
 export interface ComputerUseToolSpec<T extends TSchema = TSchema> {
   name: string;
-  label: string;
   description: string;
-  promptSnippet: string;
-  promptGuidelines?: string[];
   parameters: T;
   execute(params: Static<T>): Promise<ToolResult>;
 }

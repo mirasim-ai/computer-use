@@ -522,14 +522,7 @@ export function createReplTools(
 
   const repl = spec({
     name: "computer_repl",
-    label: "Computer REPL",
     description: replDescription(windowsApps),
-    promptSnippet: "computer_repl runs JavaScript over the GUI in a persistent session: verbs, surface handles, one observation per call.",
-    promptGuidelines: [
-      "Plan several actions per computer_repl call — one call costs one step and one observation whatever it does inside.",
-      "Keep surface handles and collected data in top-level declarations; they persist across calls.",
-      "Re-find by name inside a loop rather than reusing a ref you read earlier: find() handles re-resolve, raw refs do not survive a re-render.",
-    ],
     parameters: Type.Object({
       code: Type.String({
         description: "JavaScript, run as the body of an async function in the persistent runtime. `await` every verb; "
@@ -875,9 +868,7 @@ export function createReplTools(
 
   const reset = spec({
     name: "computer_repl_reset",
-    label: "Computer REPL reset",
     description: RESET_DESCRIPTION,
-    promptSnippet: "computer_repl_reset discards the persistent JavaScript bindings; surfaces are untouched.",
     parameters: Type.Object({}),
     async execute(params) {
       const draining = callFinished;
