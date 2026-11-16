@@ -13,8 +13,9 @@
  *     driver, attached to Chrome as the other suites attach it);
  *   · a call waiting on something that is no verb, a verb a hung page never answers, and code
  *     that catches a cap and calls on are each ended, saying why, and the next call runs;
- *   · over the real MCP server: ending the turn does not wait on a stuck call, the server takes
- *     calls afterwards, and SIGTERM ends it while a call is stuck.
+ *   · over the real MCP server: a call the client cancels is ended and the next one answered,
+ *     ending the turn does not wait on a stuck call, the server takes calls afterwards, and
+ *     SIGTERM ends it while a call is stuck.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -180,6 +181,18 @@ async function main() {
       server.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
       call(2, "computer_repl", { code: "return 1 + 1;", observation: "none" });
       check("the server answers a call", /Returned: 2/.test((await reply(2, 30_000)) ?? ""));
+
+      // The client takes a call back (its user stopped the turn). What the tool layer does with
+      // that has its own suite (cancelled-call); here it is the notification reaching it.
+      call(10, "computer_repl", { code: "await new Promise(() => {}); return 'never';", observation: "none" });
+      call(11, "computer_repl", { code: "return 5 + 5;", observation: "none" });
+      await sleep(500);
+      const cancelledAt = Date.now();
+      server.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 10, reason: "the user stopped the turn" } })}\n`);
+      const behind = await reply(11, 20_000);
+      check("a call the client cancelled is ended, and the one queued behind it is answered",
+        !!behind && /Returned: 10/.test(behind) && Date.now() - cancelledAt < 12_000, `${head(behind ?? "no answer in 20 s")} after ${Date.now() - cancelledAt} ms`);
+      check("...and the cancelled call itself is answered to nobody", !replies.has(10));
 
       call(3, "computer_repl", { code: "await new Promise(() => {}); return 'never';", observation: "none" });
       await sleep(500);

@@ -30,6 +30,14 @@ export const STUCK_GRACE_MS = 45_000;
 /** How long an ended call's verb gets to fail once its connection was dropped. */
 export const ABANDON_DRAIN_MS = 5_000;
 /**
+ * How long a call its client cancelled may still take to come back. It starts no verb once
+ * cancelled, so this is the time the verb already out gets to finish (a click settling, a short
+ * wait): a call that ends that way keeps its runtime and its connection. Past it the call is
+ * ended like a stuck one, which costs both, because until it ends every later call queues behind
+ * it. The same patience a turn's end has (entries/mcp.ts `ENDING_WAIT_MS`).
+ */
+export const CANCEL_GRACE_MS = 5_000;
+/**
  * Characters of a returned value that reach the model. Sized for one window's full text (a
  * four-turn ChatGPT.app conversation reads 13,000–17,500 chars); smaller caps make the model
  * re-read in slices. 12,000 chars is ~3-4K tokens, under one observation of the same window.

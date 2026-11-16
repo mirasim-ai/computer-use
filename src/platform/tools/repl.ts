@@ -19,7 +19,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createContext, runInContext, type Context } from "node:vm";
 import { Type } from "typebox";
 import { spec, text, type ComputerUseToolSpec, type TargetInfo, type ToolResult } from "../types.ts";
-import { ABANDON_DRAIN_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
+import { ABANDON_DRAIN_MS, CANCEL_GRACE_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
 import { pickSurface } from "./repl-pick.ts";
@@ -34,16 +34,20 @@ const READ_KINDS = new Set(["observe", "find", "text", "value", "page", "screens
 /** Verbs whose effect is not on the observed surface (an answer for a LATER dialog, a tab closed
  *  beside this one): a frozen screen after them is not "no effect". */
 const OFF_SURFACE_KINDS = new Set(["dialog", "close_tab"]);
+/** What a call its client cancelled is told, at the verb it would have started next. */
+const CANCELLED_HEAD = "the client cancelled this call";
+const CANCELLED = `${CANCELLED_HEAD}, so it stops before its next operation`;
 
 export function createReplTools(
   mounted: PlatformSlice[],
   opts: { docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number;
     /** TEST SEAMS ONLY: a call's wall clock and how far past it a call may go before it is ended. */
-    maxMs?: number; stuckGraceMs?: number } = {},
+    maxMs?: number; stuckGraceMs?: number; cancelGraceMs?: number } = {},
 ): ComputerUseToolSpec[] {
   if (!mounted.length) throw new Error("createReplTools needs at least one platform");
   const maxMs = opts.maxMs ?? MAX_MS;
   const stuckGraceMs = opts.stuckGraceMs ?? STUCK_GRACE_MS;
+  const cancelGraceMs = opts.cancelGraceMs ?? CANCEL_GRACE_MS;
   /** Windows apps are named in the tool's own text only where they are mounted (repl-docs.ts). */
   const windowsApps = mounted.some((m) => m.driver.platform === "windows");
   // ── Session state ─────────────────────────────────────────────────────────
@@ -519,7 +523,7 @@ export function createReplTools(
           + "the window holds content you do not want in the transcript, or when your own `return` value is the answer.",
       })),
     }),
-    async execute(params) {
+    async execute(params, call) {
       ownershipRefusal = null;
       requestedHelp = null;
       hostBound = null;
@@ -556,11 +560,14 @@ export function createReplTools(
       let refused = false; // a verb was attempted and failed — the run was not a look either
       let stepStart: number | null = null; // the open step's first charge (a verb can charge twice)
       const round: WriteRound = { fields: 0, verified: 0, ended: null };
+      /** Set when the client cancels this call (@see onCancel below). */
+      let cancelled = false;
       current = {
         round,
         charge(kind) {
           stepStart ??= Date.now();
           if (resetPending) stop("The runtime was reset; this run stops before its next operation.");
+          if (cancelled) stop(CANCELLED);
           if (++actions > MAX_ACTIONS) stop(`step cap reached (${MAX_ACTIONS} actions) at ${kind} — split the work across calls, or narrow the loop`);
           if (active() > maxMs) stop(`time cap reached (${maxMs / 1000}s) at ${kind} — the surface may be slower than the code assumes`);
         },
@@ -576,6 +583,7 @@ export function createReplTools(
       };
       const fresh = !sandbox;
       sandbox ??= freshSandbox();
+      const callId = {};
 
       let returned: unknown;
       let failure: string | null = null;
@@ -584,9 +592,9 @@ export function createReplTools(
       // back, or code waiting on a promise nothing settles, and until this call ends every later
       // one queues behind it, a turn cannot end and the server cannot shut down. So the call is
       // also watched from here, and can be told to end: by the watchdog, by code that calls on
-      // past a cap, by the host ending the turn (computer_repl_reset `abandonAfterMs`).
-      const call = {};
-      running = call;
+      // past a cap, by the host ending the turn (computer_repl_reset `abandonAfterMs`), by the
+      // client cancelling a call that then does not come back.
+      running = callId;
       capped = null;
       const ended: { why: string | null } = { why: null };
       let endNow!: () => void;
@@ -603,7 +611,25 @@ export function createReplTools(
           : `the code was still waiting ${at} on something that is not a verb (a promise nothing settles), so the call was ended`);
       }, Math.max(50, Math.min(1000, Math.round(stuckGraceMs / 4))));
       watchdog.unref?.();
-      const body = calls.run(call, async () => {
+      // ── The client cancelled the call ─────────────────────────────────────────────────────
+      // Nobody reads its answer any more, and until it ends the next call queues behind it: a
+      // 30 s wait the user stopped held their next message for the rest of those 30 s. It is not
+      // cut off at once, though. A verb already out is given `cancelGraceMs` to finish, and the
+      // code is stopped at its next verb: that way the runtime, its bindings and the connection
+      // all survive. Only a call still out after that is ended from outside.
+      let cancelTimer: NodeJS.Timeout | undefined;
+      const onCancel = () => {
+        cancelled = true;
+        cancelTimer = setTimeout(() => outside.end?.(`${CANCELLED_HEAD}, and ${gate.running() ?? "the code"} had not come back `
+          + `${Math.round(cancelGraceMs / 100) / 10}s later, so the call was ended`
+          + (gate.running() ? " and the connection to the surface dropped. What that verb did is unknown: bind the surface again and observe before repeating anything" : "")),
+        cancelGraceMs);
+        cancelTimer.unref?.();
+      };
+      const signal = call?.signal;
+      if (signal?.aborted) onCancel();
+      else signal?.addEventListener("abort", onCancel, { once: true });
+      const body = calls.run(callId, async () => {
         let out: unknown, error: unknown, failed = false, left: unknown, leftFailed = false;
         try {
           // A host's `target` is bound through the same pick and `bind` the code would use, so a run
@@ -639,6 +665,8 @@ export function createReplTools(
         }
       } finally {
         clearInterval(watchdog);
+        clearTimeout(cancelTimer);
+        signal?.removeEventListener("abort", onCancel);
         outside.end = null;
         // From here on this call's code is nobody's: a verb it calls is never answered.
         running = null;
@@ -709,8 +737,10 @@ export function createReplTools(
           ? `${body.slice(0, RETURN_CAP)}… (cut at ${RETURN_CAP} of ${body.length} chars — return a slice, a count or a filtered list instead of the whole thing)`
           : body}`);
       }
+      // Nobody reads a cancelled call's answer, so nothing owed to the reader is spent on it.
+      const unread = cancelled || !!signal?.aborted;
       // The reference is owed once per PLATFORM, delivered when the session first reaches it.
-      const docs = slices.filter((sl) => sl.docsDue && (sl === landed || slices.length === 1))
+      const docs = unread ? [] : slices.filter((sl) => sl.docsDue && (sl === landed || slices.length === 1))
         .map((sl) => {
           sl.docsDue = false;
           // The FIRST platform carries the whole reference; a later one only its own part.
@@ -719,7 +749,7 @@ export function createReplTools(
           const body = whole ? apiReference(sl.driver, windowsApps) : platformReference(sl.driver, windowsApps);
           return { type: "text" as const, text: `\n${body}`, pinned: true as const };
         });
-      if (respawnNoteDue) {
+      if (respawnNoteDue && !unread) {
         respawnNoteDue = false;
         docs.push({ type: "text" as const, text: "\nThis computer_repl runtime was restarted (idle), so top-level bindings and refs "
           + "from before are gone; the API reference you already have still applies — computer.help() returns it again.", pinned: true as const });
@@ -735,6 +765,11 @@ export function createReplTools(
       const after = acted ? { afterAction: acted } : {};
       const permissionRefusal = slices.find(sl => sl.driver.permissionRefusal)?.driver.permissionRefusal;
       if (requestedHelp && journal.length === 0) return ledgerOnly(docs);
+      // Reading the surface for an answer nobody reads only keeps the next call waiting.
+      if (unread) {
+        lines.push("Observation skipped: the client cancelled this call.");
+        return ledgerOnly(images, "", { cancelled: true });
+      }
       if (permissionRefusal || ownershipRefusal) {
         // Binding can be denied before an app becomes active. Observing afterwards would
         // either ask again, read the previous app, or misreport "no app was named".
@@ -795,14 +830,14 @@ export function createReplTools(
       } catch { /* kept, as if no time had passed */ }
     })().finally(() => { idleReleasing = null; });
   };
-  repl.execute = async (params) => {
+  repl.execute = async (params, call) => {
     disarmIdle();
     if (idleReleasing) await idleReleasing;
     callRunning = true;
     let finish!: () => void;
     callFinished = new Promise<void>(resolve => { finish = resolve; });
     try {
-      return await runCall(params);
+      return await runCall(params, call);
     } finally {
       try {
         if (resetPending) {

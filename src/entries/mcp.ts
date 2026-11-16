@@ -99,7 +99,7 @@ const SHUTDOWN_MAX_MS = ENDING_WAIT_MS + 20_000;
  * `accept` IS the yes. How long it holds is the form's one field, `persist`, or the answer's
  * `_meta.persist` (`session` | `always`) — neither, this one call (consent.ts).
  */
-function consentChannel(): { consent: UserConsent; attach: (server: Server) => void; cancelOpen: () => void } {
+function consentChannel(): { consent: UserConsent; attach: (server: Server) => void; cancelOpen: (why?: string) => void } {
   // Late-bound: the profile must exist before the server (its `instructions` are read off the
   // profile); a question only ever comes from inside a tool call, after the server is up.
   let server: Server | null = null;
@@ -108,7 +108,7 @@ function consentChannel(): { consent: UserConsent; attach: (server: Server) => v
    *  call (and the process) waiting up to {@link ASK_TIMEOUT_MS} on an answer nobody will use. */
   const open = new Set<AbortController>();
   return {
-    cancelOpen: () => { for (const question of open) question.abort(); },
+    cancelOpen: (why = "the turn ended before anyone answered") => { for (const question of open) question.abort(why); },
     consent: {
       available: () => server?.getClientCapabilities()?.elicitation?.form !== undefined,
       ask: async (message, meta) => {
@@ -122,7 +122,7 @@ function consentChannel(): { consent: UserConsent; attach: (server: Server) => v
           return consentAnswer(r);
         } catch (e) {
           // Taken back by this side: an answer like any other no, with the reason said.
-          if (question.signal.aborted) return { allowed: false, reason: "the turn ended before anyone answered" };
+          if (question.signal.aborted) return { allowed: false, reason: String(question.signal.reason) };
           throw e;
         } finally {
           open.delete(question);
@@ -202,7 +202,7 @@ export async function serveMcp(): Promise<void> {
   }));
 
   let endingTurn = false;
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const started = Date.now();
     const args = req.params.arguments ?? {};
     if (endingTurn) return { content: [{ type: "text" as const, text: "Turn cleanup is in progress; no new operation was started. Rebind after cleanup." }], isError: true };
@@ -248,9 +248,16 @@ export async function serveMcp(): Promise<void> {
       log({ type: "call", tool: req.params.name, args, isError: true, ms: 0, details: { error: "unknown_tool" } });
       return { content: [{ type: "text", text: `unknown tool: ${req.params.name}` }], isError: true };
     }
+    // The client took this request back (`notifications/cancelled`: its user stopped the turn, or
+    // its own timeout ran out). The SDK then sends no answer for it, but the call itself went on
+    // to its end, a 30 s wait for the whole 30 s, with every later call queued behind it. The
+    // tool is told instead, and a question to the user that the call is waiting on is taken back.
+    const cancelled = () => channel.cancelOpen("the call was cancelled before anyone answered");
+    extra.signal.addEventListener("abort", cancelled, { once: true });
     try {
-      const r = await tool.execute(args);
-      log({ type: "call", tool: tool.name, args, isError: typeof r.details.error === "string", ms: Date.now() - started, details: r.details });
+      const r = await tool.execute(args, { signal: extra.signal });
+      log({ type: "call", tool: tool.name, args, isError: typeof r.details.error === "string", ms: Date.now() - started, details: r.details,
+        ...(extra.signal.aborted ? { cancelled: true } : {}) });
       return {
         content: r.content.map((c) =>
           c.type === "image" ? { type: "image" as const, data: c.data, mimeType: c.mimeType } : { type: "text" as const, text: c.text },
@@ -270,6 +277,8 @@ export async function serveMcp(): Promise<void> {
         ? " The surface is gone (window closed / device detached) — stop; do not retry or recreate it."
         : "";
       return { content: [{ type: "text", text: `error: ${(e as Error).message}${stop}` }], isError: true };
+    } finally {
+      extra.signal.removeEventListener("abort", cancelled);
     }
   });
 

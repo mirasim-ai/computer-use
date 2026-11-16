@@ -1,7 +1,7 @@
 /** Assemble the tools for one or more drivers. Written once — every platform
  * gets identical tool names, schemas, and wording by construction. */
 
-import { SurfaceGoneError, SurfaceUnreadableError, spec, text, type ComputerUseToolSpec } from "../types.ts";
+import { SurfaceGoneError, SurfaceUnreadableError, spec, text, type ComputerUseToolSpec, type ToolCallOptions } from "../types.ts";
 import { withoutBlankOptionals } from "./normalize.ts";
 import { createReplTools, type PlatformSlice } from "./repl.ts";
 import { argComplaint } from "./validate.ts";
@@ -24,15 +24,17 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
   const inner = s.execute.bind(s);
   return spec({
     ...s,
-    async execute(params: unknown) {
+    async execute(params: unknown, call?: ToolCallOptions) {
       const epoch = chain.epoch;
       const run = chain.p.then(async () => {
         if (epoch !== chain.epoch) return text("This queued call was cancelled by a runtime reset; bind fresh handles before continuing.", { error: "runtime_reset" });
+        // Cancelled while it waited its turn: nobody reads the answer, so nothing is run for it.
+        if (call?.signal?.aborted) return text("This call was cancelled by the client before it started; nothing was run.", { error: "cancelled", cancelled: true });
         const cleaned = withoutBlankOptionals(params, s.parameters);
         const invalid = argComplaint(s.parameters, s.name, cleaned);
         if (invalid) return text(invalid, { error: "bad_arguments" });
         try {
-          return await inner(cleaned);
+          return await inner(cleaned, call);
         } catch (e) {
           if (e instanceof SurfaceGoneError) return text(e.message, { error: "surface_gone" });
           // The surface is readable again later (a locked screen, an off-screen window): the
@@ -53,7 +55,8 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
  */
 export function createComputerUseTools(
   mounted: PlatformSlice | PlatformSlice[],
-  opts: { diagnostics?: boolean; docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number; maxMs?: number; stuckGraceMs?: number } = {},
+  opts: { diagnostics?: boolean; docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number; maxMs?: number; stuckGraceMs?: number;
+    cancelGraceMs?: number } = {},
 ): ComputerUseToolSpec[] {
   const slices = Array.isArray(mounted) ? mounted : [mounted];
   for (const { driver } of slices) {
@@ -62,7 +65,7 @@ export function createComputerUseTools(
     if (opts.diagnostics && driver.supportsDiagnostics) driver.enableDiagnostics();
   }
   const [repl, reset] = createReplTools(slices, { docsDelivered: opts.docsDelivered, ownership: opts.ownership, idleReleaseMs: opts.idleReleaseMs,
-    maxMs: opts.maxMs, stuckGraceMs: opts.stuckGraceMs });
+    maxMs: opts.maxMs, stuckGraceMs: opts.stuckGraceMs, cancelGraceMs: opts.cancelGraceMs });
   const chain = { p: Promise.resolve(), epoch: 0 };
   const resetRuntime = reset.execute.bind(reset);
   reset.execute = async params => { chain.epoch++; return resetRuntime(params); };

@@ -60,7 +60,20 @@ export interface ComputerUseToolSpec<T extends TSchema = TSchema> {
   name: string;
   description: string;
   parameters: T;
-  execute(params: Static<T>): Promise<ToolResult>;
+  execute(params: Static<T>, call?: ToolCallOptions): Promise<ToolResult>;
+}
+
+/** What a caller hands a call besides its arguments. */
+export interface ToolCallOptions {
+  /**
+   * Aborted when the caller no longer wants this call's answer (an MCP client's
+   * `notifications/cancelled`: the user stopped the turn, or the client's own timeout ran out).
+   * A call still queued is then never started. One that is running starts no further verb, and
+   * if it has not come back a few seconds later it is ended like a call that is stuck
+   * (tools/repl.ts). Either way the calls queued behind it wait for it to have ended: it is not
+   * left running beside them.
+   */
+  signal?: AbortSignal;
 }
 
 /** Erase the schema generic so specs can live in one array. */

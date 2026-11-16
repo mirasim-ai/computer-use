@@ -103,6 +103,15 @@ call's, this session's and the stored "always") and removes them from the live p
 read or action in one of them asks again. A host that keeps its own allow-list sends it when an
 app leaves that list.
 
+**Cancelling a call.** `notifications/cancelled` for a `tools/call` in progress is honoured: the
+call starts no further verb, and a verb already out gets 5 seconds to finish. A call that ends
+that way keeps the runtime's bindings for the next one. One still running after those 5 seconds is
+ended like a call that is stuck (the connection to its surface is dropped and the next call
+starts a fresh runtime). A call cancelled while it waited behind another is never started, and a
+question it had open to the user is taken back. The calls after it still wait for it to have
+ended, so it never runs beside them. A host driving the tools as a library passes the same thing
+as `execute(args, { signal })`.
+
 **Ending a turn.** A host with turns can call the tool `turn_ended`, which `tools/list` does not
 show (the same shape as Codex's hook): arguments `{ session_id, turn_id, hook_event_name?,
 keep_browser_tabs? }`. It resets the REPL (a call still running gets 5 seconds to finish and is then

@@ -12,6 +12,7 @@ export {
   type Snapshot,
   type TargetInfo,
   type TargetIdentity,
+  type ToolCallOptions,
   type ToolResult,
   type VerbSpec,
   type Verdict,
