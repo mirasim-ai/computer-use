@@ -40,7 +40,7 @@ async function main() {
   process.env.COMPUTER_USE_CDP_URL = chrome.cdpUrl;
   // Every observation here must carry the excerpt: a delta round re-sends only the
   // diff, and the receipt lives in the body. The escape hatch is the supported way
-  // to ask for full renders (see ComputerUseDriver.renderObservation).
+  // to ask for full renders (see DeltaRenderer.render, driver-render.ts).
   process.env.COMPUTER_USE_OBS_DELTA = "0";
   const { resolveProfile } = await import("../src/platform/profile.ts");
   const profile = resolveProfile({ driver: "browser" });

@@ -102,7 +102,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     } catch (e) {
       this.prevSig = null;
       this.takeSurfaceChange();
-      this.forgetDeltaBase(); // continuity is gone — the next successful observation renders full
+      this.delta.forgetBase(); // continuity is gone — the next successful observation renders full
       // Before the rethrows: those are exactly the states where a later ref refusal would
       // otherwise blame a navigation that never happened.
       this.refs.noteFailure((e as Error).message);
@@ -165,8 +165,8 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     this.prevSig = sig;
     // Element identity and state ONLY — never `row`: row text with a live field (elapsed time,
     // unread count) would churn this on every observation, so the "observations without acting"
-    // nudge would never fire and the swallowed-click check in renderObservation would see a fake
-    // change.
+    // nudge would never fire and the swallowed-click check in `DeltaRenderer.render` would see a
+    // fake change.
     const elSig = elementSignature(snap.elements);
     const elFrozen = this.prevElSig !== null && this.prevElSig === elSig;
     this.prevElSig = elSig;
@@ -203,7 +203,10 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     }
     const listed = await this.listTargets().catch(() => []);
     const targets = this.surfaceIdPrefix ? listed.map((t) => ({ ...t, id: `${this.surfaceIdPrefix}${t.id}` })) : listed;
-    const { body, obsKind, headLines, effectNote } = this.renderObservation(snap, targets, verdict, { ...opts, surfaceChanged });
+    const { body, obsKind, headLines, effectNote } = this.delta.render(snap, targets, verdict, {
+      afterAction: opts.afterAction, surfaceChanged, geomChange: this.lastGeomChange,
+      headLines: (s, t, unchanged, changes) => this.renderHeadLines(s, t, unchanged, changes),
+    });
 
     // `details` is the machine-readable half of the observation, so an auditor can check it
     // against the prose. It does NOT reach the model, by design: the MCP entry answers with the
@@ -216,7 +219,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
       actionLines: head ? head.split("\n").length : 0,
       // Lines no trim may eat: once-delivered knowledge would otherwise be consumed and dropped,
       // and the swallowed-action note must never be hidden.
-      keep: [...this.contextKeep, ...this.trimSurvivors(), ...(effectNote ? [effectNote] : [])],
+      keep: [...this.delta.contextKeep, ...this.trimSurvivors(), ...(effectNote ? [effectNote] : [])],
       coverage: observationCoverage(snap),
       ...(snap.target ? { target: snap.target } : {}),
       viewport: viewportPosition(snap.meta),

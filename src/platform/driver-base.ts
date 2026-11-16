@@ -13,6 +13,7 @@
 
 import type {
   ActResult,
+  HeaderChanges,
   OwnershipResource,
   ScopedShot,
   ShotScope,
@@ -24,7 +25,9 @@ import type {
 } from "./types.ts";
 import { text } from "./types.ts";
 import { CHROMIUM_DIAGNOSTICS, DiagnosticsBuffer, type DiagnosticsAbout } from "./driver-diagnostics.ts";
-import { ComputerUseDriverRender } from "./driver-render.ts";
+import { FIRST_HEADER, headLines, OFFSCREEN_NOTE } from "./driver-narrate.ts";
+import { DeltaRenderer } from "./driver-render.ts";
+import { ComputerUseDriverSelect } from "./driver-select.ts";
 
 
 import { settleAfterStateAction } from "./driver-settle.ts";
@@ -34,7 +37,7 @@ const ABANDON_CLOSE_MS = 3_000;
 /** Ceiling on one primitive read (snapshot / screenshot / full text) — see {@link ComputerUseDriver.bounded}. */
 const OBSERVE_TIMEOUT_MS = 15_000;
 
-export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
+export abstract class ComputerUseDriverBase extends ComputerUseDriverSelect {
   /** Per-call execution policy, not proof that the user granted desktop permission. */
   interactionMode: "background" | "desktop" = "background";
   abstract override readonly platform: string;
@@ -171,6 +174,22 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
   protected lastRects: Map<string, { x: number; y: number; w: number; h: number }> | null = null;
   /** The previous element observation's scroll offset: a viewport that moved is an effect. */
   protected lastScrollY: number | null = null;
+  /** Geometry delta of the latest observation vs the one before, as a short phrase (null under
+   * the jitter threshold). Read by the frozen wording and the renderer's no-effect wording. */
+  protected lastGeomChange: string | null = null;
+  /** Full list or diff, and the base a diff is taken against (driver-render.ts). */
+  protected readonly delta = new DeltaRenderer();
+
+  /** Header lines; override to add a platform's own (browser, macOS). The shared ones are
+   *  {@link headLines}. */
+  protected renderHeadLines(s: Snapshot, targets: TargetInfo[], targetsUnchanged = false, changes: HeaderChanges = FIRST_HEADER): string[] {
+    return headLines(s, targets, targetsUnchanged, changes, (count) => this.offscreenNote(count));
+  }
+
+  /** How this platform says "some controls are off screen"; see {@link OFFSCREEN_NOTE}. */
+  protected offscreenNote(_count: number): string {
+    return OFFSCREEN_NOTE;
+  }
 
   /** Record one dispatched action (the act tool calls this per action). Feeds the repeat
    * escalation: frozen + same signature as the previous action ⇒ {@link FROZEN_REPEAT_NOTE}. */
@@ -219,7 +238,8 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
     this.lastRects = null;
     this.lastScrollY = null;
     this.pendingSurfaceChange = false;
-    this.resetRenderState();
+    this.lastGeomChange = null;
+    this.delta.reset();
   }
 
   /** Optional: drivers with an audit journal record frozen verdicts there, or a journal of

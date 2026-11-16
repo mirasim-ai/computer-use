@@ -24,7 +24,7 @@ const RECHECK_INTERVAL_MS = 200;
 const RECHECK_BUDGET_MS = 1_200;
 
 /** The actions that can change element state, and therefore earn a re-check. Mirrors the set
- *  that can produce the "nothing changed" / "moved the focus" notes in `renderObservation`. */
+ *  that can produce the "nothing changed" / "moved the focus" notes in `DeltaRenderer.render`. */
 export const STATE_CHANGING_ACTIONS = new Set(["click", "drag", "keys"]);
 
 /** Element identity + state, focus included — the previous observation's `prevElSig`. Against

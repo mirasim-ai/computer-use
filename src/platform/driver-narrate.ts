@@ -234,7 +234,7 @@ export function coveredBaselineLines(s: Snapshot): string[] {
 }
 
 /** The diffable content lines: elements, then covered elements, then the excerpt; no labels
- * or headers. The covered block is a DIFF BASELINE only, never printed (`renderObservation`
+ * or headers. The covered block is a DIFF BASELINE only, never printed (`DeltaRenderer.render`
  * skips it by length): its lines match the clickable ones, so being covered is not a change.
  * The blocks stay contiguous and in this order, because the full render slices by it. */
 export function bodyLines(s: Snapshot): string[] {

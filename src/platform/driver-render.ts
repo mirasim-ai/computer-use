@@ -1,18 +1,17 @@
 /**
- * How an observation is SHAPED — full list or incremental diff — the render slice of
- * {@link ComputerUseDriver}. Whether an observation may be a DELTA is stateful (previous body, its
- * printable length, its URL, deltas since the last full list), which is why it is not in the
- * stateless driver-narrate.ts; the wording still comes from there.
+ * How an observation is SHAPED — full list or incremental diff. Whether an observation may be a
+ * DELTA is stateful (previous body, its printable length, its URL, deltas since the last full
+ * list), and that state is all here, in one object the driver holds ({@link DeltaRenderer}); the
+ * wording comes from the stateless driver-narrate.ts and driver-verdict.ts.
  *
- * {@link ComputerUseDriverRender.resetRenderState} drops the state when the surface is REPLACED:
- * a delta against a page that is gone would describe a fiction.
+ * {@link DeltaRenderer.reset} drops the state when the surface is REPLACED: a delta against a
+ * page that is gone would describe a fiction.
  */
 
 import type { Element, HeaderChanges, Snapshot, TargetInfo, Verdict } from "./types.ts";
-import { ComputerUseDriverSelect } from "./driver-select.ts";
 import {
-  bodyLines as renderBodyLines, changedElementLine, coveredBaselineLines, elementLine, FIRST_HEADER, headLines,
-  OFFSCREEN_NOTE, targetLine, targetsLine, viewportPosition,
+  bodyLines as renderBodyLines, changedElementLine, coveredBaselineLines, elementLine, targetLine, targetsLine,
+  viewportPosition,
 } from "./driver-narrate.ts";
 import { renderDelta } from "./driver-verdict.ts";
 import { controlRef, diffLines, looksUnmarked, reattachRows, stripFocus, stripRow } from "./driver-lines.ts";
@@ -23,7 +22,20 @@ const MAX_DELTA_ROUNDS = 6;
 const DRAG_TEXT_NOTE = "NOTE: this drag changed the page's text but no interactive element — a reorder "
   + "looks exactly like this; read the order (text()) before dragging again.";
 
-export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
+/** What one render needs from the round it closes, beside the snapshot. */
+export interface RenderRound {
+  /** The verb the observation follows; absent for a look. */
+  afterAction?: string;
+  /** A window or popup changed outside the snapshot, so an unchanged list is not a dead action. */
+  surfaceChanged?: boolean;
+  /** Measured geometry change against the previous observation, as a short phrase, or null. It
+   *  outranks the no-effect wording: element lines carry no coordinates. */
+  geomChange: string | null;
+  /** The platform's header lines (`ComputerUseDriver.renderHeadLines`, which platforms extend). */
+  headLines(s: Snapshot, targets: TargetInfo[], targetsUnchanged: boolean, changes: HeaderChanges): string[];
+}
+
+export class DeltaRenderer {
   /** Body lines of the last element observation — the delta base; null forces a full render. */
   private lastBody: string[] | null = null;
   private lastElements = new Map<string, Element>();
@@ -37,43 +49,29 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
   private deltaRounds = 0;
   /** Context has its own baseline: a background count changing is not an action taking effect. */
   private lastHeadContext: Record<keyof HeaderChanges, string> | null = null;
-  /** Connection identity is delivered once, even when the caller trims the listing. */
-  protected contextKeep: string[] = [];
-  /** Geometry delta of the latest observation vs the one before, as a short phrase (null under
-   * the jitter threshold). Read by {@link frozenNote} and the no-effect wording here. */
-  protected lastGeomChange: string | null = null;
+  /** Connection identity is delivered once, even when the caller trims the listing: the lines
+   *  of the latest render that no trim may drop. */
+  contextKeep: string[] = [];
 
   /** Forget the delta base alone — a read that FAILED leaves no continuity to diff against,
    *  but the rest of the observation state is still true. */
-  protected forgetDeltaBase(): void {
+  forgetBase(): void {
     this.lastBody = null;
     this.lastPrintableLen = 0;
     this.lastHeadContext = null;
     this.lastElements.clear();
   }
 
-  /** Forget the delta base. Called by the pipeline's own reset when the surface is replaced. */
-  protected resetRenderState(): void {
+  /** Forget everything. Called by the pipeline's own reset when the surface is replaced. */
+  reset(): void {
     this.lastBody = null;
     this.lastPrintableLen = 0;
     this.lastBodyUrl = null;
     this.lastTargetsLine = null;
     this.deltaRounds = 0;
-    this.lastGeomChange = null;
     this.lastHeadContext = null;
     this.contextKeep = [];
     this.lastElements.clear();
-  }
-
-  /** Header lines; override to add a platform's own (browser, macOS). The shared ones are
-   *  {@link headLines}. */
-  protected renderHeadLines(s: Snapshot, targets: TargetInfo[], targetsUnchanged = false, changes: HeaderChanges = FIRST_HEADER): string[] {
-    return headLines(s, targets, targetsUnchanged, changes, (count) => this.offscreenNote(count));
-  }
-
-  /** How this platform says "some controls are off screen"; see {@link OFFSCREEN_NOTE}. */
-  protected offscreenNote(_count: number): string {
-    return OFFSCREEN_NOTE;
   }
 
   private headerChanges(s: Snapshot): HeaderChanges {
@@ -113,18 +111,18 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
    * rations rendered text, not access. It leans on sticky refs: an unchanged element yields an
    * identical line and drops out of the diff.
    */
-  protected renderObservation(
+  render(
     snap: Snapshot,
     targets: TargetInfo[],
     verdict: Verdict | null,
-    opts: { afterAction?: string; surfaceChanged?: boolean },
+    opts: RenderRound,
   ): { body: string; obsKind: "full" | "delta"; headLines: number; effectNote: string | null } {
     const bodyLines = renderBodyLines(snap);
     // The ~470-char surfaces list is compared whole: ANY change brings the full line back.
     const tl = targetsLine(targets);
     const targetsUnchanged = tl !== null && tl === this.lastTargetsLine;
     this.lastTargetsLine = tl;
-    const lines = this.renderHeadLines(snap, targets, targetsUnchanged, this.headerChanges(snap));
+    const lines = opts.headLines(snap, targets, targetsUnchanged, this.headerChanges(snap));
     // TEXT lines, not entries: one entry may hold several (an app's knowledge pack,
     // macos/driver.ts), and `brief` must not cut through it.
     const headLines = lines.join("\n").split("\n").length;  // the head of the BODY; observeElements makes it absolute
@@ -161,8 +159,8 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
         const elAdded = el(added), elRemoved = el(removed);
         if (elAdded.length + elRemoved.length === 0) {
           // Geometry outranks the swallowed accusation: element lines carry no coordinates.
-          noEffectNote = this.lastGeomChange
-            ? `NOTE: no element appeared or changed state after this ${opts.afterAction}, but geometry changed: ${this.lastGeomChange} — the action DID take effect; judge progress by the new size/position.`
+          noEffectNote = opts.geomChange
+            ? `NOTE: no element appeared or changed state after this ${opts.afterAction}, but geometry changed: ${opts.geomChange} — the action DID take effect; judge progress by the new size/position.`
             : opts.afterAction === "drag"
               // A reorder moves TEXT only, focus moved or not — the dragged row is not a control.
               ? DRAG_TEXT_NOTE
@@ -179,8 +177,8 @@ export abstract class ComputerUseDriverRender extends ComputerUseDriverSelect {
             // handler's write from a clock (the swallowed-click loop above) — so the wording
             // borrows "(e.g. a timer)" and stops there.
             const textMoved = added.length > elAdded.length || removed.length > elRemoved.length;
-            noEffectNote = this.lastGeomChange
-              ? `NOTE: this ${opts.afterAction} moved the focus, and geometry changed: ${this.lastGeomChange}.`
+            noEffectNote = opts.geomChange
+              ? `NOTE: this ${opts.afterAction} moved the focus, and geometry changed: ${opts.geomChange}.`
               : textMoved
                 ? opts.afterAction === "drag"
                   // For a drag the moved text is the likeliest effect (a reorder).
