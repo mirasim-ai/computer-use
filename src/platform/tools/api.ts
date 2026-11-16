@@ -256,7 +256,7 @@ export function createComputerUseApi(
     },
     find: async (name: unknown, opts: unknown = {}) => {
       ledger().charge("find");
-      const scope = findScope(opts, driver.readsOffscreen);
+      const scope = findScope(opts);
       // Not part of the scope: it changes what a miss ANSWERS, never what is searched, so a
       // handle's re-resolution must not carry it.
       const explain = !!(opts && typeof opts === "object" && (opts as { why?: unknown }).why);

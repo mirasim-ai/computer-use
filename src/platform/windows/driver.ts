@@ -54,7 +54,6 @@ export class WindowsDriver extends WindowsDriverApps {
   readonly platform = "windows";
   override readonly screenshotMimeType: string = "image/png";
   override readonly supportsDiagnostics = true;
-  override readonly readsOffscreen = true;
 
   protected readonly uia: UiaTransport;
   protected readonly gate: WindowsAppGate;

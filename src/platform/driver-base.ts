@@ -254,12 +254,6 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
    * resident tool surface and helps only a caller that can read source. */
   readonly supportsDiagnostics: boolean = false;
 
-  /** Does a read include what is NOT on screen ({@link Snapshot.offscreenElements}, which
-   * `readElements` merges with an `offscreen` flag so `find(name)` reaches it)? DECLARED, not
-   * inferred: the model's API reference is built from it, and promising "whole surface" where only
-   * the viewport is searched wastes the model's calls. A viewport-only platform sets it false. */
-  readonly readsOffscreen: boolean = true;
-
   protected diag: DiagnosticsBuffer | null = null;
   /** Start collecting (idempotent). The tool factory calls it when the session opts in. */
   enableDiagnostics(): void {

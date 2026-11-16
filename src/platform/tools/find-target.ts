@@ -323,9 +323,9 @@ export function anchorBox(
 
 /** `find`'s second argument, as the script may write it: a plain object, `within` either a ref
  *  string or a find() handle. Anything else is a mistake worth naming rather than ignoring. */
-export function findScope(opts: unknown, readsOffscreen: boolean): FindScope {
+export function findScope(opts: unknown): FindScope {
   if (opts === undefined || opts === null) return {};
-  if (typeof opts !== "object") throw new Error(`find's second argument is an options object: {role, within${readsOffscreen ? ", visible" : ""}, near, why}`);
+  if (typeof opts !== "object") throw new Error("find's second argument is an options object: {role, within, visible, near, why}");
   const o = opts as { role?: unknown; within?: unknown; visible?: unknown; near?: unknown };
   const within = typeof o.within === "string" ? o.within
     : o.within && typeof o.within === "object" && typeof (o.within as Handle).ref === "string" ? (o.within as Handle).ref
@@ -336,12 +336,6 @@ export function findScope(opts: unknown, readsOffscreen: boolean): FindScope {
     : o.near && typeof o.near === "object" && typeof (o.near as Handle).ref === "string" ? (o.near as Handle).ref
       : undefined;
   if (o.near != null && near === undefined) throw new Error("find's `near` must be a name, a ref string or a find() handle");
-  // Refused, not dropped: where reads never contain off-screen controls it would narrow nothing
-  // while reading as though it had.
-  if (o.visible && !readsOffscreen) {
-    throw new Error("find's `visible` narrows nothing on this platform — its read never contains an off-screen control, "
-      + "so every match find returns is already on screen. Drop it; to reach what is scrolled out, scroll first, then find");
-  }
   return {
     ...(typeof o.role === "string" && o.role.trim() ? { role: o.role.trim() } : {}),
     ...(within ? { within } : {}),

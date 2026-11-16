@@ -137,14 +137,14 @@ async function main() {
     check("…while a real typo is left alone", /clck is not defined/.test(typo) && !/verbs live on a surface handle/.test(typo),
       line(typo, /is not defined/));
 
-    // The other side of the macOS honesty check (test/macos-ui.ts): a platform whose read DOES
-    // contain what is off-screen keeps the promise, and keeps `visible` as a way to narrow.
+    // Every platform's read contains what is off-screen (test/macos-ui.ts checks the macOS walk),
+    // so the reference promises the whole surface and `visible` is a way to narrow.
     {
       const ref = await run(`return computer.help();`);
       check("a page's reference still promises find() the whole surface",
         /whole surface/.test(ref) && /visible \(on screen only\)/.test(ref));
       check("…and find({visible}) is accepted there, not refused",
-        !/narrows nothing on this platform/.test(await run(`return (await w.find('nothing-by-this-name', {visible: true})) === null;`)));
+        !/find's/.test(await run(`return (await w.find('nothing-by-this-name', {visible: true})) === null;`)));
     }
 
     // ── `observation` hands back less than was rendered, never less than was taken ──

@@ -27,8 +27,8 @@ export abstract class ComputerUseDriverRefs extends ComputerUseDriverVerdict {
    *  Read only by {@link staleRefNote}. */
   private coveredRefs = new Map<string, string>();
   /** Can `scroll({into: ref})` bring one control, a covered one included, to the middle of the
-   *  viewport? DECLARED like `readsOffscreen`: the API reference and the cover notes offer it
-   *  only where it exists. */
+   *  viewport? DECLARED, not inferred: the API reference and the cover notes offer it only where
+   *  it exists. */
   readonly scrollsInto: boolean = false;
   /** Does a read collect the controls an overlay sits on ({@link Snapshot.coveredElements})?
    *  DECLARED like `scrollsInto`: only where it does can `find(…, {why})` answer `covered`. */
