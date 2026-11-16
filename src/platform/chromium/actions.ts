@@ -79,7 +79,9 @@ const REMOVED_PROBE_MS = 500;
  * dispatched, a cover still on top is answered at once; anything else (an element still moving
  * or appearing) gets the rest of the budget, as before, but in attempts: between them a node
  * that has left the document is noticed, where one long attempt went on waiting for the ref to
- * match again. A timeout AFTER dispatch is never retried: that click may have landed.
+ * match again. A timeout AFTER dispatch is never retried: that click may have landed. It is not
+ * yet a verdict either ({@link afterDispatch}): an attempt's 2 s is short for a page to HANDLE a
+ * click, so what is left of the budget is spent finding out what the click did.
  *
  * Null means the node is gone and nothing was clicked; the caller words that as its own miss.
  */
@@ -87,11 +89,41 @@ export async function clickNamingCover(
   target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
   opts: { button: "left" | "right" | "middle"; clickCount: number }, ref?: string, name?: string,
 ): Promise<ActResult | null> {
+  const watch = watchClick(loc.page());
+  try {
+    return await clickWatched(target, loc, opts, watch, ref, name);
+  } finally {
+    watch.stop();
+  }
+}
+
+/** What is known of a click from outside the page: when it began, and whether a navigation
+ *  started while it ran. */
+interface ClickWatch { started: number; navigating(): boolean; stop(): void }
+
+function watchClick(page: Page): ClickWatch {
+  const urlBefore = page.url();
+  let requested = false;
+  const onRequest = (request: { isNavigationRequest(): boolean }) => { if (request.isNavigationRequest()) requested = true; };
+  const onNavigated = () => { requested = true; };
+  page.on("request", onRequest);
+  page.on("framenavigated", onNavigated);
+  return {
+    started: Date.now(),
+    navigating: () => requested || page.url() !== urlBefore,
+    stop: () => { page.off("request", onRequest); page.off("framenavigated", onNavigated); },
+  };
+}
+
+async function clickWatched(
+  target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
+  opts: { button: "left" | "right" | "middle"; clickCount: number }, watch: ClickWatch, ref?: string, name?: string,
+): Promise<ActResult | null> {
   try {
     await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
     return { ok: true };
   } catch (e) {
-    const after = afterDispatch(e, COVER_CHECK_AFTER_MS);
+    const after = await afterDispatch(e, loc.page(), watch);
     if (after) return after;
     if (!undispatchedTimeout(e)) throw e;
   }
@@ -103,7 +135,7 @@ export async function clickNamingCover(
     try {
       await target.click({ ...opts, force: true, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
     } catch (e) {
-      const after = afterDispatch(e, CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS);
+      const after = await afterDispatch(e, loc.page(), watch);
       if (after) return after;
       throw e;
     }
@@ -118,7 +150,7 @@ export async function clickNamingCover(
       await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
       return { ok: true };
     } catch (e) {
-      const after = afterDispatch(e, COVER_CHECK_AFTER_MS);
+      const after = await afterDispatch(e, loc.page(), watch);
       if (after) return after;
       last = e;
       if (!undispatchedTimeout(e)) break;
@@ -176,30 +208,59 @@ export async function removed(loc: Locator): Promise<boolean> {
   }
 }
 
+/** How long a page that has just been clicked gets, at least, to show it is done handling it. */
+const HANDLED_MIN_MS = 2_000;
+
 /**
  * A Playwright timeout that came AFTER the click was dispatched, said in this tool's terms.
  *
  * Playwright's own message is its call log, which the model read verbatim ("Timeout 2000ms
- * exceeded. Call log: …") and took for a failed click. Two cases:
- *  · "click action done", then waiting for scheduled navigations: the click LANDED and started a
- *    navigation that was still loading (a form posting to a slow server). That is a click that
- *    worked — the next read is what waits for the page.
- *  · dispatched but never confirmed done: it may have landed, so it is not retried, and says so.
+ * exceeded. Call log: …") and took for a failed click. The attempt that timed out had 2 s, which
+ * says little about a click the page is still HANDLING: a Save whose handler works for 3 s was
+ * reported as "sent but not confirmed", thrown, and the run stopped on a click that had worked.
+ * So the page is given the rest of the click's budget to answer one trivial question. Its main
+ * thread is what handles the click and what answers, in that order, so an answer means the
+ * click's handlers have run.
+ *
+ *  · The page answers, and no navigation started: the click is done. Said plainly, with how long
+ *    the page took when that was long.
+ *  · A navigation started (a request for a document went out, or the address changed): the click
+ *    landed and its navigation is still loading, e.g. a form posting to a slow server. Only then
+ *    is a navigation named: Playwright waits after EVERY click for navigations it may have
+ *    started, and a page merely busy after a click used to be called "still loading" too.
+ *  · The page answers nothing in the whole budget: it may have landed, so it is not retried, and
+ *    the refusal says how long was really waited.
+ *
  * Null for a timeout before dispatch, which the caller handles (cover check, second attempt).
  */
-function afterDispatch(e: unknown, ms: number): ActResult | null {
+async function afterDispatch(e: unknown, page: Page, watch: ClickWatch): Promise<ActResult | null> {
   const err = e as { name?: string; message?: string } | null;
   if (err?.name !== "TimeoutError") return null;
   const msg = String(err.message ?? "");
-  if (/click action done/.test(msg)) {
-    return { ok: true, note: "clicked — it started a navigation that was still loading when the click returned; "
-      + "wait({loaded}) or wait({text}) for the next page before reading it" };
+  if (!/performing \w+ action/.test(msg)) return null;
+  const navigation = (): ActResult => ({ ok: true, note: "clicked — it started a navigation that was still loading when the click returned; "
+    + "wait({loaded}) or wait({text}) for the next page before reading it" });
+  if (watch.navigating()) return navigation();
+  const left = Math.max(HANDLED_MIN_MS, CLICK_BUDGET_MS - (Date.now() - watch.started));
+  const answered = await answersWithin(page, left);
+  if (watch.navigating()) return navigation();
+  const took = Math.round((Date.now() - watch.started) / 100) / 10;
+  if (answered) return { ok: true, note: `clicked — the page was busy for ${took}s handling it` };
+  throw new Error(`the click was sent, and the page has not answered in the ${took}s since — it may have landed; `
+    + "observe before clicking again");
+}
+
+/** Does the page's main document answer a trivial evaluate within `ms`? */
+async function answersWithin(page: Page, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      page.mainFrame().evaluate("1").then(() => true, () => false),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
-  if (/performing \w+ action/.test(msg)) {
-    throw new Error(`the click was sent but not confirmed within ${ms / 1000}s — it may have landed; `
-      + "observe before clicking again");
-  }
-  return null;
 }
 
 /** A Playwright timeout whose call log never reached the dispatch step ("performing click action"). */
