@@ -279,44 +279,13 @@ function bundledHelper(): string | null {
   return existsSync(bin) ? bin : null;
 }
 
-/**
- * Which binary answers, and whether it is the one THESE sources build.
- *
- * A packaged app points `COMPUTER_USE_MACOS_AX_BIN` at its own prebuilt, and a shell inside that
- * app passes the variable on, so a checkout's Swift edits are silently shadowed by a binary from
- * another tree. Anything that REPORTS on the helper must name the binary that answered.
- */
-export interface AxHelperInfo {
-  bin: string;
-  /** `env` = a prebuilt from COMPUTER_USE_MACOS_AX_BIN; `bundle` = the prebuilt packed beside the bundle;
-   *  `package` = the prebuilt from the platform's npm package; `sources` = compiled from this checkout. */
-  origin: "env" | "bundle" | "package" | "sources";
-  /** Hash over the sorted `ax/*.swift` of this checkout; null when there are no sources beside us. */
-  sourceHash: string | null;
-  /** What the binary claims it was built from (a `<bin>.sha` sidecar, which no shipped build writes
-   *  yet), so `null` on a prebuilt means "unknown provenance", never "matches". */
-  binHash: string | null;
-}
-
-/** The cache key the dev build is stored under: sha256 over the sorted sources, 16 hex. Not
- *  exported: callers want `resolveAxHelperInfo`, and an out-of-tree-only export is dead to knip. */
+/** The cache key the dev build is stored under: sha256 over the sorted sources, 16 hex. */
 function axSourceHash(): string | null {
   const dir = sourceDir();
   if (!dir) return null;
   const hash = createHash("sha256");
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".swift")).sort()) hash.update(readFileSync(join(dir, f)));
   return hash.digest("hex").slice(0, 16);
-}
-
-export async function resolveAxHelperInfo(env: NodeJS.ProcessEnv): Promise<AxHelperInfo> {
-  const bin = await resolveAxHelper(env);
-  const sidecar = `${bin}.sha`;
-  return {
-    bin,
-    origin: env.COMPUTER_USE_MACOS_AX_BIN?.trim() ? "env" : bundledHelper() ? "bundle" : platformPackageHelper(BUNDLED_HELPER_NAME) ? "package" : "sources",
-    sourceHash: axSourceHash(),
-    binHash: existsSync(sidecar) ? readFileSync(sidecar, "utf8").trim() : null,
-  };
 }
 
 async function resolveAxHelper(env: NodeJS.ProcessEnv): Promise<string> {
