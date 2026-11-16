@@ -424,6 +424,7 @@ export function stubTransport(): Stub {
             },
           };
         }
+        case "overlayhide": return {};
         case "clipboardstash": return { stashed: 1 };
         case "clipboardrestore": return { restored: restoreAnswer };
         // The real helper sends a 400-char PREVIEW and flags what it cut; `value` hands back

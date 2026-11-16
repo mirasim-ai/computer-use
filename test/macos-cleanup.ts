@@ -13,7 +13,9 @@
  *   · a clearance the user gave for one call only is not asked for again at cleanup;
  *   · a reset completes and lets go of every claim, also when the helper itself cannot be
  *     reached;
- *   · a press the driver refused (background mode) leaves nothing to release.
+ *   · a press the driver refused (background mode) leaves nothing to release;
+ *   · two idle minutes take the pointer mark off the screen, without starting a helper for it
+ *     and without tripping over one that does not know the request.
  */
 
 import { MacosDriver } from "../src/platform/macos/driver.ts";
@@ -27,17 +29,19 @@ function check(label: string, ok: boolean, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
   if (!ok) failures++;
 }
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const firstText = (r: { content: Array<{ type: string; text?: string }> }) => r.content.find((c) => c.type === "text")?.text ?? "";
 
 /** The stubbed helper plus the pointer ops it lacks, an app that can quit and a helper that can break. */
 function withPointer() {
   const stub = stubTransport();
-  const pointer = { down: false, released: 0, appGone: false, broken: false, asked: [] as string[] };
+  const pointer = { down: false, released: 0, appGone: false, broken: false, old: false, asked: [] as string[] };
   const transport = {
     ...stub.transport,
     async request(op: string, params: Record<string, unknown> = {}) {
       pointer.asked.push(op);
       if (pointer.broken) throw new AxRequestError("ax_error", "the helper cannot be reached");
+      if (op === "overlayhide" && pointer.old) throw new AxRequestError("unsupported", `unknown op "${op}"`);
       if (op === "ptrstate") return { x: 10, y: 10, down: pointer.down, owned: true, grabbed: pointer.down };
       if (op === "ptrpress") { pointer.down = true; return { x: 10, y: 10, button: String(params.button ?? "left") }; }
       if (op === "ptrrelease") { const was = pointer.down; pointer.down = false; pointer.released += 1; return { x: 10, y: 10, wasHolding: was }; }
@@ -48,7 +52,7 @@ function withPointer() {
   return { transport, pointer };
 }
 
-function session(interaction: "desktop" | "background" = "desktop", perCall = false) {
+function session(interaction: "desktop" | "background" = "desktop", perCall = false, idleReleaseMs = 60_000) {
   const { transport, pointer } = withPointer();
   // A user who allows the app for the call that asks, and no longer than that.
   const asks: string[] = [];
@@ -64,7 +68,7 @@ function session(interaction: "desktop" | "background" = "desktop", perCall = fa
     release: async (group: string) => { log.push(`release ${group}`); },
     releaseAll: async () => { log.push("releaseAll"); },
   };
-  const tools = Object.fromEntries(createComputerUseTools([{ driver }], { ownership, idleReleaseMs: 60_000 }).map((t) => [t.name, t]));
+  const tools = Object.fromEntries(createComputerUseTools([{ driver }], { ownership, idleReleaseMs }).map((t) => [t.name, t]));
   // The mode is the call's: the driver stays in it between calls, as it does for a real session.
   const run = async (code: string) => firstText(await tools.computer_repl!.execute({ code, observation: "none", interaction }) as never);
   const reset = () => tools.computer_repl_reset!.execute({}).then((r) => firstText(r as never), (e: Error) => `threw: ${e.message}`);
@@ -135,6 +139,37 @@ async function main() {
     const said = await s.reset();
     check("a reset after a refused press completes, with nothing to release", /runtime was reset/.test(said) && s.pointer.released === 0 && s.log.includes("releaseAll"),
       `${said.split("\n")[0]}; ${s.pointer.released} release(s)`);
+    await s.driver.close();
+  }
+
+  // ── Two idle minutes (here: 60 ms) ───────────────────────────────────────────────────────
+  {
+    const s = session("background", false, 60);
+    await s.run(BIND);
+    s.pointer.asked.length = 0;
+    await sleep(250);
+    check("an idle session lets go of its claims and has the helper take its pointer mark down",
+      s.log.includes("releaseAll") && s.pointer.asked.includes("overlayhide"), `${s.log.join(" | ")}; asked ${s.pointer.asked.join(", ")}`);
+    check("...asking it for nothing else", s.pointer.asked.every((op) => op === "overlayhide"), s.pointer.asked.join(", "));
+    const back = await s.run("await w.observe(); return 'back'");
+    check("...and the session goes on from where it was", /Returned: "?back"?/.test(back), back.split("\n")[0]);
+    await s.driver.close();
+  }
+  {
+    // A driver nothing was asked of: no helper has been started for it.
+    const s = session("background", false, 60_000);
+    await s.driver.releaseIdle();
+    check("a driver that never reached the helper does not start one to hide a mark", s.pointer.asked.length === 0, s.pointer.asked.join(", "));
+    await s.driver.close();
+  }
+  {
+    const s = session("background", false, 60);
+    s.pointer.old = true;
+    await s.run(BIND);
+    await sleep(250);
+    const back = await s.run("await w.observe(); return 'back'");
+    check("a helper that does not know the request leaves the idle release and the session intact",
+      s.log.includes("releaseAll") && /Returned: "?back"?/.test(back), back.split("\n")[0]);
     await s.driver.close();
   }
 

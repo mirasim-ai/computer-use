@@ -183,6 +183,10 @@ export abstract class MacosDriverApps extends ComputerUseDriver {
   }
   // ── Connection (lazy: no helper until a primitive is called) ────────────────
 
+  /** A request has gone to the helper since it was last forgotten, so there may be a process
+   *  with something on screen (@see MacosDriver.releaseIdle). */
+  protected helperAsked = false;
+
   protected async call<T>(op: string, params: Record<string, unknown> = {}): Promise<T> {
     if (this.interactionMode === "background"
         && (DESKTOP_INPUT_OPS.has(op) || (["key", "backgroundkey"].includes(op) && clipboardChord(String(params.chord ?? ""))))) {
@@ -190,6 +194,7 @@ export abstract class MacosDriverApps extends ComputerUseDriver {
     }
     try {
       if (ACT_OPS.has(op)) this.dispatchedActions++;
+      this.helperAsked = true;
       return (await this.ax.request(op, params)) as T;
     } catch (e) {
       // The helper's error CODE is the diagnosis (which grant); replace its message rather than

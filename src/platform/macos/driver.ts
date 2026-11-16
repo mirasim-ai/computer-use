@@ -94,6 +94,18 @@ export class MacosDriver extends MacosDriverTargets {
     this.pointerHeld = false;
     this.heldFor = null;
   }
+  /**
+   * Two idle minutes: take the pointer mark off the screen. The helper stays (its keys are what
+   * the session's refs stand on), and it kept drawing where it last acted, with a ten-a-second
+   * check of whether that spot was still visible, for as long as it lived. Under a host that
+   * never ends a turn that is until the session is closed: the user's window kept the agent's
+   * arrow on it long after the task was over. A helper that was never started is not started
+   * for this, and one too old to know the request is left as it is.
+   */
+  override async releaseIdle(): Promise<void> {
+    if (!this.helperAsked) return;
+    await this.ax.request("overlayhide", {}).catch(() => {});
+  }
   protected override previewTarget(): Promise<PreviewTarget | null> {
     const app = this.app;
     const windowId = this.windowId;
@@ -581,6 +593,7 @@ export class MacosDriver extends MacosDriverTargets {
   /** A new helper cannot use the old process's AX keys. Keep the target and consent,
    *  but require a fresh observation and never reuse the old ref numbers. */
   private forgetHelper(): void {
+    this.helperAsked = false;
     this.pointerHeld = false;
     this.heldFor = null;
     this.listening.clear();

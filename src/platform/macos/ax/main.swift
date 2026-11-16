@@ -239,6 +239,9 @@ func handle(_ req: Req) throws -> [String: Any] {
   case "ptrrelease":
     return try pointerRelease(pid: try req.pid(), button: (req.raw["button"] as? String) ?? "left")
   case "ptrstate": return pointerState()
+  // The session went idle: nothing is being acted on, so nothing should be drawn. The position
+  // is kept, and the next act draws the mark again.
+  case "overlayhide": overlayConceal()
   case "drag":
     try mouseDrag(pid: try req.pid(), x: try req.dbl("x"), y: try req.dbl("y"), toX: try req.dbl("toX"), toY: try req.dbl("toY"))
   case "captureplan":
