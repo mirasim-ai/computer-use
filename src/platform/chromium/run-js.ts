@@ -17,7 +17,7 @@ import type { ActResult } from "../types.ts";
 /** How long a run waits for a result unless it asks for longer. Evaluation has no natural bound
  *  (an expression may await a promise that never settles), and a wedged step must not wedge the
  *  loop — so the default stays short, and code that is MEANT to run longer says so with `ms`. */
-export const RUN_JS_TIMEOUT_MS = 10_000;
+const RUN_JS_TIMEOUT_MS = 10_000;
 /** The most `ms` may ask for: the call's whole budget is 60s, and the wait spends it. */
 export const RUN_JS_MAX_MS = 45_000;
 export const RUN_JS_MIN_MS = 1_000;

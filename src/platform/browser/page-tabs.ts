@@ -65,7 +65,7 @@ export const PAGE_TAB_ANSWER = "__computerUseTabAnswer";
 /** How long a page waits for the driver's answer before it opens the tab itself. An owner
  *  answers in milliseconds; a late one is told the page stopped waiting and opens nothing. Well
  *  inside Chrome's 5s of transient activation, so the page's own open is still allowed. */
-export const PAGE_TAB_ANSWER_MS = 1000;
+const PAGE_TAB_ANSWER_MS = 1000;
 /**
  * The page functions by which a driver says it is there, and that it is leaving:
  * `hold(who)` and `off(who)`, `who` a name of the driver's own. A driver holds every document
