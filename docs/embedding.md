@@ -101,7 +101,8 @@ app leaves that list.
 
 **Ending a turn.** A host with turns can call the tool `turn_ended`, which `tools/list` does not
 show (the same shape as Codex's hook): arguments `{ session_id, turn_id, hook_event_name?,
-keep_browser_tabs? }`. It resets the REPL (waiting for input in flight to drain), lets each
+keep_browser_tabs? }`. It resets the REPL (a call still running gets 5 seconds to finish and is then
+ended, its result saying so, with any question still open to the user taken back), lets each
 platform close what this session opened (the browser closes its own tabs unless
 `keep_browser_tabs`; nothing the user owns is closed), disconnects the drivers and releases this
 session's ownership claims. It is idempotent per `session_id` + `turn_id`, and a call that
