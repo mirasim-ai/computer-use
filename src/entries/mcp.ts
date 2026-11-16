@@ -17,7 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { resolveProfile, type Profile } from "../platform/profile.ts";
 import { SurfaceGoneError, type UserConsent } from "../platform/types.ts";
-import { ownVersion } from "./version.ts";
+import { ownVersion } from "../platform/version.ts";
 import { consentAnswer, consentForm } from "./consent.ts";
 import { PreviewService, type TargetRef } from "../platform/preview.ts";
 

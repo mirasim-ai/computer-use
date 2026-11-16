@@ -19,7 +19,7 @@ import { type CdpMessage } from "./model.ts";
 import { BridgeServerCore, ExtensionConnection } from "./server-core.ts";
 import { webSocketChannel, type ExtensionChannel } from "./extension-channel.ts";
 import { parseExtensionRuntime } from './extension-updates.ts';
-import { ownVersion } from "../../../entries/version.ts";
+import { ownVersion } from "../../version.ts";
 
 // Re-exported so callers keep importing the options shape from here.
 export type { BridgeServerOptions } from "./server-core.ts";

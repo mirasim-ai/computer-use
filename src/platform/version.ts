@@ -1,8 +1,8 @@
 /**
  * This package's own version — NOT its host's.
  *
- * Read from package.json and shared by `--version` and the MCP serverInfo so they never
- * disagree. `../../package.json` is the package root from both `src/` and `dist/`.
+ * Read from package.json and shared by `--version`, the MCP serverInfo and the bridge, so they
+ * never disagree. `../../package.json` is the package root from both `src/` and `dist/`.
  */
 
 import { readFileSync } from "node:fs";

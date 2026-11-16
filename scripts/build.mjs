@@ -8,7 +8,7 @@
  * behind — the prebuilt helpers come from the platform packages.
  *
  * Minified file by file, not bundled: the layout `tsc` emits is what the runtime's own lookups
- * expect (`../../package.json` from `entries/`, the extension directory found by walking up).
+ * expect (`../../package.json` from `platform/`, the extension directory found by walking up).
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

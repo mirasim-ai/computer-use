@@ -14,7 +14,7 @@ import { extensionDir } from "../../platform/browser/bridge/extension-id.ts";
 import { defaultBridgeSocket, installNativeHost } from "../../platform/browser/bridge/native-host.ts";
 import { emitUsage, wantsHelp } from "./help.ts";
 import { hostEntry, hostName, NATIVE_HOST_OPTIONS, NATIVE_HOST_USAGE } from "./native-host-options.ts";
-import { ownVersion } from "../version.ts";
+import { ownVersion } from "../../platform/version.ts";
 
 /** How often a bridge with no extension on the line re-runs the install. Idempotent and cheap (a
  *  dozen stats); the extension itself re-checks a missing host only every few minutes. */

@@ -8,7 +8,7 @@
  */
 
 import { emitUsage, wantsHelp } from "./commands/help.ts";
-import { ownVersion } from "./version.ts";
+import { ownVersion } from "../platform/version.ts";
 
 interface Command {
   /** One line for the top-level table — what this command is FOR, not how to call it. */
