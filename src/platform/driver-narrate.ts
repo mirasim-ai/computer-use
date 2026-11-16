@@ -1,11 +1,14 @@
 /**
  * How an observation is WORDED — the narration slice of {@link ComputerUseDriver}: a
  * {@link Snapshot} becomes the lines a model reads and the string that decides whether anything
- * changed. A base class rather than a helper module because every method is an override seam
- * (BrowserDriver extends renderHeadLines) and the wording rules cross-reference each other.
+ * changed. The first link of the chain (`…Narrate` → `…Verdict` → `…Refs` → `…Select` →
+ * `…Render` → `…Base` → `…Waits` → `ComputerUseDriver`). A base class rather than a helper module
+ * because two of its methods are override seams (`renderHeadLines` on browser and macOS,
+ * `offscreenNote` on macOS) and the wording rules cross-reference each other.
  *
- * It holds NO state: everything arrives as an argument. The observation state machine (verdicts,
- * ref bookkeeping, delta rounds) stays in driver.ts.
+ * It holds NO state: everything arrives as an argument. The observation state lives in later
+ * links: ref bookkeeping in driver-refs.ts, delta rounds in driver-render.ts, the verdict ring in
+ * driver-base.ts and driver.ts.
  */
 
 import type { Element, HeaderChanges, ObservationCoverage, Snapshot, TargetIdentity, TargetInfo, ViewportPosition } from "./types.ts";

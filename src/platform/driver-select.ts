@@ -2,11 +2,12 @@
  * Selection-based observation — the read that answers with the surface as DATA (the repl's
  * `observe()` and `find(name)`).
  *
- * Its own slice of the chain (`…Refs` → `…Select` → `ComputerUseDriver`) because of one hard
+ * Its own slice of the chain (`…Refs` → `…Select` → `…Render` → `…Base` → …) because of one hard
  * rule: it must never touch the change-verdict ring. `prevSig` / `prevElSig` / `lastBody` /
- * `lastRects` mean "the screen as last seen"; a filtered set fed into them makes the next real
- * observation read `changed` for nothing. Here the ring is not even in scope. What this slice
- * needs from below is declared abstract and implemented in ComputerUseDriver.
+ * `lastRects` mean "the screen as the model last saw it"; a read made in the middle of a script
+ * fed into them would make the run's closing observation diff against that read instead of the
+ * screen before the script. Here the ring is not even in scope: it is declared in later links.
+ * What this slice needs from those is declared abstract and implemented in driver-base.ts.
  */
 
 import type { Element, Heading, ObservationCoverage, Snapshot, TargetIdentity } from "./types.ts";

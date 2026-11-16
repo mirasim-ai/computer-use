@@ -1,12 +1,14 @@
 /**
  * `ComputerUseDriver` — the class every platform extends: what an observation LOOKS like once a
- * round is over. Under it: narration (`driver-narrate.ts` → `driver-verdict.ts`), the ref and
- * selection slices, and `driver-base.ts` (platform primitives, round bookkeeping, waits,
- * diagnostics).
+ * round is over. Under it, in order: narration (`driver-narrate.ts` → `driver-verdict.ts`), the
+ * ref, selection and render slices (`driver-refs.ts` → `driver-select.ts` → `driver-render.ts`),
+ * `driver-base.ts` (platform primitives, round bookkeeping, diagnostics) and the waits
+ * (`driver-waits.ts`).
  *
  * This is the TEMPLATE: `observeElements` and `observeImage` are the two ways a round ends, and
  * every judgement the model reads (verdict, delta, frozen note, geometry fallback) is assembled
- * here. A platform overrides the primitives, never this.
+ * here. A platform overrides the primitives, not this. The one exception is the browser driver,
+ * which wraps both to answer for a session that holds no tab.
  */
 
 import type {

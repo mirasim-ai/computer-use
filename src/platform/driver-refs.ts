@@ -1,8 +1,9 @@
 /**
  * Ref bookkeeping — which refs the model may act on, and what to say when the one it sent is
- * not among them. Its own slice (`…Narrate` → `…Refs` → `…Select` → `ComputerUseDriver`) so
- * "why was my ref refused?" is answered by one file. Below `…Select` because the query path
- * remembers the refs it matched; above `…Narrate` because none of this is rendering.
+ * not among them. Its own slice of the chain (`…Narrate` → `…Verdict` → `…Refs` → `…Select` →
+ * `…Render` → `…Base` → `…Waits` → `ComputerUseDriver`) so "why was my ref refused?" is answered
+ * by one file. Before `…Select` because a read remembers the refs it returned; after the
+ * narration links because none of this is rendering.
  */
 
 import type { Snapshot } from "./types.ts";

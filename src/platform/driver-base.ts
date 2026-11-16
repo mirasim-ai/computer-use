@@ -1,8 +1,11 @@
 /**
- * ComputerUseDriverBase — the one abstraction (template method). The base owns the shared
- * observation pipeline (rendering, change verdict, ref bookkeeping, standard wording); subclasses
- * supply platform primitives and declare extras. The factories in tools/ build every tool from any
- * driver, so cross-platform consistency comes from that shared code, not from tests.
+ * ComputerUseDriverBase — the platform contract: the primitives a platform implements, its
+ * lifecycle and ownership hooks, diagnostics, and the bookkeeping of a round. The shared
+ * observation pipeline is the rest of the chain: wording (driver-narrate.ts, driver-verdict.ts),
+ * refs (driver-refs.ts), reads as data (driver-select.ts) and rendering (driver-render.ts) in the
+ * links before this one, the waits (driver-waits.ts) and the template that ends a round
+ * (driver.ts) after it. The factories in tools/ build every tool from any driver, so
+ * cross-platform consistency comes from that shared code, not from tests.
  *
  * A driver is created at bootstrap but connects lazily: no browser/device I/O before the first
  * primitive call.

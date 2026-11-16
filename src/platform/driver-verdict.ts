@@ -1,8 +1,8 @@
 /**
  * The VERDICT half of the shared narration: what a delta says, and what a run is told when the
- * surface did not change. `driver-narrate.ts` RENDERS what was
- * observed; this JUDGES it. Both stay in the base class: the wording was tuned against real
- * failures, and a platform fork would teach the model what the other platforms contradict.
+ * surface did not change. `driver-narrate.ts` RENDERS what was observed; this JUDGES it. Both
+ * stay in the base class: the wording was tuned against real failures, and a platform fork would
+ * teach the model what the other platforms contradict.
  */
 
 import type { Snapshot } from "./types.ts";
