@@ -18,11 +18,8 @@
  * operator.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-
 import type { UserConsent } from "../types.ts";
-import { computerUseHome } from "../home.ts";
+import { ApprovalsStore } from "../approvals-store.ts";
 import { approvalsAddCommand } from "../cli-command.ts";
 
 const key = (app: string) => app.trim().toLowerCase();
@@ -37,50 +34,11 @@ export function isSharedFrameHost(process: string): boolean {
   return key(process) === "applicationframehost";
 }
 
-/** "Always" answers this platform keeps itself, for a host that keeps none. */
-export class WindowsApprovals {
-  readonly file: string | null;
-
+/** "Always" answers this platform keeps itself, for a host that keeps none: program stems,
+ *  compared and stored in lower case. */
+export class WindowsApprovals extends ApprovalsStore {
   constructor(env: NodeJS.ProcessEnv) {
-    const raw = env.COMPUTER_USE_WINDOWS_APPROVALS;
-    this.file = raw === undefined ? join(computerUseHome(env), "windows-approvals.json") : raw.trim() || null;
-  }
-
-  /** Read fresh every time: another session may have changed it since. */
-  has(app: string): boolean {
-    return this.read().includes(key(app));
-  }
-
-  list(): string[] {
-    return this.read();
-  }
-
-  add(app: string): void {
-    const now = this.read();
-    if (!now.includes(key(app))) this.write([...now, key(app)]);
-  }
-
-  remove(app: string): void {
-    const now = this.read();
-    if (now.includes(key(app))) this.write(now.filter((a) => a !== key(app)));
-  }
-
-  private read(): string[] {
-    if (!this.file) return [];
-    try {
-      const apps = (JSON.parse(readFileSync(this.file, "utf8")) as { approvedApps?: unknown }).approvedApps;
-      return Array.isArray(apps) ? apps.filter((v): v is string => typeof v === "string").map(key) : [];
-    } catch {
-      return []; // absent or unreadable: nothing is approved, which only means the user is asked
-    }
-  }
-
-  private write(apps: string[]): void {
-    if (!this.file) return;
-    try {
-      mkdirSync(dirname(this.file), { recursive: true });
-      writeFileSync(this.file, JSON.stringify({ approvedApps: apps }, null, 2) + "\n");
-    } catch { /* an unwritable store costs the user one more question, never the action */ }
+    super(env, { variable: "COMPUTER_USE_WINDOWS_APPROVALS", fileName: "windows-approvals.json", field: "approvedApps", key });
   }
 }
 
