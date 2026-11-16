@@ -17,9 +17,13 @@ import { BrowserDriverConnect } from "./driver-connect.ts";
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
 import { newBackgroundPage } from "./tabs.ts";
 import { detectInterference, overlaySensitive } from "./overlay-guard.ts";
+import { locateOnPage } from "../chromium/locate.ts";
 import { performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
 import { performRunJs } from "../chromium/run-js.ts";
 import { withPageCapture } from "../chromium/shot.ts";
+
+/** Verbs whose input goes to whatever holds the focus when they name no control. */
+const CARET_KINDS = new Set(["keys", "set_text", "paste"]);
 
 /** How many tabs one verb's page may ask for, and for how long after it: Chrome's own span of
  *  transient activation, the time a click stays good for a `window.open`. */
@@ -100,7 +104,12 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     // land on the interloper. Read verbs and pure navigation are exempt — an overlay does not
     // change what they return.
     if (this.cfg.extension && overlaySensitive(kind)) {
-      const interferer = await detectInterference(this.page());
+      // Where the verb is aimed: the control it names, the point it names, or the caret. A layer
+      // that holds that is not in the verb's way.
+      const named = typeof a.ref === "string" ? a.ref : typeof a.into === "string" ? a.into : undefined;
+      const target = named ? await locateOnPage(this.page(), named, undefined, false).catch(() => null) : null;
+      const point = typeof a.x === "number" && typeof a.y === "number" ? { x: a.x, y: a.y } : undefined;
+      const interferer = await detectInterference(this.page(), { target, point, caret: !named && !point && CARET_KINDS.has(kind) });
       if (interferer) {
         const note = `another extension or overlay is over the page right now — ${interferer}. `
           + "Close it (dismiss the popup, click away from the autofill suggestion, switch off the interfering extension for this site), then re-observe and act. "
