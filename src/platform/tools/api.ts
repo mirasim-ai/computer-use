@@ -202,7 +202,7 @@ export function createComputerUseApi(
   const read = <T>(kind: string, target: string, note: (v: T) => string, get: () => Promise<T>) => async (): Promise<T> => {
     ledger().charge(kind);
     // Reading CONTENT is not re-looking at the control list: it exempts the round from the
-    // "you keep observing without acting" nudge (see ComputerUseDriverSelect.contentRead).
+    // "you keep observing without acting" nudge (see ComputerUseDriverBase.contentRead).
     driver.noteContentRead();
     const v = await get();
     driver.publishPreview();

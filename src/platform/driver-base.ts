@@ -1,11 +1,13 @@
 /**
- * ComputerUseDriverBase — the platform contract: the primitives a platform implements, its
- * lifecycle and ownership hooks, diagnostics, and the bookkeeping of a round. The shared
- * observation pipeline is the rest of the chain: wording (driver-narrate.ts, driver-verdict.ts),
- * refs (driver-refs.ts), reads as data (driver-select.ts) and rendering (driver-render.ts) in the
- * links before this one, the waits (driver-waits.ts) and the template that ends a round
- * (driver.ts) after it. The factories in tools/ build every tool from any driver, so
- * cross-platform consistency comes from that shared code, not from tests.
+ * ComputerUseDriverBase — the platform contract and the state of a session's observations: the
+ * primitives a platform implements, its lifecycle and ownership hooks, diagnostics, the refs
+ * handed out, the surface read as data, and the bookkeeping of a round. `ComputerUseDriver`
+ * (driver.ts) extends it with the template that ends a round and the waits; those two are the
+ * whole class. The rest of the shared pipeline is functions and objects this class uses: wording
+ * (driver-narrate.ts, driver-verdict.ts), refs (driver-refs.ts), the read as data
+ * (driver-select.ts), full-or-diff rendering (driver-render.ts). The factories in tools/ build
+ * every tool from any driver, so cross-platform consistency comes from that shared code, not from
+ * tests.
  *
  * A driver is created at bootstrap but connects lazily: no browser/device I/O before the first
  * primitive call.
@@ -27,7 +29,8 @@ import { text } from "./types.ts";
 import { CHROMIUM_DIAGNOSTICS, DiagnosticsBuffer, type DiagnosticsAbout } from "./driver-diagnostics.ts";
 import { FIRST_HEADER, headLines, OFFSCREEN_NOTE } from "./driver-narrate.ts";
 import { DeltaRenderer } from "./driver-render.ts";
-import { ComputerUseDriverSelect } from "./driver-select.ts";
+import { RefBook } from "./driver-refs.ts";
+import { surfaceData, type SurfaceData } from "./driver-select.ts";
 
 
 import { settleAfterStateAction } from "./driver-settle.ts";
@@ -37,15 +40,15 @@ const ABANDON_CLOSE_MS = 3_000;
 /** Ceiling on one primitive read (snapshot / screenshot / full text) — see {@link ComputerUseDriver.bounded}. */
 const OBSERVE_TIMEOUT_MS = 15_000;
 
-export abstract class ComputerUseDriverBase extends ComputerUseDriverSelect {
+export abstract class ComputerUseDriverBase {
   /** Per-call execution policy, not proof that the user granted desktop permission. */
   interactionMode: "background" | "desktop" = "background";
-  abstract override readonly platform: string;
+  abstract readonly platform: string;
 
   // ── Primitives (subclass must implement) ────────────────────────────────────
 
   /** Read the current a11y state as a numbered element list. */
-  protected abstract override snapshot(): Promise<Snapshot>;
+  protected abstract snapshot(): Promise<Snapshot>;
   /** Raw image bytes in the format {@link screenshotMimeType} declares; never assume PNG. */
   abstract screenshot(): Promise<Buffer>;
   /** Scoped capture — one element (ref), a region, or the full scrollable page. The base refuses
@@ -140,6 +143,83 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverSelect {
         timer.unref();
       })]);
     } finally { clearTimeout(timer); }
+  }
+
+
+  // ── Refs (driver-refs.ts) ────────────────────────────────────────────────────────────
+  /** Which refs the model may act on, and what each last named. */
+  protected readonly refs = new RefBook({ scrollsInto: () => this.scrollsInto, staleCause: () => this.staleRefCause() });
+  /** Can `scroll({into: ref})` bring one control, a covered one included, to the middle of the
+   *  viewport? DECLARED, not inferred: the API reference and the cover notes offer it only where
+   *  it exists. */
+  readonly scrollsInto: boolean = false;
+  /** Does a read collect the controls an overlay sits on ({@link Snapshot.coveredElements})?
+   *  DECLARED like `scrollsInto`: only where it does can `find(…, {why})` answer `covered`. */
+  readonly readsCovered: boolean = false;
+
+  /** Is this ref one the model has legitimately seen? Refs accumulate (capped) and die with the
+   * surface. A courtesy filter, never the last line of defense; when it says no, answer with
+   * {@link staleRefNote}. */
+  knownRef(ref: string): boolean {
+    return this.refs.known(ref);
+  }
+
+  /** The role and name `ref` carried when it was last listed — also after the surface that
+   *  minted it is gone, so a refusal can say what it was. Undefined for a ref never handed out. */
+  refWas(ref: string): { role: string; name: string } | undefined {
+    return this.refs.was(ref);
+  }
+
+  /** Why a ref the caller sent cannot be used; the three cases are {@link RefBook.staleNote}'s. */
+  staleRefNote(ref: string): string {
+    return this.refs.staleNote(ref);
+  }
+
+  /**
+   * How refs stop being valid on THIS platform, as one clause with no leading capital. Declared
+   * variance: browser mechanisms (navigation, tab switch) named on a native window send the model
+   * looking for a page that was never there; the default names no mechanism.
+   */
+  protected staleRefCause(): string {
+    return "the surface has changed since it was handed out";
+  }
+
+  /** Observations since the last dispatched action. Re-observing an unchanged surface is the top
+   * step-burner; past a threshold the observation itself says "stop looking, act". */
+  protected observesSinceAction = 0;
+
+  /**
+   * Did this round READ CONTENT — text, a page tree, a screenshot, diagnostics? Exempt from the
+   * counter above: "more looking will not reveal more" is true of re-listing controls and false
+   * of reading a long document in parts. Exempt, not RESET: a run that only re-lists controls
+   * still escalates, and re-reading unchanging text is caught by the frozen verdict.
+   */
+  protected contentRead = false;
+
+  /** Called by the read bindings (`text` / `page` / `screenshot` / `diagnostics`). */
+  noteContentRead(): void {
+    this.contentRead = true;
+  }
+
+  /** Consumed by the ONE observation that ends the round. */
+  protected takeContentRead(): boolean {
+    const had = this.contentRead;
+    this.contentRead = false;
+    return had;
+  }
+
+  /**
+   * The surface as DATA — what the repl's `observe()` returns; renders nothing.
+   *
+   * Must not touch the verdict ring below: the model sees one observation at the end of the run,
+   * and it must diff against the screen BEFORE the script (driver-select.ts). Refs are remembered
+   * (the script acts on them, so they must pass `knownRef`).
+   */
+  async readElements(): Promise<SurfaceData> {
+    const snapshot = await this.bounded("observe", this.snapshot());
+    const data = surfaceData(snapshot);
+    this.refs.remember({ ...snapshot, elements: data.elements });
+    return data;
   }
 
   // ── Shared observation pipeline (the template) ──────────────────────────────

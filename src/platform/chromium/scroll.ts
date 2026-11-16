@@ -292,7 +292,7 @@ function ledgerNote(
   entry.scrollCount++;
   // The advisory is for an agent HUNTING. A round that READ the surface between scrolls is
   // harvesting, where scrolling every screen IS the task (same discriminator as the "you keep
-  // observing without acting" nudge in `driver-select.ts`). EXEMPT, NOT RESET: the count keeps
+  // observing without acting" nudge in `driver-base.ts`). EXEMPT, NOT RESET: the count keeps
   // climbing, so a later pure-scroll spree in the same container still escalates.
   if (entry.scrollCount >= 5 && !contentRead) {
     parts.push(`this is scroll #${entry.scrollCount} in this container — if what you need has not appeared, `
