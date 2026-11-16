@@ -51,11 +51,22 @@ const EXTENSION_COMMAND_TIMEOUT_MS = 30_000;
  *  extension side. Most callers' own budgets are tighter than the bound above (`SHOT_TIMEOUT_MS`
  *  4s, `NAV_TIMEOUT_MS` 15s, clicks 4-8s) and give up first, so the warning must sit below the
  *  tightest of them. The bound itself does fire in the product: Chrome answers NOTHING on a tab
- *  whose navigation has not started loading, however long that takes. */
+ *  whose navigation has not started loading, however long that takes. Reaching it does not by
+ *  itself fail a tab's command: the tab is asked first (`ExtensionConnection.unanswered`). */
 const SLOW_CALL_WARN_MS = 3_000;
 /** How long the extension gets to answer a ping once a command went unanswered. It answers from
  *  its own worker in milliseconds, whatever a tab is doing; silence here means the line is dead. */
 const LINE_PROBE_MS = 5_000;
+/** How long a TAB gets to answer a trivial question once one of its commands went unanswered. A
+ *  page answers in milliseconds unless its renderer is busy or Chrome is holding its commands back. */
+const TAB_PROBE_MS = 5_000;
+/** How many times {@link EXTENSION_COMMAND_TIMEOUT_MS} one command may take on a tab that still
+ *  answers, before it fails by itself. A caller's own budget can be longer than the bound (`run_js`
+ *  waits up to 45 s), and an answer the extension lost must still end in an error. */
+const SLOW_COMMAND_ROUNDS = 3;
+
+/** An error the extension ANSWERED a command with, as opposed to one made up on this side. */
+class ExtensionRefusal extends Error {}
 
 export interface BridgeServerOptions {
   /** TCP port; 0 (default) = ephemeral. Always bound to 127.0.0.1. */
@@ -87,7 +98,13 @@ export interface BridgeServerOptions {
 /** Id/callback bookkeeping over the extension's line, whichever transport carries it
  *  ({@link ExtensionChannel}: the ws relay, or the native-messaging socket). */
 export class ExtensionConnection {
-  private readonly callbacks = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; tabId?: number }>();
+  private readonly callbacks = new Map<number, {
+    resolve: (v: unknown) => void; reject: (e: Error) => void; tabId?: number;
+    /** How many timeouts this command is into, and how it starts the next one. */
+    rounds: number; wait: () => void;
+  }>();
+  /** The probe in flight for a tab, so commands that time out together ask it once. */
+  private readonly tabProbes = new Map<number, Promise<boolean>>();
   private lastId = 0;
   private probing = false;
   onEvent: ((method: string, params: unknown[]) => void) | null = null;
@@ -125,21 +142,15 @@ export class ExtensionConnection {
         if (this.callbacks.has(id)) this.warn(`slow: ${callLabel(method, params)} pending ${SLOW_CALL_WARN_MS}ms`);
       }, SLOW_CALL_WARN_MS);
       warn?.unref?.();
-      const timer = setTimeout(() => {
-        const callback = this.callbacks.get(id);
-        if (!callback) return;
-        const cdpMethod = tabId !== undefined && typeof params[1] === "string" ? params[1] : undefined;
-        const unanswered = new ExtensionUnanswered(
-          `Extension did not answer ${callLabel(method, params)} within ${this.commandTimeoutMs}ms`, this.commandTimeoutMs, tabId, cdpMethod);
-        // Never replay a command: a timed-out input may already have reached its tab.
-        callback.reject(unanswered);
-        // Whatever else waits on that tab waits on the same thing: fail it now, not one timeout each.
-        if (tabId !== undefined) for (const other of [...this.callbacks.values()]) if (other.tabId === tabId) other.reject(unanswered);
-        void this.closeUnlessAnswering(method);
-      }, this.commandTimeoutMs);
-      timer.unref?.();
+      let timer: NodeJS.Timeout | undefined;
+      const wait = () => {
+        timer = setTimeout(() => void this.unanswered(id, method, params), this.commandTimeoutMs);
+        timer.unref?.();
+      };
+      wait();
       const settled = () => { this.callbacks.delete(id); clearTimeout(timer); if (warn) clearTimeout(warn); };
       this.callbacks.set(id, {
+        rounds: 1, wait,
         ...(tabId === undefined ? {} : { tabId }),
         resolve: (v) => {
           settled();
@@ -164,6 +175,69 @@ export class ExtensionConnection {
         this.close('Extension transport failed');
       }
     });
+  }
+
+  /**
+   * A command went a whole timeout unanswered. For a tab's command the question is whether the
+   * TAB stopped answering or only this command is slow: a script its caller gave 45 s, a
+   * navigation to a server that takes its time. So the tab is asked something trivial. One that
+   * answers is fine: the command waits on ({@link SLOW_COMMAND_ROUNDS} timeouts at most, then it
+   * fails by itself) and nothing else on the tab is touched. One that does not is the tab the
+   * model lets go of (`model-core.ts` `tabUnanswered`), and everything waiting on it fails with it.
+   */
+  private async unanswered(id: number, method: string, params: unknown[]): Promise<void> {
+    const callback = this.callbacks.get(id);
+    if (!callback) return;
+    const { tabId } = callback;
+    if (tabId !== undefined && await this.tabAnswers(tabId)) {
+      // Answered, or failed with its line, while the tab was being asked: nothing left to decide.
+      if (this.callbacks.get(id) !== callback) return;
+      const waited = Math.round(this.commandTimeoutMs * callback.rounds / 1000);
+      if (callback.rounds < SLOW_COMMAND_ROUNDS) {
+        callback.rounds += 1;
+        this.warn(`slow: ${callLabel(method, params)} pending ${waited}s on a tab that still answers; waiting on`);
+        callback.wait();
+        return;
+      }
+      callback.reject(new Error(`${callLabel(method, params)} was not answered in ${waited}s. Its tab still answers, `
+        + "so only this command failed and the tab is kept."));
+      return;
+    }
+    if (this.callbacks.get(id) !== callback) return;
+    const cdpMethod = tabId !== undefined && typeof params[1] === "string" ? params[1] : undefined;
+    const ms = this.commandTimeoutMs * callback.rounds;
+    const unanswered = new ExtensionUnanswered(`Extension did not answer ${callLabel(method, params)} within ${ms}ms`, ms, tabId, cdpMethod);
+    // Never replay a command: a timed-out input may already have reached its tab.
+    callback.reject(unanswered);
+    // Whatever else waits on that tab waits on the same thing: fail it now, not one timeout each.
+    if (tabId !== undefined) for (const other of [...this.callbacks.values()]) if (other.tabId === tabId) other.reject(unanswered);
+    void this.closeUnlessAnswering(method);
+  }
+
+  /**
+   * Does this tab answer the debugger right now? Asked with an expression that touches nothing.
+   * An error the extension answers with is an answer too (the tab is reachable, whatever it
+   * refused); silence, or a line that dropped meanwhile, is not. One probe per tab at a time.
+   */
+  private tabAnswers(tabId: number): Promise<boolean> {
+    let probe = this.tabProbes.get(tabId);
+    if (!probe) {
+      probe = new Promise<boolean>((resolve) => {
+        if (!this.channel.isOpen) { resolve(false); return; }
+        const id = ++this.lastId;
+        const done = (answered: boolean) => { this.callbacks.delete(id); clearTimeout(timer); resolve(answered); };
+        const timer = setTimeout(() => done(false), Math.min(TAB_PROBE_MS, Math.round(this.commandTimeoutMs / 4)));
+        timer.unref?.();
+        this.callbacks.set(id, { rounds: 1, wait: () => {}, resolve: () => done(true), reject: (e) => done(e instanceof ExtensionRefusal) });
+        try {
+          this.channel.send(JSON.stringify({ id, method: "chrome.debugger.sendCommand", params: [{ tabId }, "Runtime.evaluate", { expression: "1" }] }));
+        } catch {
+          done(false);
+        }
+      }).finally(() => { this.tabProbes.delete(tabId); });
+      this.tabProbes.set(tabId, probe);
+    }
+    return probe;
   }
 
   /**
@@ -211,7 +285,7 @@ export class ExtensionConnection {
     }
     if (message.id !== undefined && this.callbacks.has(message.id)) {
       const callback = this.callbacks.get(message.id)!;
-      if (message.error !== undefined) callback.reject(new Error(message.error));
+      if (message.error !== undefined) callback.reject(new ExtensionRefusal(message.error));
       else callback.resolve(message.result);
       return;
     }

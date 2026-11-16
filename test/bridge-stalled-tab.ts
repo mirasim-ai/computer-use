@@ -7,6 +7,8 @@
  *
  *   · a page session never auto-attaches service workers (one that nobody resumes holds a
  *     navigation, and Chrome answers nothing on a tab whose navigation is pending);
+ *   · a command that is only slow, on a tab that still answers, is waited for; one the extension
+ *     never answers fails by itself, and either way the tab is kept;
  *   · a tab that answers nothing fails ITS commands, naming the tab and where it was going, and
  *     the line, the other tabs and the other commands carry on;
  *   · the next line does not hand that tab out again by itself; binding it by name does;
@@ -100,6 +102,12 @@ class FakeExtension {
         const [{ tabId }, cdpMethod, cdpParams] = params;
         this.commands.push({ tabId, method: cdpMethod, params: cdpParams });
         if (this.silent.has(tabId)) return;
+        // A page's own slow work: answered late, or never, while the tab answers everything else.
+        if (cdpMethod === "Runtime.evaluate" && cdpParams?.expression === "slow()") {
+          setTimeout(() => answer({ result: { type: "string", value: "done" } }), COMMAND_TIMEOUT_MS * 1.6);
+          return;
+        }
+        if (cdpMethod === "Runtime.evaluate" && cdpParams?.expression === "lost()") return;
         if (cdpMethod === "Target.getTargetInfo")
           return answer({ targetInfo: { targetId: `target-${tabId}`, type: "page", url: this.tabs.get(tabId)!.url, title: "", attached: true, browserContextId: "ctx" } });
         return answer({});
@@ -192,6 +200,23 @@ async function main() {
     check("a command over Chrome's 1 MB a message fails at once, saying so",
       !!tooLarge && /was not sent/.test(tooLarge) && /1048576/.test(tooLarge) && Date.now() - started < 500, `${tooLarge?.slice(0, 160)} after ${Date.now() - started} ms`);
     check("...and the line and the tab carry on", server.extensionConnected()
+      && (await failure(client.send("Runtime.evaluate", { expression: "1" }, listSession))) === null);
+
+    // ── A command that is only slow ────────────────────────────────────────────────────────
+    started = Date.now();
+    const slow = client.send("Runtime.evaluate", { expression: "slow()", awaitPromise: true }, listSession);
+    await sleep(COMMAND_TIMEOUT_MS / 2);
+    check("while one command is slow, its tab answers the next one",
+      (await failure(client.send("Runtime.evaluate", { expression: "1" }, listSession))) === null);
+    const slowResult = await slow.then((r) => r?.result?.value, (e) => `failed: ${(e as Error).message}`);
+    check("a command slower than the bound is answered when its tab still answers",
+      slowResult === "done" && Date.now() - started >= COMMAND_TIMEOUT_MS * 1.5, `${slowResult} after ${Date.now() - started} ms`);
+    check("...and the tab is kept", client.sessionFor(list.targetId) === listSession && !extension.released.includes(1), JSON.stringify(extension.released));
+    started = Date.now();
+    const lost = await failure(client.send("Runtime.evaluate", { expression: "lost()" }, listSession));
+    check("a command the extension never answers fails by itself, saying its tab still answers",
+      !!lost && /Runtime\.evaluate tab=1 was not answered in 3s/.test(lost) && /only this command failed/.test(lost), `${lost} after ${Date.now() - started} ms`);
+    check("...and the tab is kept then too", client.sessionFor(list.targetId) === listSession && !extension.released.includes(1)
       && (await failure(client.send("Runtime.evaluate", { expression: "1" }, listSession))) === null);
 
     // ── A tab that answers nothing ─────────────────────────────────────────────────────────
