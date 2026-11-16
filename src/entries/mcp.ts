@@ -76,6 +76,22 @@ const FRAME_BACKLOG_MAX = 4 * 1024 * 1024;
 const ASK_TIMEOUT_MS = 15 * 60_000;
 
 /**
+ * How long a turn's end or the server's shutdown waits for a call still running before it ends
+ * that call itself (computer_repl_reset `abandonAfterMs`), and how long each driver then gets to
+ * close tidily before its connection is dropped. Without them one verb the surface never answered
+ * held both forever: every later call was refused as "cleanup in progress", and a server told to
+ * stop (SIGTERM, stdin closed) never exited. Overridable for the suite that pins this.
+ */
+const envMs = (name: string, fallback: number): number => {
+  const ms = Number(process.env[name]);
+  return Number.isFinite(ms) && ms > 0 ? ms : fallback;
+};
+const ENDING_WAIT_MS = envMs("COMPUTER_USE_ENDING_WAIT_MS", 5_000);
+const DRIVER_CLOSE_MS = 8_000;
+/** The whole of a shutdown, whatever is still stuck in it: past this the process exits anyway. */
+const SHUTDOWN_MAX_MS = ENDING_WAIT_MS + 20_000;
+
+/**
  * The platform's way to ask the user, over MCP elicitation: the tool asks, the HOST decides how
  * to put it to its person and where "always" is kept. Without client elicitation support the
  * platform falls back to its static list (macos/driver.ts).
@@ -83,20 +99,34 @@ const ASK_TIMEOUT_MS = 15 * 60_000;
  * `accept` IS the yes. How long it holds is the form's one field, `persist`, or the answer's
  * `_meta.persist` (`session` | `always`) — neither, this one call (consent.ts).
  */
-function consentChannel(): { consent: UserConsent; attach: (server: Server) => void } {
+function consentChannel(): { consent: UserConsent; attach: (server: Server) => void; cancelOpen: () => void } {
   // Late-bound: the profile must exist before the server (its `instructions` are read off the
   // profile); a question only ever comes from inside a tool call, after the server is up.
   let server: Server | null = null;
   const revokes: Array<(ids: string[]) => void> = [];
+  /** Questions still open, so a turn or a server that ends takes them back instead of leaving a
+   *  call (and the process) waiting up to {@link ASK_TIMEOUT_MS} on an answer nobody will use. */
+  const open = new Set<AbortController>();
   return {
+    cancelOpen: () => { for (const question of open) question.abort(); },
     consent: {
       available: () => server?.getClientCapabilities()?.elicitation?.form !== undefined,
       ask: async (message, meta) => {
-        const r = await server!.elicitInput(
-          { mode: "form", message, requestedSchema: consentForm(meta), _meta: meta },
-          { timeout: ASK_TIMEOUT_MS },
-        );
-        return consentAnswer(r);
+        const question = new AbortController();
+        open.add(question);
+        try {
+          const r = await server!.elicitInput(
+            { mode: "form", message, requestedSchema: consentForm(meta), _meta: meta },
+            { timeout: ASK_TIMEOUT_MS, signal: question.signal },
+          );
+          return consentAnswer(r);
+        } catch (e) {
+          // Taken back by this side: an answer like any other no, with the reason said.
+          if (question.signal.aborted) return { allowed: false, reason: "the turn ended before anyone answered" };
+          throw e;
+        } finally {
+          open.delete(question);
+        }
       },
       onRevoke: (cb) => { revokes.push(cb); },
     },
@@ -109,6 +139,13 @@ function consentChannel(): { consent: UserConsent; attach: (server: Server) => v
       };
     },
   };
+}
+
+/** `work`, or nothing once `ms` have passed: for a step of a teardown that must not hold it up. */
+async function within(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([work.catch(() => {}), new Promise((resolve) => { timer = setTimeout(resolve, ms); })]);
+  clearTimeout(timer);
 }
 
 export async function serveMcp(): Promise<void> {
@@ -187,10 +224,13 @@ export async function serveMcp(): Promise<void> {
       try {
         // Reset the resident JS state, let the platform clean only its own resources, then
         // disconnect the driver. User-owned apps/tabs are never closed by this edge.
-        await reset?.execute({ waitForIdle: true });
+        // A call still running gets ENDING_WAIT_MS to finish and is then ended: a turn that is
+        // over must not wait on a verb the surface never answers, nor on a question to the user.
+        channel.cancelOpen();
+        await reset?.execute({ waitForIdle: true, abandonAfterMs: ENDING_WAIT_MS });
         for (const driver of profile.drivers) {
-          await driver.turnEnded({ sessionId, turnId, hookEventName: hook, keepBrowserTabs });
-          await driver.close();
+          await within(driver.turnEnded({ sessionId, turnId, hookEventName: hook, keepBrowserTabs }), DRIVER_CLOSE_MS);
+          await driver.closeWithin(DRIVER_CLOSE_MS);
         }
         endedTurns.add(key);
         if (endedTurns.size > 512) endedTurns.delete(endedTurns.values().next().value as string);
@@ -251,12 +291,18 @@ export async function serveMcp(): Promise<void> {
   let ending: Promise<void> | null = null;
   const shutdown = (code: number): void => {
     endingTurn = true;
+    if (!ending) {
+      // The backstop under everything below: whatever is still stuck, this process ends.
+      setTimeout(() => process.exit(code), SHUTDOWN_MAX_MS).unref();
+      channel.cancelOpen();
+    }
     ending ??= (async () => {
-      // Never release a claim while a previously dispatched operation is still draining.
-      try { await tools.find((t) => t.name === "computer_repl_reset")?.execute({ waitForIdle: true }); }
+      // Never release a claim while a previously dispatched operation is still draining; one
+      // that has not finished within ENDING_WAIT_MS is ended (its surface's connection dropped).
+      try { await tools.find((t) => t.name === "computer_repl_reset")?.execute({ waitForIdle: true, abandonAfterMs: ENDING_WAIT_MS }); }
       catch { /* Claims left behind are reclaimed once this process and its helpers have exited. */ }
       preview?.close();
-      await Promise.all(profile.drivers.map((d) => d.close().catch(() => {})));
+      await Promise.all(profile.drivers.map((d) => d.closeWithin(DRIVER_CLOSE_MS)));
     })();
     void ending.then(() => process.exit(code));
   };

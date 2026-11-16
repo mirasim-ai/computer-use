@@ -145,6 +145,7 @@ export abstract class MacosDriverApps extends ComputerUseDriver {
     }
     const display = typeof name === "string" ? name : await name();
     const started = Date.now();
+    this.awaitingUserSince = started;
     let answer: Awaited<ReturnType<UserConsent["ask"]>>;
     try {
       answer = await this.consent!.ask(consentQuestion(display, bundle), {
@@ -153,6 +154,7 @@ export abstract class MacosDriverApps extends ComputerUseDriver {
       });
     } finally {
       // A person deciding is not a slow surface: the run's time cap must not count it.
+      this.awaitingUserSince = null;
       this.waitedOnUserMs += Date.now() - started;
     }
     if (!answer.allowed) {

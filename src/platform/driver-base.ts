@@ -27,6 +27,8 @@ import { ComputerUseDriverRender } from "./driver-render.ts";
 
 import { settleAfterStateAction } from "./driver-settle.ts";
 
+/** How long {@link ComputerUseDriverBase.abandon} waits on a close that may never finish. */
+const ABANDON_CLOSE_MS = 3_000;
 /** Ceiling on one primitive read (snapshot / screenshot / full text) — see {@link ComputerUseDriver.bounded}. */
 const OBSERVE_TIMEOUT_MS = 15_000;
 
@@ -53,6 +55,24 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
   /** Execute one act verb (universal or extra) with its raw arguments. */
   abstract perform(kind: string, args: Record<string, unknown>): Promise<ActResult>;
   abstract close(): Promise<void>;
+  /**
+   * Let go of the surface NOW, for a caller that cannot wait: a verb that never came back, a turn
+   * or a server that is ending. {@link close} is the tidy way and asks the surface things (put a
+   * viewport back, close a blank tab), which is exactly what a surface that stopped answering
+   * never finishes. A platform whose pending work hangs off a connection drops that connection
+   * first (browser, Electron): that is what fails the work still waiting on it.
+   */
+  async abandon(): Promise<void> {
+    await this.closeWithin(ABANDON_CLOSE_MS, false);
+  }
+  /** {@link close}, and when that has not finished within `ms`, {@link abandon}. Never throws. */
+  async closeWithin(ms: number, thenAbandon = true): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const closed = this.close().then(() => true, () => true);
+    const done = await Promise.race([closed, new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); })]);
+    clearTimeout(timer);
+    if (!done && thenAbandon) await this.abandon().catch(() => {});
+  }
   /** A host records native executors before they can receive input. */
   onExecutorStart?: (pid: number) => Promise<void>;
   private readonly disconnectListeners = new Set<() => void | Promise<void>>();

@@ -20,6 +20,16 @@ export const MAX_MS = 60_000;
  */
 export const SYNC_MAX_MS = 10_000;
 /**
+ * How far past {@link MAX_MS} a call may go before it is ENDED from outside. The cap is checked
+ * when a verb starts, so it never sees a verb that does not come back (a key press sent to a page
+ * whose script never returns), nor code waiting on a promise nothing will settle. The longest a
+ * verb may legitimately take once started is run_js's 45 s; past that the call is stuck, and the
+ * only way to end it is to drop the connection it is waiting on (tools/repl.ts).
+ */
+export const STUCK_GRACE_MS = 45_000;
+/** How long an ended call's verb gets to fail once its connection was dropped. */
+export const ABANDON_DRAIN_MS = 5_000;
+/**
  * Characters of a returned value that reach the model. Sized for one window's full text (a
  * four-turn ChatGPT.app conversation reads 13,000–17,500 chars); smaller caps make the model
  * re-read in slices. 12,000 chars is ~3-4K tokens, under one observation of the same window.

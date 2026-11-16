@@ -59,7 +59,7 @@ export abstract class WindowsDriverApps extends WindowsDriverYield {
     if (isSharedFrameHost(askedAs)) return { note: `${askedAs} frames the windows of Store apps and is not an app to start; name the app itself. Nothing was started` };
     const asked = !this.gate.cleared(askedAs);
     try {
-      this.waitedOnUserMs += await this.gate.authorize(askedAs, shown, this.consentPurpose, true);
+      this.waitedOnUserMs += await this.whileAsking(() => this.gate.authorize(askedAs, shown, this.consentPurpose, true));
       return { askedAs, shown, exe: info?.exe ?? null, asked };
     } catch (e) {
       if (!(e instanceof AppRefused)) throw e;

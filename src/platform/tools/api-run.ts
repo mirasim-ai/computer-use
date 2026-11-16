@@ -8,14 +8,21 @@ import type { JournalLine } from "./api-contract.ts";
 /**
  * ONE verb in flight across everything wrapped by the same gate — a second one started before
  * the first finished is REFUSED, by name. `log` and non-functions pass through.
+ *
+ * `over` says the code calling a verb belongs to a call that has ended (or was told to stop). Such
+ * a verb is neither run nor refused: it never settles. Refusing would hand the code an error it
+ * can catch, and code that catches and tries again (`while (true) { try { await w.click(t) }
+ * catch {} }`) then spins without ever yielding: measured, no timer and no signal handler runs
+ * again, so the whole server is lost. Code left waiting on a promise nobody holds is just garbage.
  */
-export function verbGate(onRefusal: (note: string) => void) {
+export function verbGate(onRefusal: (note: string) => void, over: () => boolean = () => false) {
   let inFlight: string | null = null;
   let pending: Promise<unknown> | null = null;
   const wrap = <T extends Record<string, unknown>>(fns: T): T => Object.fromEntries(Object.entries(fns).map(([name, fn]) => {
     if (name === "log" || typeof fn !== "function") return [name, fn];
     const verb = fn as (...a: unknown[]) => Promise<unknown>;
     return [name, (...a: unknown[]) => {
+      if (over()) return new Promise(() => {});
       if (inFlight) {
         const note = `${name} was started while ${inFlight} was still running — verbs run `
           + "one at a time, because the surface has one focus and one caret. Two chains in "
@@ -40,6 +47,11 @@ export function verbGate(onRefusal: (note: string) => void) {
   return Object.assign(wrap, {
     // A forgotten await must not outlive its ledger or let reset release a still-used target.
     async drain(): Promise<void> { while (pending) await pending; },
+    /** The verb in flight right now, by name. */
+    running: (): string | null => inFlight,
+    /** Stop counting a verb that will never come back (its call was abandoned), so the next call
+     *  is not refused in its name for the rest of the session. */
+    forget(): void { inFlight = null; pending = null; },
   });
 }
 

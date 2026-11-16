@@ -58,6 +58,8 @@ function isAppSurface(p: Page): boolean {
 
 /** Attaching initialises every target; a stuck one must fail in seconds, not playwright's 30. */
 const ATTACH_TIMEOUT_MS = 15_000;
+/** How long dropping the connection may take when a session is abandoned ({@link ElectronDriver.abandon}). */
+const DISCONNECT_MS = 2_000;
 
 /**
  * No launch fallback on purpose — app lifecycle is not ours. The message carries the fix, and
@@ -283,6 +285,13 @@ export class ElectronDriver extends ChromiumPageDriver {
     if (kind === "run_js") return await performRunJs(() => this.page(), a.code, a.ms, a.budgetMs);
     // No focus net and no journal: see the header. The universal verbs are the base class's.
     return (await this.dispatchPage(kind, a)) ?? { ok: false, note: `unknown action kind ${kind}` };
+  }
+
+  /** The connection first, as in the browser: it is what a verb that never came back waits on. */
+  override async abandon(): Promise<void> {
+    const browser = this.browser;
+    if (browser) await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, DISCONNECT_MS))]);
+    await super.abandon();
   }
 
   async close(): Promise<void> {

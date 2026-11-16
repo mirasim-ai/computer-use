@@ -26,6 +26,9 @@ import { boundedTitle } from "../chromium/bounded-title.ts";
  *  itself is capped at 4s, and a whole run's exit must not hang on an observer channel). */
 const JOURNAL_DRAIN_MS = 5_000;
 
+/** How long dropping the connection may take when a session is abandoned ({@link BrowserDriver.abandon}). */
+const DISCONNECT_MS = 2_000;
+
 /** A surface name that is really an address: a scheme, or a host (localhost, an IP, any name)
  *  with a port — what a model passes when the task told it where the app runs. */
 const URLISH = /^(?:[a-z][a-z\d+.-]*:\/\/|(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-f:]+\])(?::\d+)?(?:[/?#]|$)|[\w.-]+:\d+(?:[/?#]|$))/i;
@@ -415,6 +418,15 @@ export class BrowserDriver extends BrowserDriverVerbs {
     try { await closeBridgeTab(this.browser, Number(dormant[1]), dormant[2]!); }
     catch (e) { return { ok: false, note: `could not close tab ${this.shownId(id)}: ${e instanceof Error ? e.message : String(e)}` }; }
     return { ok: true, note: `closed tab ${this.shownId(id)} — the user's own, closed on the agreement you reported; the target is unchanged` };
+  }
+
+  /** Drop the connection first: every command still pending is waiting on it, and `close()`
+   *  below asks the pages things (a viewport put back, a blank tab closed) that a page which
+   *  stopped answering never finishes. With the connection gone those steps find nothing to ask. */
+  override async abandon(): Promise<void> {
+    const browser = this.browser;
+    if (browser) await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, DISCONNECT_MS))]);
+    await super.abandon();
   }
 
   async close(): Promise<void> {

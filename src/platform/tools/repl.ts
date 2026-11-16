@@ -15,10 +15,11 @@
  * only the JS bindings; refs and change signatures live on the driver and survive.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createContext, runInContext, type Context } from "node:vm";
 import { Type } from "typebox";
 import { spec, text, type ComputerUseToolSpec, type TargetInfo, type ToolResult } from "../types.ts";
-import { MAX_ACTIONS, MAX_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
+import { ABANDON_DRAIN_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
 import { apiReference, platformReference, replDescription, RESET_DESCRIPTION } from "./repl-docs.ts";
@@ -35,9 +36,13 @@ const OFF_SURFACE_KINDS = new Set(["dialog", "close_tab"]);
 
 export function createReplTools(
   mounted: PlatformSlice[],
-  opts: { docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number } = {},
+  opts: { docsDelivered?: boolean; ownership?: OwnershipProvider; idleReleaseMs?: number;
+    /** TEST SEAMS ONLY: a call's wall clock and how far past it a call may go before it is ended. */
+    maxMs?: number; stuckGraceMs?: number } = {},
 ): ComputerUseToolSpec[] {
   if (!mounted.length) throw new Error("createReplTools needs at least one platform");
+  const maxMs = opts.maxMs ?? MAX_MS;
+  const stuckGraceMs = opts.stuckGraceMs ?? STUCK_GRACE_MS;
   /** Windows apps are named in the tool's own text only where they are mounted (repl-docs.ts). */
   const windowsApps = mounted.some((m) => m.driver.platform === "windows");
   // ── Session state ─────────────────────────────────────────────────────────
@@ -69,6 +74,19 @@ export function createReplTools(
   /** The ledger of the call in progress; null between calls, so a verb left un-awaited by a
    *  previous call is refused rather than charged to a stranger. */
   let current: RunLedger | null = null;
+  /**
+   * Which call the code calling a verb was started by, and which call is running. They differ for
+   * code that outlived its call: a call ended from outside leaves its code suspended on whatever
+   * it awaited, and when that settles the code goes on, in the middle of a later call. Its verbs
+   * must not act there, nor be charged to that call (@see verbGate).
+   */
+  const calls = new AsyncLocalStorage<object>();
+  let running: object | null = null;
+  /** Set once the call in progress hit a cap and said so: the code was told to stop. A verb
+   *  called after that is not answered at all, and that ends the call (@see verbGate). */
+  let capped: string | null = null;
+  /** End the call in progress from outside; `end` is null between calls. @see execute */
+  const outside: { end: ((why: string) => void) | null } = { end: null };
   const ledger = (): RunLedger => {
     if (!current) throw new Error("no computer_repl call is in progress — every verb must be awaited inside the call that started it");
     return current;
@@ -119,7 +137,13 @@ export function createReplTools(
     }
   };
 
-  const gate = verbGate((note) => current?.push("verb", "", false, note));
+  const gate = verbGate((note) => current?.push("verb", "", false, note), () => {
+    if (calls.getStore() !== running) return true;
+    if (capped === null) return false;
+    // Told once already; code that carries on is not told again (it would spin on the refusals).
+    outside.end?.(capped);
+    return true;
+  });
   const slices: Slice[] = mounted.map((m) => ({
     ...m,
     id: m.driver.platform,
@@ -568,7 +592,12 @@ export function createReplTools(
       const images: ToolResult["content"] = [];
       const started = Date.now();
       // The time cap excludes time spent waiting on the USER (a consent prompt).
-      const waited = () => slices.reduce((ms, sl) => ms + sl.driver.waitedOnUserMs, 0);
+      const waited = () => slices.reduce((ms, sl) => ms + sl.driver.waitedOnUserMs
+        + (sl.driver.awaitingUserSince === null ? 0 : Date.now() - sl.driver.awaitingUserSince), 0);
+      /** How long the call has run, the time a question stood open to the user left out. */
+      const active = () => Date.now() - started - (waited() - waitedBefore);
+      /** Say it once: code that catches a cap and calls on is not answered again (@see verbGate). */
+      const stop = (why: string): never => { capped = why; throw new Error(why); };
       const waitedBefore = waited();
       let actions = 0;
       let acted: string | null = null; // the last verb the run dispatched, or null for a pure look
@@ -579,9 +608,9 @@ export function createReplTools(
         round,
         charge(kind) {
           stepStart ??= Date.now();
-          if (resetPending) throw new Error("The runtime was reset; this run stops before its next operation.");
-          if (++actions > MAX_ACTIONS) throw new Error(`step cap reached (${MAX_ACTIONS} actions) at ${kind} — split the work across calls, or narrow the loop`);
-          if (Date.now() - started - (waited() - waitedBefore) > MAX_MS) throw new Error(`time cap reached (${MAX_MS / 1000}s) at ${kind} — the surface may be slower than the code assumes`);
+          if (resetPending) stop("The runtime was reset; this run stops before its next operation.");
+          if (++actions > MAX_ACTIONS) stop(`step cap reached (${MAX_ACTIONS} actions) at ${kind} — split the work across calls, or narrow the loop`);
+          if (active() > maxMs) stop(`time cap reached (${maxMs / 1000}s) at ${kind} — the surface may be slower than the code assumes`);
         },
         push(kind, target, ok, note, read, outcome) {
           if (!read && ok && !READ_KINDS.has(kind) && !OFF_SURFACE_KINDS.has(kind)) acted = kind;
@@ -591,32 +620,90 @@ export function createReplTools(
           journal.push({ i: journal.length + 1, kind, target, ok, note, ...(outcome ? { outcome } : {}), ...(ms !== undefined ? { ms } : {}) });
         },
         attach(part) { images.push(part); },
-        remainingMs: () => MAX_MS - (Date.now() - started - (waited() - waitedBefore)),
+        remainingMs: () => maxMs - active(),
       };
       const fresh = !sandbox;
       sandbox ??= freshSandbox();
 
       let returned: unknown;
       let failure: string | null = null;
-      try {
-        // A host's `target` is bound through the same pick and `bind` the code would use, so a run
-        // that binds nothing lands where the CALLER meant.
-        const want = String((params as { target?: unknown }).target ?? "").trim();
-        if (want) {
-          const named = handleFor(await resolveHostTarget(want));
-          await bind(named);
-          hostBound = named;
-        }
-        returned = await runInContext(prepareCode(src), sandbox, { filename: "computer_repl", timeout: SYNC_MAX_MS });
-      } catch (e) {
-        if ((e as { code?: unknown }).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {
-          e = new Error(`the code ran for ${SYNC_MAX_MS / 1000}s without awaiting anything and was stopped — `
-            + "a loop that never awaits blocks the whole runtime; await a verb (or w.wait) inside it");
-        }
-        failure = explain(e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e), fresh);
-      } finally {
+      // ── Ending the call from outside ──────────────────────────────────────────────────────
+      // The caps above are read when a verb STARTS. Nothing there ends a verb that does not come
+      // back, or code waiting on a promise nothing settles, and until this call ends every later
+      // one queues behind it, a turn cannot end and the server cannot shut down. So the call is
+      // also watched from here, and can be told to end: by the watchdog, by code that calls on
+      // past a cap, by the host ending the turn (computer_repl_reset `abandonAfterMs`).
+      const call = {};
+      running = call;
+      capped = null;
+      const ended: { why: string | null } = { why: null };
+      let endNow!: () => void;
+      const endedFromOutside = new Promise<void>((resolve) => { endNow = resolve; });
+      const ENDED = Symbol("ended");
+      outside.end = (why) => { if (ended.why === null) { ended.why = why; endNow(); } };
+      const watchdog = setInterval(() => {
+        if (active() <= maxMs + stuckGraceMs) return;
+        const verb = gate.running();
+        const at = `${Math.round(active() / 1000)}s into the call`;
+        outside.end?.(verb
+          ? `${verb} had not come back ${at}, so the call was ended and the connection to the surface dropped — nothing else `
+            + `stops a verb the surface never answers. What ${verb} did is unknown: bind the surface again and observe before repeating anything`
+          : `the code was still waiting ${at} on something that is not a verb (a promise nothing settles), so the call was ended`);
+      }, Math.max(50, Math.min(1000, Math.round(stuckGraceMs / 4))));
+      watchdog.unref?.();
+      const body = calls.run(call, async () => {
+        let out: unknown, error: unknown, failed = false, left: unknown, leftFailed = false;
+        try {
+          // A host's `target` is bound through the same pick and `bind` the code would use, so a run
+          // that binds nothing lands where the CALLER meant.
+          const want = String((params as { target?: unknown }).target ?? "").trim();
+          if (want) {
+            const named = handleFor(await resolveHostTarget(want));
+            await bind(named);
+            hostBound = named;
+          }
+          out = await runInContext(prepareCode(src), sandbox!, { filename: "computer_repl", timeout: SYNC_MAX_MS });
+        } catch (e) { error = e; failed = true; }
+        // A verb the code did not await finishes inside its own call. Its failure is said, but
+        // takes neither the code's own failure nor what the code returned.
         try { await gate.drain(); }
-        catch (e) { failure ??= explain(e instanceof Error ? e.message : String(e), fresh); }
+        catch (e) { left = e; leftFailed = true; }
+        if (failed) throw error;
+        return { out, left, leftFailed };
+      });
+      body.catch(() => {});
+      try {
+        const done = await Promise.race([body, endedFromOutside.then((): never => { throw ENDED; })]);
+        returned = done.out;
+        if (done.leftFailed) failure = explain(done.left instanceof Error ? done.left.message : String(done.left), fresh);
+      } catch (e) {
+        if (e === ENDED) failure = ended.why;
+        else {
+          if ((e as { code?: unknown }).code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {
+            e = new Error(`the code ran for ${SYNC_MAX_MS / 1000}s without awaiting anything and was stopped — `
+              + "a loop that never awaits blocks the whole runtime; await a verb (or w.wait) inside it");
+          }
+          failure = explain(e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e), fresh);
+        }
+      } finally {
+        clearInterval(watchdog);
+        outside.end = null;
+        // From here on this call's code is nobody's: a verb it calls is never answered.
+        running = null;
+        if (ended.why !== null) {
+          if (gate.running()) {
+            // A verb is still out. What it waits on is its surface's connection, so that goes:
+            // the tidy close asks the surface things, which is how the verb got stuck.
+            await Promise.all(slices.map((sl) => sl.driver.abandon().catch(() => {})));
+            await Promise.race([gate.drain().catch(() => {}), new Promise((r) => setTimeout(r, ABANDON_DRAIN_MS))]);
+            gate.forget();
+          }
+          // The code is suspended wherever it was, its bindings half made: the next call starts over.
+          sandbox = null;
+          lastBound = null;
+          handles.clear();
+          refOwner.clear();
+        }
         current = null;
       }
 
@@ -634,6 +721,14 @@ export function createReplTools(
         ? `Run STOPPED after ${journal.length} steps (${elapsed}s): ${failure}`
         : `Run completed ${journal.length} steps in ${elapsed}s.`;
       const lines = [head, ...renderJournal(journal)];
+      // A call ended from outside is not observed: its surface is the one that stopped answering
+      // (or was just let go of), and its runtime is gone, so there is nothing still bound to name.
+      if (ended.why !== null) {
+        lines.push("The next call starts a fresh runtime: nothing declared so far survives, and every surface is bound again from computer.surface().");
+        const r = text(lines.join("\n"), { verdict: "unknown", ledgerLines: lines.length, timing: timing(), error: "run_stopped", ended: true });
+        r.content.push(...images);
+        return r;
+      }
       // A throw ends the call before `return`; say here what survives a stop.
       if (failure && journal.length > 0) {
         lines.push("Nothing was returned: the throw ended the call before `return`. What survives a stop — "
@@ -647,7 +742,7 @@ export function createReplTools(
           const h = handles.get(t.id);
           if (h) h.title = t.title;
         }
-        const held = boundHandles(sandbox);
+        const held = sandbox ? boundHandles(sandbox) : [];
         if (held.length) lines.push(`Still bound: ${held.join(", ")} — use ${held.length === 1 ? "it" : "them"} directly in the next call.`);
       }
       if (returned !== undefined) {
@@ -787,6 +882,12 @@ export function createReplTools(
     async execute(params) {
       const draining = callFinished;
       disarmIdle();
+      // A host that cannot wait for a call to finish (a turn ending, the server shutting down)
+      // says how long it will: past that the call is ended from here (@see execute).
+      const abandonAfterMs = (params as { abandonAfterMs?: unknown } | undefined)?.abandonAfterMs;
+      const abandon = callRunning && typeof abandonAfterMs === "number"
+        ? setTimeout(() => outside.end?.("the host ended the turn while this call was still running, so the call was ended"), abandonAfterMs)
+        : undefined;
       if (callRunning) resetPending = true;
       else {
         for (const sl of slices) await sl.driver.releaseInputResources();
@@ -800,6 +901,7 @@ export function createReplTools(
       coreSent = false;
       respawnNoteDue = false;
       if ((params as { waitForIdle?: boolean } | undefined)?.waitForIdle) await draining;
+      clearTimeout(abandon);
       return text("The JavaScript runtime was reset: every binding is gone. The next computer_repl call starts fresh and "
         + "returns the API reference. No surface was touched — tabs, windows and apps are as they were.", { reset: true });
     },

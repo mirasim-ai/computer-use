@@ -178,7 +178,7 @@ export abstract class WindowsDriverTargets extends ComputerUseDriver {
     // Binding is where the user is asked about an app not cleared yet (app-gate.ts): before any
     // read of it, and outside every read's time bound.
     try {
-      this.waitedOnUserMs += await this.gate.authorize(row.process || "?", row.title, this.consentPurpose);
+      this.waitedOnUserMs += await this.whileAsking(() => this.gate.authorize(row.process || "?", row.title, this.consentPurpose));
     } catch (e) {
       if (!(e instanceof AppRefused)) throw e;
       this.permissionRefusal = `mirasim-cu: ${e.message}`;

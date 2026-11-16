@@ -295,6 +295,15 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
   /** Milliseconds this driver has spent waiting on the USER (a consent prompt). A run's time cap
    *  measures the surface, not a person deciding, so computer_repl subtracts it (tools/repl.ts). */
   waitedOnUserMs = 0;
+  /** Since when this driver has been waiting on the user RIGHT NOW (ms epoch); null when it is
+   *  not. {@link waitedOnUserMs} only grows once an answer is in, and a call's watchdog must not
+   *  take a question still on screen for a surface that stopped answering. */
+  awaitingUserSince: number | null = null;
+  /** Put a question to the user, marked as waiting on them for as long as it is open. */
+  protected async whileAsking<T>(ask: () => Promise<T>): Promise<T> {
+    this.awaitingUserSince = Date.now();
+    try { return await ask(); } finally { this.awaitingUserSince = null; }
+  }
 
   /** One tool call is over (called after its observation): consent granted with no `persist`
    *  ends here. */
