@@ -58,7 +58,7 @@ export function createComputerUseApi(
   const specs = new Map(verbs.map((v) => [v.kind, v.schema]));
   const extras = [...specs.keys()];
   // How a target argument becomes a ref — one job, its own file (api-target.ts).
-  const { findWithMiss, missNote, asPoint, resolve, requireFocus, whereNow } = createTargeting(driver, ledger, hooks, firstLine);
+  const { findWithMiss, missNote, asPoint, resolve, requireFocus, whereNow } = createTargeting(driver, hooks);
 
   /** The controls nearest a name nothing carried, in find()'s miss wording — what a wait or an
    *  expect that gave up on a control says instead of only "it did not appear". */

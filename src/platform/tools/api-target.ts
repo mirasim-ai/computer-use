@@ -2,14 +2,13 @@
  * How a TARGET argument becomes a ref: the find-by-name path, the point path, and the identity
  * check every verb runs before it acts. A handle must re-resolve itself at use (rows re-mint
  * underneath a loop), a point must never be mistaken for a ref, and a name that matches nothing
- * says what the surface DID carry. A factory because every path needs the driver, the run ledger
- * and the host's hooks.
+ * says what the surface DID carry. A factory because every path needs the driver and the host's
+ * hooks.
  */
 
 import type { ComputerUseDriver } from "../driver.ts";
-import type { ToolResult } from "../types.ts";
 import { anchorBox, coveredMiss, type FindMiss, type FindScope, type Handle, nearMiss, rankByName, tiedOthers } from "./find-target.ts";
-import type { RunLedger, ApiHooks } from "./api-contract.ts";
+import type { ApiHooks } from "./api-contract.ts";
 
 /** How long a handle whose ref died keeps looking for its control by name, and how often: long
  *  enough for a list to be drawn again, short next to the call a stopped run costs. */
@@ -18,9 +17,7 @@ const REFIND_INTERVAL_MS = 150;
 
 export function createTargeting(
   driver: ComputerUseDriver,
-  ledger: () => RunLedger,
   hooks: ApiHooks,
-  firstLine: (r: ToolResult) => string,
 ) {
   const findByName = async (name: string, scope: FindScope = {}): Promise<Handle | null> => {
     return (await findWithMiss(name, scope)).h;
