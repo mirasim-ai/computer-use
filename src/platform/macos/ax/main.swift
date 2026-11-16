@@ -306,7 +306,7 @@ func readLoop() {
   }
   // Drain (an in-flight action is not cut in half), then undo the Chromium nudges: the flag would
   // otherwise outlive this process in the user's own apps.
-  workQueue.sync { stopWindowVideo(); engine.unnudgeAll() }
+  workQueue.sync { stopWindowVideo(); engine.unnudgeAll(); engine.restoreClipboard() }
   exit(0)
 }
 
@@ -318,14 +318,16 @@ if ProcessInfo.processInfo.environment["COMPUTER_USE_PREVIEW_WORKER"] != "1" {
 }
 
 var signalSources: [DispatchSourceSignal] = []
-atexit { ungrabMouse() }
+// A button still held comes up on the way out, and a clipboard taken for a paste goes back: the
+// stash lives only in this process, so leaving without restoring it loses what the user had copied.
+atexit { releaseHeldPointer("the helper is exiting") }
 for sig in [SIGTERM, SIGINT, SIGHUP] {
   signal(sig, SIG_IGN)
   let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
   src.setEventHandler {
     restoreBackgroundKeys()
-    ungrabMouse()
-    workQueue.sync { stopWindowVideo(); engine.unnudgeAll() }
+    releaseHeldPointer("the helper was told to stop")
+    workQueue.sync { stopWindowVideo(); engine.unnudgeAll(); engine.restoreClipboard() }
     exit(0)
   }
   src.resume()

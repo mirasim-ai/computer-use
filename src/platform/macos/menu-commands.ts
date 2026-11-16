@@ -274,6 +274,11 @@ export async function pasteVerb(host: MenuHost, pid: number, a: Record<string, a
     ok: true,
     note: `ran ${item.path} at the app's focus — ${where}${html ? ", with rich text" : ""}. `
       + (restored === -1 ? "The clipboard changed during paste; its newer contents were preserved"
+        // The helper that took the clipboard is gone and a new one answered: -2 from a current
+        // helper, a bare 0 from an older one although something had been stashed.
+        : restored === -2 || (restored === 0 && stashed > 0)
+        ? "The user's clipboard was NOT put back: the helper holding it restarted during the paste, so the clipboard still holds the pasted text"
+          + (stashed > 0 ? " and what the user had copied before is lost — tell them" : "")
         : restored === null ? "Clipboard restoration could not be verified"
         : stashed
         ? "The user's clipboard was put back afterwards (an app that reads the pasteboard late could still see ours)"

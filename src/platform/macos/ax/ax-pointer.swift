@@ -41,7 +41,10 @@ private let DEFAULT_STEPS = 12
 /// Restored on every road out, because the failure mode is a user whose mouse stopped working:
 ///   · the release that ends the press;
 ///   · a WATCHDOG, for a sequence that never releases, after {@link GRAB_MAX_S};
-///   · `atexit` and the signal sources in main.swift. The state is believed to be per-process;
+///   · `atexit` and the signal sources in main.swift.
+/// The last two go through {@link releaseHeldPointer}: the button comes up as well. Giving the
+/// mouse back alone left the app holding a press nobody would end, and the user's next real click
+/// dropped whatever was being dragged wherever that click happened to be. The state is believed to be per-process;
 ///     "believed" is not the standard for something that can lock a person out of their machine.
 private var grabbed = false
 private var grabbedAt = Date.distantPast
@@ -73,12 +76,28 @@ private func watchdog() {
   guard grabbed else { return }
   let idle = Date().timeIntervalSince(grabbedAt)
   if idle >= GRAB_MAX_S {
-    FileHandle.standardError.write(Data("pointer: the mouse was held for \(Int(idle))s with no release — giving it back\n".utf8))
-    ungrabMouse()
-    pointerDown = nil
+    releaseHeldPointer("it was held for \(Int(idle))s with no release")
     return
   }
   DispatchQueue.global().asyncAfter(deadline: .now() + (GRAB_MAX_S - idle) + 1) { watchdog() }
+}
+
+/// The road out for a press that will get no release of its own: post the mouse-up where the
+/// pointer is, then give the mouse back. Safe at any time, from any road, however many times: with
+/// no button held it only reconnects the mouse.
+func releaseHeldPointer(_ why: String) {
+  if let button = pointerDown {
+    pointerDown = nil
+    let at = currentPointer()
+    let upType: CGEventType = button == .left ? .leftMouseUp : button == .right ? .rightMouseUp : .otherMouseUp
+    if let up = CGEvent(mouseEventSource: try? eventSource(), mouseType: upType, mouseCursorPosition: at, mouseButton: button) {
+      up.setIntegerValueField(.mouseEventClickState, value: 1)
+      up.post(tap: .cgSessionEventTap)
+    }
+    FileHandle.standardError.write(Data("pointer: released the held button at \(Int(at.x)),\(Int(at.y)) — \(why)\n".utf8))
+    if let owner = pointerOwner { showPointer(at: at, owner: owner, holding: false) }
+  }
+  ungrabMouse()
 }
 
 /// The pointer's position as everything here understands it: the last place we put it, or — before

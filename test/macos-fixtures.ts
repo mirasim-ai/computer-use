@@ -57,6 +57,9 @@ export interface Stub {
   /** The app is frontmost, so the key-window commands (Select All, Paste) are enabled — what
    *  `activate` buys in reality. */
   frontmost: boolean;
+  /** What `clipboardrestore` answers: items put back (the default, 1), -1 when the clipboard
+   *  changed meanwhile, -2 when this helper holds no stash (another one took the clipboard). */
+  restoreAnswer: number;
   /** …but not YET: this many `menu` reads still answer disabled first, as AppKit does for a
    *  second or two after an app comes forward. */
   menuLag: number;
@@ -159,6 +162,7 @@ export interface Stub {
 
 export function stubTransport(): Stub {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+  let restoreAnswer = 1;
   const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, saysOnPress: null as Record<string, number> | null, said: {} as Record<string, number>, talking: false, unprompted: null as number | null, spoken: 0, noWatch: false, pressReveals: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
   // The helper's two views of what is running, kept apart exactly as the real one has them:
   // `running` is the truth and only `lookup` sees it; `apps` answers from the snapshot taken when
@@ -415,7 +419,7 @@ export function stubTransport(): Stub {
           };
         }
         case "clipboardstash": return { stashed: 1 };
-        case "clipboardrestore": return { restored: 1 };
+        case "clipboardrestore": return { restored: restoreAnswer };
         // The real helper sends a 400-char PREVIEW and flags what it cut; `value` hands back
         // the whole thing, one element at a time (`what:'text'` is what pays for it).
         case "value": {
@@ -507,6 +511,7 @@ export function stubTransport(): Stub {
     get chattyChurn() { return state.chattyChurn; }, set chattyChurn(v: number) { state.chattyChurn = v; },
     get tinyMenu() { return state.tinyMenu; }, set tinyMenu(v: boolean) { state.tinyMenu = v; },
     get frontmost() { return state.frontmost; }, set frontmost(v: boolean) { state.frontmost = v; },
+    get restoreAnswer() { return restoreAnswer; }, set restoreAnswer(v: number) { restoreAnswer = v; },
     get menuLag() { return state.menuLag; }, set menuLag(v: number) { state.menuLag = v; },
     get focusOn() { return state.focusOn; }, set focusOn(v: string) { state.focusOn = v; },
   get extraWindow() { return state.extraWindow; }, set extraWindow(v: false | "numbered" | "unnumbered") { state.extraWindow = v; },

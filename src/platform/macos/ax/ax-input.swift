@@ -147,13 +147,17 @@ extension AXEngine {
   }
 
   /// Put back what {@link stashClipboard} remembered. Returns how many items were restored;
-  /// zero is a real answer (the clipboard was empty before), not a failure.
+  /// zero is a real answer (the clipboard was empty before), not a failure. -1: the clipboard
+  /// changed meanwhile and was left alone. -2: nothing is stashed here — this helper never took
+  /// the clipboard (the one that did is gone), so nothing was put back and nothing was touched.
+  /// It used to answer 0 for that, which read as "restored" while the pasted text stayed on the
+  /// user's clipboard.
   @discardableResult
   func restoreClipboard() -> Int {
     let board = NSPasteboard.general
     // A person or another app copied something during the paste. Keep their newer content;
     // restoring our old stash would overwrite it. No stash means no clipboard operation.
-    guard let expected = stashedChangeCount else { return 0 }
+    guard let expected = stashedChangeCount else { return -2 }
     stashedChangeCount = nil
     guard board.changeCount == expected else { stashed = []; return -1 }
     board.clearContents()

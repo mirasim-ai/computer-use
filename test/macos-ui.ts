@@ -193,6 +193,15 @@ async function main() {
     stub.calls.map((c) => c.op).join(","));
   check("...and the note says where it landed and that the clipboard was restored",
     /at the app's focus/.test(pasted) && /put back afterwards/.test(pasted), pasted.split("\n")[0]);
+  // The stash lives in the helper. One that restarted between the stash and the restore has
+  // nothing to put back, and must not be reported as having put it back.
+  for (const [answer, from] of [[-2, "a current helper"], [0, "an older helper"]] as const) {
+    stub.restoreAnswer = answer;
+    const lost = firstText(await h.act("paste", { text: "hello" }));
+    check(`a restore answered by a helper holding no stash (${from}) is not called a restore`,
+      /NOT put back/.test(lost) && /still holds the pasted text/.test(lost) && /tell them/.test(lost) && !/put back afterwards/.test(lost), lost.split("\n")[0]);
+  }
+  stub.restoreAnswer = 1;
   stub.focusOn = "none";
   stub.frontmost = false;
 
