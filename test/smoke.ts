@@ -186,9 +186,6 @@ async function main() {
       idleText = firstText(await h.observe({}));
     }
     check("push-to-act fires despite the ticking timer", idleText.includes("observations in a row without acting"), idleText.slice(0, 200));
-    // Screenshot sprees count too.
-    const spree = firstText(await h.observe({ what: "screenshot" }));
-    check("screenshot observations feed the push-to-act counter", spree.includes("observations in a row without acting"), spree.slice(0, 200));
 
     // ── Drilling into a text field hands over the value verbatim ─────────────────
     // Every summary channel trims and collapses whitespace, so a copy-exactly workflow needs

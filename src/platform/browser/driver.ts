@@ -234,7 +234,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
 
   override async observeImage(opts: Parameters<BrowserDriverVerbs["observeImage"]>[0] = {}): Promise<ToolResult> {
     const none = await this.noTabNote();
-    if (none) return this.noTabObservation(none, opts.prefix);
+    if (none) return this.noTabObservation(none);
     try { return await super.observeImage(opts); }
     catch (e) { throw await this.userPaused() ? new Error(PAUSED_BY_USER) : e; }
   }

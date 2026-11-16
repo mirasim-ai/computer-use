@@ -127,7 +127,7 @@ export function createHarness(driver: ComputerUseDriver, opts: { diagnostics?: b
         };
         const scoped = !!(scope.ref || scope.region || scope.fullPage || scope.padding !== undefined);
         if (scope.ref && !driver.knownRef(scope.ref)) return text(driver.staleRefNote(scope.ref), { error: "stale_ref" });
-        return driver.observeImage({ modelInitiated: true, ...(scoped ? { scope } : {}) });
+        return driver.observeImage(scoped ? { scope } : {});
       }
       case "diagnostics": return driver.readDiagnostics({ id: look.id });
       case "page":

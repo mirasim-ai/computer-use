@@ -327,12 +327,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
   }
 
   /** A screenshot read: the whole surface, or a scoped shot that answers with capture facts. */
-  async observeImage(opts: { prefix?: string; scope?: ShotScope; modelInitiated?: boolean } = {}): Promise<ToolResult> {
-    // Screenshots count toward the push-to-act nudge too: a screenshot spree is the costliest
-    // way to look in circles.
-    const nudge = opts.modelInitiated && !this.takeContentRead() && ++this.observesSinceAction >= 3
-      ? `\nNOTE: ${this.observesSinceAction} observations in a row without acting — more looking will not reveal more; act (click / set_text / drag / scroll) before looking again.`
-      : "";
+  async observeImage(opts: { scope?: ShotScope } = {}): Promise<ToolResult> {
     if (opts.scope) {
       let shot: ScopedShot;
       try {
@@ -346,8 +341,7 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
           {
             type: "text",
             text: `Screenshot captured (${shot.note}). Scoped shots are for looking — `
-              + "point coordinates for actions live in FULL screenshots; use the returned mapping when provided, or act by ref."
-              + nudge,
+              + "point coordinates for actions live in FULL screenshots; use the returned mapping when provided, or act by ref.",
           },
           { type: "image", data: shot.bytes.toString("base64"), mimeType: shot.mimeType },
         ],
@@ -357,14 +351,13 @@ export abstract class ComputerUseDriver extends ComputerUseDriverWaits {
     const buf = await this.bounded("screenshot", this.screenshot());
     this.takeSurfaceChange();
     this.takeActionsInRound();
-    let head = opts.prefix ?? "";
     const pending = this.takePendingNote();
-    if (pending) head += (head ? "\n" : "") + `NOTE: ${pending}.`;
+    let head = pending ? `NOTE: ${pending}.` : "";
     const diagNote = this.diag?.takeNote(await this.currentUrl().catch(() => ""));
     if (diagNote) head += (head ? "\n" : "") + diagNote;
     return {
       content: [
-        { type: "text", text: `${head ? `${head}\n` : ""}Screenshot captured. Anything without a ref can be acted on by x/y coordinates from this image.${nudge}` },
+        { type: "text", text: `${head ? `${head}\n` : ""}Screenshot captured. Anything without a ref can be acted on by x/y coordinates from this image.` },
         { type: "image", data: buf.toString("base64"), mimeType: this.screenshotMimeType },
       ],
       details: { verdict: null, bytes: buf.length },
