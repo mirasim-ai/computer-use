@@ -14,7 +14,7 @@
 import { createHarness } from "./harness.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
-import { anchorBox, coveredMiss, nearMiss, nearMissNote, rankByName } from "../src/platform/tools/find-target.ts";
+import { anchorBox, coveredMiss, nearMiss, rankByName } from "../src/platform/tools/find-target.ts";
 import { apiReference } from "../src/platform/tools/repl-docs.ts";
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { ElectronDriver } from "../src/platform/electron/driver.ts";
@@ -99,10 +99,10 @@ async function main() {
   // ── A miss says whether the name is on the surface as TEXT ────────────────────────────
   // Two misses that need opposite next moves must not read identically: "not here" sends the
   // caller scrolling or waiting, "here but not a control" sends them to text() or to `near`.
-  const inText = nearMissNote([], "anything", {}, true);
+  const inText = nearMiss([], "anything", {}, true).note;
   check("a miss whose name the surface text carries says so, and points at text()/near",
     /TEXT carries it/.test(inText), inText);
-  check("...and a plain miss does not claim it", !/TEXT carries it/.test(nearMissNote([], "anything", {}, false)));
+  check("...and a plain miss does not claim it", !/TEXT carries it/.test(nearMiss([], "anything", {}, false).note));
 
   // ── find(…, {why: true}): the reason as data, from the same branches as the line ─────────
   {

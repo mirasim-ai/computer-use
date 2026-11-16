@@ -495,11 +495,6 @@ function whatIsHere(named: Named[], scope: FindScope): string {
   return `; ${role ? `the ${role} controls here` : "what is here"}: ${shown}${more > 0 ? `, +${more} more` : ""}`;
 }
 
-/** {@link nearMiss}'s journal line alone. */
-export function nearMissNote(elements: Named[], name: string, scope: FindScope = {}, inText = false, groups: NamedGroup[] = []): string {
-  return nearMiss(elements, name, scope, inText, groups).note;
-}
-
 /**
  * The runners-up the RANKING had no reason to put below the pick: same name, same role, still
  * tied. Empty for every other ambiguity, where the order IS an answer. Checked by a WRITE about
