@@ -26,7 +26,6 @@ export function debugLog(...args) {
 /** chrome.* calls the bridge may invoke — anything else is rejected. */
 const ALLOWED_COMMANDS = new Set([
   "chrome.debugger.attach",
-  "chrome.debugger.detach",
   "chrome.debugger.sendCommand",
   "chrome.debugger.getTargets",
   "chrome.tabs.create",
@@ -38,7 +37,7 @@ const ALLOWED_COMMANDS = new Set([
 
 /** What a paused agent may still do: stay connected, let go of what it holds, and list the tabs it
  *  may use (still filtered by the scope), so it can tell a pause from tabs that went away. */
-const ALLOWED_WHILE_PAUSED = new Set(["bridge.ping", "bridge.reload", "bridge.releaseTab", "bridge.info", "chrome.debugger.detach",
+const ALLOWED_WHILE_PAUSED = new Set(["bridge.ping", "bridge.reload", "bridge.releaseTab", "bridge.info",
   "chrome.tabs.query", "chrome.debugger.getTargets"]);
 
 /** Cookie reads whose answer is filtered by the site rules (`cookies` in the result). */
