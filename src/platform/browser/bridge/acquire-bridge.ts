@@ -10,6 +10,7 @@
  *  2. Otherwise start `mirasim-cu bridge --native-host` DETACHED, so it outlives this session
  *     (the extension holds one connection, and the next session must find the same bridge), and
  *     record its endpoint there. `--native-host` writes the manifests, so nothing else is set up.
+ *     It exits by itself once the browser and every session have been gone for ten minutes.
  *
  * A lock file keeps two sessions starting at once from standing up two bridges on one socket.
  */
@@ -30,6 +31,11 @@ interface BridgeState {
 
 /** How long a start may take before the session gives up (it loads the whole CLI). */
 const START_TIMEOUT_MS = 30_000;
+/** A bridge a session started for itself exits after this long with no extension on its line and
+ *  no session connected: nothing supervises it, and without it a `mirasim-cu bridge` process
+ *  stayed for good after the browser and every session had gone. Long enough for a browser that
+ *  is restarting to come back to the same bridge. */
+const IDLE_EXIT_S = 600;
 /** A lock older than this was left by a crashed starter. */
 const LOCK_STALE_MS = 60_000;
 /** How long a freshly started bridge waits for the extension before the session goes on. An
@@ -50,6 +56,13 @@ function readState(file: string): BridgeState | null {
   } catch {
     return null;
   }
+}
+
+/** Drop this home's record when it names `cdpUrl`: a bridge that exits on its own takes its
+ *  record with it, so the next session starts one without first asking a dead endpoint. */
+export function forgetBridge(home: string, cdpUrl: string): void {
+  const file = stateFile(home);
+  if (readState(file)?.cdpUrl === cdpUrl) fs.rmSync(file, { force: true });
 }
 
 /** Is this bridge alive, and is the extension on its line? */
@@ -156,8 +169,8 @@ function takeLock(lock: string): boolean {
 }
 
 /**
- * Start `mirasim-cu bridge --json --native-host` detached, with this process's own runtime (so a
- * loader such as tsx comes along), and read its one status line. stdout is dropped after it; the
+ * Start `mirasim-cu bridge --json --native-host --idle-exit N` detached, with this process's own
+ * runtime (so a loader such as tsx comes along), and read its one status line. stdout is dropped after it; the
  * bridge's diagnostics go to `<home>/bridge.log`.
  */
 async function startBridge(home: string): Promise<BridgeState> {
@@ -165,7 +178,7 @@ async function startBridge(home: string): Promise<BridgeState> {
   if (!script) throw new Error("cannot start the browser bridge: this process was not started from the computer-use CLI");
   const env = { ...process.env, COMPUTER_USE_HOME: home };
   const log = fs.openSync(path.join(home, "bridge.log"), "a");
-  const child = spawn(process.execPath, [...process.execArgv, script, "bridge", "--json", "--native-host"], {
+  const child = spawn(process.execPath, [...process.execArgv, script, "bridge", "--json", "--native-host", "--idle-exit", String(IDLE_EXIT_S)], {
     detached: true,
     // On Windows a detached console program gets a console window of its own; keep it hidden.
     windowsHide: true,

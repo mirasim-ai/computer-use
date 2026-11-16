@@ -393,7 +393,8 @@ to set up:
 With `COMPUTER_USE_BROWSER=extension` (and no `COMPUTER_USE_CDP_URL`) the first browser call
 finds this home's bridge through `<home>/bridge.json`, or starts one in the background
 (`mirasim-cu bridge --native-host`, logging to `<home>/bridge.log`). The bridge outlives the
-session, so later sessions adopt it; kill the pid in `bridge.json` to stop it. A session never
+session, so later sessions adopt it. It exits by itself once the browser and every session have
+been gone for ten minutes; kill the pid in `bridge.json` to stop it sooner. A session never
 falls back to a managed browser: when the extension is not connected, the error says why —
 including when the Mirasim desktop app's bridge holds it (the extension serves one bridge at
 a time, and the desktop app's comes first).

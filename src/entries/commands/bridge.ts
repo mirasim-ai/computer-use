@@ -15,6 +15,8 @@ import { defaultBridgeSocket, installNativeHost } from "../../platform/browser/b
 import { emitUsage, wantsHelp } from "./help.ts";
 import { hostEntry, hostName, NATIVE_HOST_OPTIONS, NATIVE_HOST_USAGE } from "./native-host-options.ts";
 import { ownVersion } from "../../platform/version.ts";
+import { forgetBridge } from "../../platform/browser/bridge/acquire-bridge.ts";
+import { computerUseHome } from "../../platform/home.ts";
 
 /** How often a bridge with no extension on the line re-runs the install. Idempotent and cheap (a
  *  dozen stats); the extension itself re-checks a missing host only every few minutes. */
@@ -32,6 +34,8 @@ Runs in the foreground until killed, printing the CDP endpoint as its first line
   --socket P     the native-messaging shim (bridge-host) dials this socket — the one way
                  the extension reaches this process (default with --native-host:
                  <COMPUTER_USE_HOME>/bridge.sock)
+  --idle-exit S  exit after S seconds with no extension on the line and no session connected
+                 (a bridge a session started for itself; a supervised one is its host's to stop)
   --json         print the status line as JSON (version, cdpUrl, extensionId, extensionDir,
                  nativeHost)
   --verbose      bridge diagnostics on stderr
@@ -49,6 +53,7 @@ export async function runBridgeCommand(rest: string[]): Promise<void> {
       port: { type: "string", default: "0" },
       socket: { type: "string" },
       json: { type: "boolean", default: false },
+      "idle-exit": { type: "string" },
       verbose: { type: "boolean", default: false },
       "native-host": { type: "boolean", default: false },
       ...NATIVE_HOST_OPTIONS,
@@ -56,6 +61,8 @@ export async function runBridgeCommand(rest: string[]): Promise<void> {
   });
   const port = Number.parseInt(values.port ?? "0", 10);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) usage(false);
+  const idleExitMs = values["idle-exit"] === undefined ? 0 : Number(values["idle-exit"]) * 1000;
+  if (!Number.isFinite(idleExitMs) || idleExitMs < 0) usage(false);
   const socketPath = values.socket ?? (values["native-host"] ? defaultBridgeSocket() : undefined);
   // Diagnostics go to STDERR: stdout carries the one status line a host parses.
   // `POST /shutdown` ends the wait at the bottom, like a signal does.
@@ -123,6 +130,17 @@ export async function runBridgeCommand(rest: string[]): Promise<void> {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
     void asked.then(resolve);
+    if (idleExitMs > 0) {
+      // Nothing supervises this bridge, so it ends itself — and takes its record with it.
+      const watch = setInterval(() => {
+        if (server.unusedFor() < idleExitMs) return;
+        clearInterval(watch);
+        console.error(`[bridge] no extension and no session for ${Math.round(idleExitMs / 1000)} s — exiting`);
+        forgetBridge(computerUseHome(), server.cdpUrl());
+        resolve();
+      }, Math.min(Math.max(idleExitMs / 4, 250), 15_000));
+      watch.unref();
+    }
     if (process.env.COMPUTER_USE_BRIDGE_PARENT_STDIN === "1") {
       process.stdin.resume();
       process.stdin.once("end", resolve);

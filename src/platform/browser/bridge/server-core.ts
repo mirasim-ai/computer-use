@@ -92,6 +92,8 @@ export abstract class BridgeServerCore {
   readonly extensionIds: string[];
   protected readonly updates: ExtensionUpdates;
   protected activeOperations = 0;
+  /** When this bridge last had anyone: see {@link unusedFor}. */
+  private lastUsed = Date.now();
   private readonly version: string | null;
   private readonly onShutdown: (() => void) | null;
   protected readonly log: (...args: unknown[]) => void;
@@ -232,6 +234,16 @@ export abstract class BridgeServerCore {
   }
 
   /**
+   * How long (ms) nobody has needed this bridge: no extension on the line (active or parked), no
+   * session connected, nothing in flight, and no HTTP request — a session asks `/status` before
+   * it connects, and must find the bridge still there when it does. 0 while anything is.
+   */
+  unusedFor(now = Date.now()): number {
+    if (this.extension || this.standby.size > 0 || this.model.clientCount() > 0 || this.activeOperations > 0) this.lastUsed = now;
+    return now - this.lastUsed;
+  }
+
+  /**
    * Have the extension on the line — idempotent; fails loudly, naming the one fix, rather than
    * hang. In the product this only WAITS for the extension to dial in: a timeout means it is not
    * installed, not enabled, or its native host is blocked by policy, none of which another page
@@ -297,6 +309,7 @@ export abstract class BridgeServerCore {
   }
 
   private handleHttp(req: http.IncomingMessage, res: http.ServerResponse): void {
+    this.lastUsed = Date.now();
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${this.port}`);
     const rel = this.stripUuid(url.pathname);
     if (rel === null) {
