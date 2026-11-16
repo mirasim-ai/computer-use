@@ -68,7 +68,7 @@ const IRREVERSIBLE = /\b(send|submit|delete|remove|pay|purchase|buy|confirm|post
  * Fails OPEN: a packaged app may pin `COMPUTER_USE_MACOS_AX_BIN` to a prebuilt helper that predates
  * the op, and failing closed would break the mouse fallback there.
  */
-async function yieldToHuman(host: MouseHost, what: string, reason: string): Promise<ActResult | null> {
+async function yieldToHuman(host: MouseHost, reason: string): Promise<ActResult | null> {
   const deadline = Date.now() + HUMAN_WAIT_MS;
   for (;;) {
     let idle: number;
@@ -151,7 +151,7 @@ export async function clickVerb(host: MouseHost, acts: ElementActs, a: Record<st
     // that will be ignored too. Asked here, not at the top: AXEnabled lies often enough that vetoing
     // the free rungs would remove a capability.
     if (target && !target.enabled) return { ok: false, note: disabledRefusal(host, what, reason) };
-    return yieldToHuman(host, what, reason);
+    return yieldToHuman(host, reason);
   };
 
   // Right, middle, double: no AX action says it, so the mouse is the route, not the fallback.
