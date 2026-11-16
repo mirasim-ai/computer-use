@@ -68,7 +68,7 @@ export const TREE_JS = String.raw`(arg) => {
     const t = el.querySelector && el.querySelector('title');
     return clean(t && t.textContent) || '';
   };
-  const stateOf = (el) => { // mirrors collect.ts stateOf, condensed for leaf controls
+  const stateOf = (el) => { // mirrors collect-viewport.ts stateOf, condensed for leaf controls
     const cut2 = (s) => { s = clean(s); return s.length > 60 ? s.slice(0, 60) + '…' : s; };
     const cls = typeof el.className === 'string' ? el.className : '';
     const inv = (el.getAttribute && el.getAttribute('aria-invalid') === 'true')

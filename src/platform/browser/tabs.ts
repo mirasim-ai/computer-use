@@ -223,7 +223,7 @@ export async function claimSessionTab(
   // the driver's life. The session holds NO tab until `new_tab` / `open_url`; other endpoints
   // keep the fresh tab, since a harness acts on the session's tab without naming one.
   // Cost: `reuse` cannot continue a page through the bridge, as CDP does not say which tabs were
-  // the agent's. The bridge knows (model.ts `agentTabs`) and could expose it in /json/list.
+  // the agent's. The bridge knows (model-core.ts `agentTabs`) and could expose it in /json/list.
   if (cfg.cdpUrl) return ctx.browser()?.version() === "mirasim-bridge" ? null : await newBackgroundPage(ctx);
   const reuse = cfg.tabReuse ? pages.filter((p) => p.url() !== "about:blank").at(-1) : undefined;
   return reuse ?? pages.find((p) => p.url() === "about:blank") ?? (await newBackgroundPage(ctx));

@@ -1,8 +1,8 @@
 /**
  * BrowserDriver — ComputerUseDriver over playwright-core via CDP: the observe/act primitives.
  * The other slice of the class — connection, tab claim and ownership — is
- * {@link BrowserDriverCore} (`driver-core.ts` → `driver-tabs.ts` → `driver-connect.ts`); those
- * headers map the chain and the ladder.
+ * {@link BrowserDriverCore} (`driver-core.ts` → `driver-tabs.ts` → `driver-connect.ts`), with the
+ * verbs in `driver-verbs.ts` between it and this file; those headers map the chain and the ladder.
  */
 
 import { Type } from "typebox";

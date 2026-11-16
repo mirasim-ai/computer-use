@@ -3,8 +3,8 @@
  * between "a session was asked for a browser" and "we hold a live page that is ours".
  *
  * The chain is `ChromiumPageDriver` → `BrowserDriverCore` → `BrowserDriverTabs` (which page is
- * ours) → this → `BrowserDriver` (the verbs); everything here CALLS the ownership slice, never
- * the reverse.
+ * ours) → this → `BrowserDriverVerbs` (the verbs) → `BrowserDriver`; everything here CALLS the
+ * ownership slice, never the reverse.
  *
  * Connection is lazy. A caller-provided endpoint is strict (explicit sessions stay
  * deterministic); otherwise the environment hint, the conventional local endpoint, then the

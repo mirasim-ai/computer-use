@@ -3,8 +3,9 @@
  * Chromium page layer.
  *
  * The chain is `ChromiumPageBase` (the page's own state and its hooks) → this →
- * `ChromiumPageDriver` (the reads). This sits in the middle because the READS call
- * {@link ChromiumPageActs.locate} too: a settle wait must resolve a name exactly as a click does.
+ * `ChromiumPageWaits` (the waits) → `ChromiumPageDriver` (the reads). This sits before the reads
+ * because they call {@link ChromiumPageActs.locate} too: a settle wait must resolve a name
+ * exactly as a click does.
  */
 
 import { type Locator } from "playwright-core";

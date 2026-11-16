@@ -4,10 +4,10 @@
  *
  * The COMMANDS a bridge client may send: the CDP surface the extension stands in for.
  *
- * The seam with `model.ts` is direction: everything there is the model's own state and what the
- * EXTENSION pushes into it (tabs appearing, debugger events, a page closing); this is what a CLIENT
- * asks for, and every method here has to answer in Chrome's own vocabulary or playwright-core will
- * not believe it.
+ * The seam with `model-core.ts` is direction: everything there is the model's own state and what
+ * the EXTENSION pushes into it (tabs appearing, debugger events, a page closing); this is what a
+ * CLIENT asks for, and every method here has to answer in Chrome's own vocabulary or
+ * playwright-core will not believe it.
  */
 
 import { BridgeClient, FAKE_WINDOW, tabIsUnloaded, type BridgeTab, type TabAttachment } from "./client.ts";

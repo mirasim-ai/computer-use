@@ -3,7 +3,7 @@
  *
  * `ChromiumPageDriver` is what a Chromium PLATFORM extends (`browser/`, `electron/`), and the
  * chain under it is `ChromiumPageBase` (state and hooks) → `ChromiumPageActs` (locate and the
- * verbs) → this.
+ * verbs) → `ChromiumPageWaits` (when a page is worth reading) → this.
  *
  * An observation of a page still arriving reads as an empty page, so the reads are written
  * around WHEN the page is worth reading.

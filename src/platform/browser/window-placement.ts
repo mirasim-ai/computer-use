@@ -15,8 +15,8 @@ import { computerUseHome } from "../home.ts";
  *  to the desktop UNION, so on a multi-display setup it lands on a real screen — which is why
  *  parking is not the default posture (see the launch flags in acquire.ts). */
 export const OFFSCREEN_POSITION = "-4000,200";
-/** Where a window PARKED by an older version is put back, once. Not a placement policy: after
- *  this correction the window is Chrome's to place. */
+/** Where a window an earlier launch PARKED (`COMPUTER_USE_WINDOW=offscreen`) is put back, once.
+ *  Not a placement policy: after this correction the window is Chrome's to place. */
 const UNPARK_POSITION = { left: 80, top: 80 };
 /** A remembered position this far left is not a position a user chose — it is a parking spot. */
 const PARKED_LEFT_MAX = -1000;

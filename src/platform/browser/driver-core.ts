@@ -1,7 +1,7 @@
 /**
  * BrowserDriverCore — the connection/claim half of the browser driver: a live browser, a
- * context, and OUR tab. One slice of a single class; `driver.ts` extends it with the
- * observe/act primitives.
+ * context, and OUR tab. The first slice of a single class: `driver-tabs.ts` → `driver-connect.ts`
+ * → `driver-verbs.ts` → `driver.ts` extend it in that order, up to the observe/act primitives.
  *
  * Connection is lazy. A caller-provided endpoint is strict; otherwise we try the environment
  * hint, the conventional local endpoint, then the managed Chrome (adopt-or-launch on a
