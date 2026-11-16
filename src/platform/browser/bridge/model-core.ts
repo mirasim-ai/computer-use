@@ -37,9 +37,6 @@ export interface ExtensionAccess {
   paused: boolean;
 }
 
-// Re-exported so a caller that only speaks to the model keeps ONE import site.
-export { BridgeClient, type BridgeTab, type TabAttachment } from "./client.ts";
-
 /** How long after a page's `Page.windowOpen` a new tab is taken for its popup. Measured: the tab
  *  is announced 15–20 ms after the event. The margin is for a loaded machine, and kept short: a
  *  window that never opened (a blocked popup) leaves its report to the next tab that appears. */
