@@ -203,8 +203,8 @@ export abstract class ComputerUseDriverBase extends ComputerUseDriverRender {
     this.actionsInRound++;
     this.observesSinceAction = 0;
     // Only an error after this moment can be this action's doing (driver-diagnostics.ts
-    // `markAction`); never `wait`, or open_url → wait → look would pin load errors on the wait.
-    if (kind !== "wait") this.diag?.markAction();
+    // `markAction`). A `wait` returned above: open_url → wait → look must not pin load errors on it.
+    this.diag?.markAction();
   }
 
   /** Record the round the repl's action just performed (see {@link writeRound}). Called once per
