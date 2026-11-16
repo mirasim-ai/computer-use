@@ -93,6 +93,13 @@ export interface BridgeServerOptions {
   /** TEST SEAM ONLY — how long a command may go unanswered (default 30s), so a suite that
    *  makes a tab stop answering does not wait half a minute per check. */
   commandTimeoutMs?: number;
+  /** The version of the package running this bridge, reported by `GET /status`. A bridge outlives
+   *  the sessions that use it and one machine can hold several builds of its host: a host that
+   *  finds a bridge already running reads here whether it is as new as itself. */
+  version?: string;
+  /** Asked to stop by `POST /shutdown`. Absent = the request is refused (404): only a bridge run
+   *  as its own process (`mirasim-cu bridge`) can be stopped this way. */
+  onShutdown?: () => void;
 }
 
 /** Id/callback bookkeeping over the extension's line, whichever transport carries it
@@ -330,6 +337,8 @@ export abstract class BridgeServerCore {
   readonly extensionIds: string[];
   protected readonly updates: ExtensionUpdates;
   protected activeOperations = 0;
+  private readonly version: string | null;
+  private readonly onShutdown: (() => void) | null;
   protected readonly log: (...args: unknown[]) => void;
   /** Where a stall is reported: the caller's sink if it gave one, stderr otherwise
    *  (stdout is the one status line a host parses — see entries/commands/bridge.ts). */
@@ -362,6 +371,8 @@ export abstract class BridgeServerCore {
     this.extensionIds = [this.extensionId];
     this.openUrl = options.openUrl ?? null;
     this.commandTimeoutMs = options.commandTimeoutMs;
+    this.version = options.version ?? null;
+    this.onShutdown = options.onShutdown ?? null;
     this.model = new BridgeModel((method, params) => {
       if (this.updates.reloading) throw new Error('The Mirasim extension is reloading; reconnect before continuing.');
       if (!this.extension) throw new Error("Bridge extension not connected");
@@ -544,7 +555,24 @@ export abstract class BridgeServerCore {
     };
     if (rel === "/status" && req.method === "GET") {
       const connected = this.extensionConnected() && this.extensionInitialized;
-      answer(200, { extensionConnected: connected, extension: this.updates.status(connected), standbyBrowsers: this.standby.size });
+      // `version`, `clients` and `busy` let a host that finds this bridge already running tell
+      // whether it is older than itself and whether anything would be cut off by replacing it.
+      answer(200, {
+        extensionConnected: connected, extension: this.updates.status(connected), standbyBrowsers: this.standby.size,
+        version: this.version, clients: this.model.clientCount(),
+        busy: this.activeOperations > 0 || (this.extension?.pendingCount ?? 0) > 0,
+      });
+      return;
+    }
+    if (rel === "/shutdown" && req.method === "POST") {
+      // A page in a browser can reach a loopback port; one that could stop the bridge could cut
+      // the user's sessions off at will. Requests a page makes carry an Origin.
+      if (req.headers.origin) { answer(403, { error: "Shutdown must be requested by the local host." }); return; }
+      if (!this.onShutdown) { answer(404, { error: "This bridge is not stopped over HTTP." }); return; }
+      answer(202, { stopping: true });
+      // After the answer is on its way: stopping closes this very connection.
+      const stop = this.onShutdown;
+      setImmediate(stop);
       return;
     }
     if (rel === '/extension/reload' && req.method === 'POST') {

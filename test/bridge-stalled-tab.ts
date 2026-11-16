@@ -173,6 +173,9 @@ async function main() {
   await server.ensureExtension();
   const client = await CdpClient.connect(server.cdpUrl());
   try {
+    // What a host that finds this bridge already running reads before replacing it.
+    const told = (await (await fetch(`${server.cdpUrl()}/status`)).json()) as { clients?: number; busy?: boolean };
+    check("status counts the client on the line, and says nothing is in flight", told.clients === 1 && told.busy === false, JSON.stringify(told));
     await client.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
     const list = await client.send("Target.createTarget", { url: "https://app.example/list" });
     const doc = await client.send("Target.createTarget", { url: "about:blank" });

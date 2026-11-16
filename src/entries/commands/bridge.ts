@@ -14,6 +14,7 @@ import { extensionDir } from "../../platform/browser/bridge/extension-id.ts";
 import { defaultBridgeSocket, installNativeHost } from "../../platform/browser/bridge/native-host.ts";
 import { emitUsage, wantsHelp } from "./help.ts";
 import { hostEntry, hostName, NATIVE_HOST_OPTIONS, NATIVE_HOST_USAGE } from "./native-host-options.ts";
+import { ownVersion } from "../version.ts";
 
 /** How often a bridge with no extension on the line re-runs the install. Idempotent and cheap (a
  *  dozen stats); the extension itself re-checks a missing host only every few minutes. */
@@ -31,7 +32,8 @@ Runs in the foreground until killed, printing the CDP endpoint as its first line
   --socket P     the native-messaging shim (bridge-host) dials this socket — the one way
                  the extension reaches this process (default with --native-host:
                  <COMPUTER_USE_HOME>/bridge.sock)
-  --json         print the status line as JSON (cdpUrl, extensionId, extensionDir, nativeHost)
+  --json         print the status line as JSON (version, cdpUrl, extensionId, extensionDir,
+                 nativeHost)
   --verbose      bridge diagnostics on stderr
 
 With --native-host:
@@ -56,8 +58,13 @@ export async function runBridgeCommand(rest: string[]): Promise<void> {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) usage(false);
   const socketPath = values.socket ?? (values["native-host"] ? defaultBridgeSocket() : undefined);
   // Diagnostics go to STDERR: stdout carries the one status line a host parses.
+  // `POST /shutdown` ends the wait at the bottom, like a signal does.
+  let stopAsked!: () => void;
+  const asked = new Promise<void>((resolve) => { stopAsked = resolve; });
   const server = new BridgeServer({
     port,
+    version: ownVersion(),
+    onShutdown: () => stopAsked(),
     ...(socketPath ? { socketPath } : {}),
     ...(values.verbose ? { log: (...args: unknown[]) => console.error("[bridge]", ...args) } : {}),
   });
@@ -92,6 +99,7 @@ export async function runBridgeCommand(rest: string[]): Promise<void> {
   // `extensionId` rather than a connect URL: there is no page to hand anybody — the extension
   // dials in over native messaging.
   const status = {
+    version: ownVersion(),
     cdpUrl: server.cdpUrl(),
     extensionId: server.extensionId,
     extensionIds: server.extensionIds,
@@ -114,6 +122,7 @@ export async function runBridgeCommand(rest: string[]): Promise<void> {
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
+    void asked.then(resolve);
     if (process.env.COMPUTER_USE_BRIDGE_PARENT_STDIN === "1") {
       process.stdin.resume();
       process.stdin.once("end", resolve);

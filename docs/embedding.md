@@ -118,6 +118,15 @@ sets `COMPUTER_USE_BRIDGE_PARENT_STDIN=1` on it and keeps its stdin open: the br
 pipe closes, so a host that crashes or is killed leaves no orphan holding the port. A bridge
 started by hand ignores its stdin.
 
+A bridge outlives the sessions that use it, and a second host on the machine (another build of
+the same app) finds the first one's bridge and uses it as it is. `GET <endpoint>/status` says
+what it found: `version` (this package's, absent from a bridge of 0.1.1-rc.5 or older), `clients`
+(CDP clients connected) and `busy` (a command in flight), beside `extensionConnected`. A host
+that would rather run its own asks with `POST <endpoint>/shutdown` (202, then the process exits
+as on SIGTERM; refused with 403 when the request carries an `Origin`, so no page can send it)
+and starts one once the endpoint has stopped answering. Starting a second bridge on the same
+socket instead takes the extension away from the sessions still on the first.
+
 **Tagging calls.** `tools/call` may carry `_meta["mirasim-computer-use/previewTask"]` (a string):
 the host's own task id, echoed on the preview targets that call touched.
 
