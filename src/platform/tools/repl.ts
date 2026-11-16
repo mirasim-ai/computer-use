@@ -819,6 +819,14 @@ export function createReplTools(
   // What was granted for one call alone (ComputerUseDriver.endCall) ends with it, however the call ends.
   const runCall = repl.execute.bind(repl);
   const disarmIdle = () => { if (idleTimer) clearTimeout(idleTimer); idleTimer = null; };
+  /** Everything a reset gives up: held input first, then every claim. A driver that cannot
+   *  bring its input up (its helper is gone, a grant was withdrawn) no longer keeps the claims:
+   *  the session is over either way, and a claim held by a reset runtime made every other
+   *  session's bind of that window "in use" until this process exited. */
+  const releaseForReset = async (): Promise<void> => {
+    for (const sl of slices) await sl.driver.releaseInputResources().catch(() => {});
+    await ownership.releaseAll();
+  };
   /** Claims only: handles, bindings and refs stay, and the next bind claims its target again
    *  (`claim` runs on every bind) or is refused because another runtime took it meanwhile. */
   const releaseIdle = () => {
@@ -846,8 +854,7 @@ export function createReplTools(
     } finally {
       try {
         if (resetPending) {
-          for (const sl of slices) await sl.driver.releaseInputResources();
-          await ownership.releaseAll();
+          await releaseForReset();
           resetPending = false;
         }
         scoped = null;
@@ -880,10 +887,7 @@ export function createReplTools(
         ? setTimeout(() => outside.end?.("the host ended the turn while this call was still running, so the call was ended"), abandonAfterMs)
         : undefined;
       if (callRunning) resetPending = true;
-      else {
-        for (const sl of slices) await sl.driver.releaseInputResources();
-        await ownership.releaseAll();
-      }
+      else await releaseForReset();
       sandbox = null;
       lastBound = null;
       handles.clear();

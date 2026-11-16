@@ -74,10 +74,25 @@ export interface MacosDriverOptions {
 
 export class MacosDriver extends MacosDriverTargets {
   private pointerHeld = false;
+  /** What the held press was sent with: the release names the same app and button. */
+  private heldFor: { pid: number; button: string } | null = null;
+  /**
+   * Bring a held button up, straight through the helper. Not `perform("pointer_release")`: an
+   * action first resolves its app and checks it is still cleared, and cleanup runs exactly when
+   * those no longer hold. With the app quit the release threw, so a reset was left half done and
+   * the end of a turn failed with the driver still connected; with a clearance given for one call
+   * only, the idle release two minutes later asked the user for the app again, out of nowhere.
+   * The helper needs neither: it posts the mouse-up where the pointer is and reconnects the
+   * user's mouse, whether or not the app that got the press is still there.
+   */
   override async releaseInputResources(): Promise<void> {
     if (!this.pointerHeld) return;
-    const result = await this.perform("pointer_release", {});
-    if (!result.ok) throw new Error(result.note || "Could not release the held pointer");
+    const state = (await this.ax.request("ptrstate", {})) as { down?: boolean };
+    if (state.down) {
+      await this.ax.request("ptrrelease", { pid: this.heldFor?.pid ?? this.app?.pid ?? 0, button: this.heldFor?.button ?? "left" });
+    }
+    this.pointerHeld = false;
+    this.heldFor = null;
   }
   protected override previewTarget(): Promise<PreviewTarget | null> {
     const app = this.app;
@@ -474,6 +489,7 @@ export class MacosDriver extends MacosDriverTargets {
       case "pointer_press": {
         // A lost reply is uncertain: cleanup must still check whether the helper holds input.
         this.pointerHeld = true;
+        this.heldFor = { pid, button: String(a.button ?? "left") };
         const r = await this.call<{ button: string }>("ptrpress", { pid, button: String(a.button ?? "left") });
         return { ok: true, note: `pressed the ${r.button} button and is HOLDING it at the pointer's position — this can bring ${this.app!.name} to the front and change keyboard focus; activation was not verified. While held, the user's physical mouse is disconnected from the cursor; always pointer_release in finally (an idle hold also releases after 20 s)` };
       }
@@ -481,10 +497,12 @@ export class MacosDriver extends MacosDriverTargets {
         const state = await this.call<{ down: boolean }>("ptrstate", {});
         if (!state.down) {
           this.pointerHeld = false;
+          this.heldFor = null;
           return { ok: true, verified: true, note: "no button is held; no mouse-up was posted and the pointer was not moved" };
         }
         const r = await this.call<{ wasHolding: boolean }>("ptrrelease", { pid, button: String(a.button ?? "left") });
         this.pointerHeld = false;
+        this.heldFor = null;
         return { ok: true, note: r.wasHolding ? "released the button at the tracked pointer position" : "no button was held; posted a real mouse-up at the helper's tracked position, which can move the user's cursor — this is not a read-only probe" };
       }
       case "set_text": {
@@ -564,6 +582,7 @@ export class MacosDriver extends MacosDriverTargets {
    *  but require a fresh observation and never reuse the old ref numbers. */
   private forgetHelper(): void {
     this.pointerHeld = false;
+    this.heldFor = null;
     this.listening.clear();
     // The pinned window id belongs to macOS, not the helper, and remains the target.
     this.frame = null;
