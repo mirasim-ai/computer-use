@@ -69,7 +69,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const selected = this.dormantSelection;
     if (!selected) return;
     const { page, reloaded, viewport } = await restoreBridgeTab(this.browser!, selected.tabId, selected.targetId, selected.browserSession);
-    this.tabIds.set(page, selected.id);
+    this.tabs.nameId(page, selected.id);
     this.borrowed.set(page, selected);
     this.active = page;
     this.reported = page; // the bridge holds it for us already (restoreTab)
@@ -110,8 +110,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
       const res = await holdOnlyBridgeTab(this.browser!, targetId);
       if (!page || !targetId || !res.held || res.tabId === undefined || !res.browserSession) return;
       const id = `tab:${res.tabId}:${res.browserSession}`;
-      if (!this.tabIds.has(page)) this.tabIds.set(page, id);
-      this.borrowed.set(page, { id: this.tabIds.get(page)!, tabId: res.tabId, targetId, browserSession: res.browserSession });
+      // A page already listed under a `tN` keeps it: the model holds that id.
+      this.borrowed.set(page, { id: this.tabs.nameId(page, id, true), tabId: res.tabId, targetId, browserSession: res.browserSession });
     } catch (e) {
       // A bridge too old to answer attaches every tab anyway; a gone one holds nothing.
       if (/wasn't found|not found|unknown method/i.test(String(e))) this.holdUnsupported = true;
@@ -315,7 +315,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
     const targets: TargetInfo[] = await Promise.all(pages.map(async (p) => ({
       id: this.tabId(p), kind: "tab" as const,
       title: (await boundedTitle(p)) || p.url(), active: !this.dormantSelection && p === this.active,
-      own: own.has(p), mine: this.mine.has(p),
+      own: own.has(p), mine: this.tabs.owns(p),
     })));
     // Preserve named-slot and attached-window visibility: only an unrestricted extension
     // connection can discover the user's other tabs — the ones it holds no page for, unloaded or not.

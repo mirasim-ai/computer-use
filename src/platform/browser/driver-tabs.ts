@@ -4,12 +4,13 @@
  *
  * A Playwright `Page` object can be replaced under us and a tab can be closed by the page itself;
  * Chrome's targetId is the only name that survives both, so ownership is tracked by object (the
- * hot path) AND by targetId. {@link BrowserDriverConnect} is the slice above.
+ * hot path) AND by targetId: the record is tab-ledger.ts, the decisions are here.
+ * {@link BrowserDriverConnect} is the slice above.
  */
 
 import { type Frame, type Page } from "playwright-core";
 import { userWantsVisible } from "./acquire.ts";
-import { pageContextId, pageTargetInfo } from "./tabs.ts";
+import { pageContextId } from "./tabs.ts";
 import { msgOwnWindowFailed, NO_TAB_OPEN_NOTE, NO_TAB_YET_NOTE } from "./messages.ts";
 import { SAVE_PICKER_JS } from "./save-picker.ts";
 import { SurfaceUnreadableError } from "../types.ts";
@@ -22,8 +23,7 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
    *  identity that survives a re-mint. The id is read in the background — a claim must not
    *  wait on a CDP round trip, and a page that dies before it answers was never re-findable. */
   protected claim(p: Page): void {
-    this.mine.add(p);
-    this.rememberIdentity(p);
+    this.tabs.claim(p);
     this.armSavePicker(p);
   }
 
@@ -38,26 +38,11 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
     void p.evaluate(SAVE_PICKER_JS).catch(() => {});
   }
 
-  /** Record a page's Chrome targetId as ours, and as the ACTIVE one while it still is. */
-  protected rememberIdentity(p: Page): void {
-    void pageTargetInfo(p).then(({ targetId }) => {
-      if (!targetId) return;
-      this.ownedTargetIds.add(targetId);
-      if (this.active === p) this.activeTargetId = targetId;
-    }).catch(() => {});
-  }
-
-  /**
-   * What a page that is not in `mine` actually is, by Chrome's identity rather than by
-   * playwright's object: `same` = the very page `active` pointed at (a re-mint), `ours` =
-   * another tab this session owns, null = not ours at all. Either of the first two re-claims it.
-   */
+  /** {@link TabLedger.recognise}, and a page found to be ours gets what a claim gives one. */
   protected async recognise(p: Page): Promise<"same" | "ours" | null> {
-    const { targetId } = await pageTargetInfo(p).catch(() => ({ targetId: "" }));
-    if (!targetId || !this.ownedTargetIds.has(targetId)) return null;
-    this.mine.add(p);
-    this.armSavePicker(p); // a re-minted page lost the old object's init script
-    return targetId === this.activeTargetId ? "same" : "ours";
+    const known = await this.tabs.recognise(p);
+    if (known) this.armSavePicker(p); // a re-minted page lost the old object's init script
+    return known;
   }
 
   /** Prove (once) whether a page is in OUR isolated context — see {@link pageCtxIds}. */
@@ -87,12 +72,12 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
       }
       if (this.tab) {
         void p.opener().then((o) => {
-          if (o && this.mine.has(o)) { this.claim(p); this.makeActive(p, ADOPTED_WHY); }
+          if (o && this.tabs.owns(o)) { this.claim(p); this.makeActive(p, ADOPTED_WHY); }
         }).catch(() => {});
         return;
       }
       if (!this.attached) {
-        if (this.mine.has(p)) { this.makeActive(p, ADOPTED_WHY); return; }
+        if (this.tabs.owns(p)) { this.makeActive(p, ADOPTED_WHY); return; }
         // A stranger by object may still be ours by identity — ask Chrome before saying so.
         // On a managed browser a tab that appears while we drive it (a popup, a target=_blank
         // link, noopener or not) is this session's work: claimed, so it is told apart from the
@@ -102,7 +87,7 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
         // browser, announced again with the rest, has not appeared. Taken for new, it took the
         // session off its own tab whenever it happened to be announced after it.
         const adoptNew = () => {
-          void (this.firstSight.get(p) ?? Promise.resolve(true)).then((first) => {
+          void this.tabs.firstSightOf(p).then((first) => {
             if (!first) return;
             if (this.managedProfileDir) this.claim(p);
             this.makeActive(p, APPEARED_WHY);
@@ -133,22 +118,6 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
     p.on("framenavigated", onNav);
   }
 
-  /** Note a page's target as seen, and answer whether this was the first sight of it (true too
-   *  when the target cannot be read, which proves nothing). Asked once per page. */
-  protected sawTarget(p: Page): Promise<boolean> {
-    let first = this.firstSight.get(p);
-    if (!first) {
-      first = pageTargetInfo(p).then(({ targetId }) => {
-        if (!targetId) return true;
-        const seen = this.seenTargetIds.has(targetId);
-        this.seenTargetIds.add(targetId);
-        return !seen;
-      }, () => true);
-      this.firstSight.set(p, first);
-    }
-    return first;
-  }
-
   protected page(): Page {
     // No page, by the session's own decision. Every read and act path arrives here, so one guard
     // gives them all the same sentence instead of a playwright error about a closed target.
@@ -160,7 +129,7 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
       // one mistake that must not happen here; a closed page is recoverable (`ensure` reopens).
       const open = this.context.pages().filter(
         (p) => !p.isClosed()
-          && (this.tab ? (this.tab.isolated ? this.pageCtxIds.get(p) === this.ctxId : this.mine.has(p))
+          && (this.tab ? (this.tab.isolated ? this.pageCtxIds.get(p) === this.ctxId : this.tabs.owns(p))
             : !this.attached || this.ownWindowId === null || this.windowIds.get(p) === this.ownWindowId),
       );
       // Prefer a tab with real content — a stray about:blank must not shadow the page
@@ -243,11 +212,11 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
       for (const p of open) if (await this.ownsIsolatedPage(p)) mine.push(p);
       return mine;
     }
-    if (this.tab) return open.filter((p) => this.mine.has(p));
+    if (this.tab) return open.filter((p) => this.tabs.owns(p));
     // An endpoint we did not launch is not ours, so neither are its tabs: the bridge exposes
     // every tab the user has open (extension/group.js), and `return open` would let
     // `close_tab({all})` close the person's browsing. Visibility is wider (visiblePages).
-    if (!this.managedProfileDir) return open.filter((p) => this.mine.has(p));
+    if (!this.managedProfileDir) return open.filter((p) => this.tabs.owns(p));
     if (!this.attached || this.ownWindowId === null) return open;
     const mine: Page[] = [];
     for (const p of open) if (await this.ownsPage(p)) mine.push(p);
@@ -272,9 +241,7 @@ export abstract class BrowserDriverTabs extends BrowserDriverCore {
   }
 
   protected tabId(p: Page): string {
-    let id = this.tabIds.get(p);
-    if (!id) { id = `t${this.nextTabId++}`; this.tabIds.set(p, id); }
-    return id;
+    return this.tabs.idOf(p);
   }
 
   /**

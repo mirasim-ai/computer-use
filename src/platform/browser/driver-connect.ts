@@ -333,10 +333,10 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
    */
   private wireContext(): void {
     // What is open when the connection is made has been seen; what is announced later is new
-    // only the first time (see `sawTarget`).
-    for (const p of this.context.pages()) void this.sawTarget(p);
+    // only the first time (tab-ledger.ts `saw`).
+    for (const p of this.context.pages()) void this.tabs.saw(p);
     this.context.on("page", (p) => {
-      void this.sawTarget(p);
+      void this.tabs.saw(p);
       // A page appearing is the ONE thing that makes Chrome frontmost, so it is the only moment
       // the focus net has to run (see focus-guard.ts); ours open in the background and never do.
       this.windowAppeared = true;

@@ -16,6 +16,7 @@ import { isAttachedProfile } from "./acquire.ts";
 import { NO_TAB_OPEN_NOTE } from "./messages.ts";
 import { ActionJournal } from "./journal.ts";
 import { BrowserDownloads } from "./downloads.ts";
+import { TabLedger } from "./tab-ledger.ts";
 
 const DEFAULT_CDP_URL = "http://127.0.0.1:9222";
 
@@ -26,7 +27,7 @@ export const ADOPTED_WHY = "a tab this session opened navigated to real content"
  *  fresh tab arrives here). "A tab this session opened" would be false exactly where the model
  *  uses it: deciding whether the move followed from its own last action. */
 export const APPEARED_WHY = "a tab this session did not open appeared in the browser and reached real content";
-/** The same page, back under a new Page object. `mine` is keyed on playwright's object, and a
+/** The same page, back under a new Page object. Ownership is first kept by playwright's object, and a
  *  bridged browser re-announces every tab when the extension reconnects, so without this the
  *  driver's OWN tab would get {@link APPEARED_WHY}. Chrome's targetId survives the reconnect,
  *  so it is what this is decided on. */
@@ -49,9 +50,9 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   /** The page every verb acts on. Unset until connected, and on the extension bridge until the
    *  session opens a tab or binds one — it starts holding none there (tabs.ts `claimSessionTab`). */
   protected active: Page | undefined;
-  /** Stable per-session tab ids (element refs are re-minted; target ids are not). */
-  protected tabIds = new WeakMap<Page, string>();
-  protected nextTabId = 1;
+  /** Which tabs are this session's, by object and by Chrome's targetId, and the ids the model
+   *  knows them by (tab-ledger.ts). */
+  protected readonly tabs = new TabLedger(() => this.active);
   /** Set only when the managed path acquired the browser: attached browsers have no run
    * dir, so there is nowhere (and no mandate) to publish action points for them. */
   protected managedProfileDir: string | null = null;
@@ -97,25 +98,9 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   /** Per-page context ids, resolved once (one CDP round trip) then cached — the sync
    *  `page()` fallback may only trust pages already proven. */
   protected readonly pageCtxIds = new WeakMap<Page, string>();
-  /** Pages this driver opened or claimed — in named-tab mode the ownership boundary
-   *  (everything else in the shared browser is another surface's work). */
-  protected readonly mine = new WeakSet<Page>();
   /** Owned pages that already carry the save-picker shim (save-picker.ts), so a re-claim does
    *  not register its init script twice. */
   protected readonly savePickerPages = new WeakSet<Page>();
-  /** Chrome targetIds of the pages above — the half of ownership that outlives a playwright
-   *  re-mint (see {@link REIDENTIFIED_WHY}). Ids only, so a closed page costs nothing. */
-  protected readonly ownedTargetIds = new Set<string>();
-  /** Chrome targetIds of every page this driver's connection has shown it, its own or not, and
-   *  per page whether that was the first sight of its target (driver-tabs.ts `sawTarget`). A
-   *  bridged browser announces every tab AGAIN when its connection returns; one seen before has
-   *  not "appeared", whatever order the announcements come in. */
-  protected readonly seenTargetIds = new Set<string>();
-  protected readonly firstSight = new WeakMap<Page, Promise<boolean>>();
-  /** …and which of them `active` points at, recorded while that page is still readable: once
-   *  the old object is closed, the only way to tell "the same page under a new object" from
-   *  "another tab of mine" (a tab the user really closed). */
-  protected activeTargetId: string | null = null;
   /** The action journal (observer side-channel) — built when the managed path acquires
    *  the browser; attached browsers have no run dir, so no journal. See journal.ts. */
   protected journal: ActionJournal | null = null;
@@ -202,7 +187,7 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   protected makeActive(p: Page, why: string | null): void {
     if (this.active === p) return;
     this.active = p;
-    this.rememberIdentity(p);
+    this.tabs.remember(p);
     // Observation continuity does not survive a surface move (see resetObservationState). Stale
     // refs are caught by the per-page identity mark in locate(), not the ref table: ref NUMBERS
     // are minted per page and COLLIDE across tabs. The reset is for the delta base and rect
@@ -216,8 +201,4 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
     // from the model's own focus switches.
     this.journal?.publishAction("focus", { auto: true }, null, { ok: true });
   }
-
-  /** Implemented in {@link BrowserDriverTabs}: the one ownership call this slice makes, when a
-   *  tab it did not choose becomes the active one. */
-  protected abstract rememberIdentity(p: Page): void;
 }
