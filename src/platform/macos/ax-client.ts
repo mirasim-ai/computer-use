@@ -72,6 +72,15 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * How much later than every other request a `launch` is given up on. The helper bounds a launch
+ * itself — 10 s for the system to open the app, 5 s more for it to answer Accessibility, then a
+ * window count — which adds up to about 18 s for a slow cold start: past the ordinary ceiling,
+ * so the helper was stopped (and every ref of the session with it) for an app that was merely
+ * slow to come up, before it could say so.
+ */
+const LAUNCH_EXTRA_MS = 7_000;
+
 export class AxHelperProcess implements AxTransport {
   private child: ChildProcessWithoutNullStreams | null = null;
   private starting: Promise<void> | null = null;
@@ -124,13 +133,14 @@ export class AxHelperProcess implements AxTransport {
     if (!child) throw new AxRequestError("helper_gone", "ax helper is not running");
     const id = this.nextId++;
     const line = `${JSON.stringify({ id, op, ...params })}\n`;
+    const limit = this.timeoutMs + (op === "launch" ? LAUNCH_EXTRA_MS : 0);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         // A timed-out helper can still post input. Stop it before the caller can release its
         // ownership or dispatch a follow-up operation against another target.
-        void this.close().then(() => reject(new AxRequestError("ax_error", `ax helper: '${op}' did not answer within ${this.timeoutMs} ms; helper stopped`)));
-      }, this.timeoutMs);
+        void this.close().then(() => reject(new AxRequestError("ax_error", `ax helper: '${op}' did not answer within ${limit} ms; helper stopped`)));
+      }, limit);
       this.pending.set(id, { resolve, reject, timer });
       try {
         child.stdin.write(line);
