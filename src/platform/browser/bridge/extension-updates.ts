@@ -33,17 +33,24 @@ export class ExtensionUpdates {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
 
-  constructor(private readonly expected: { version: string; version_name?: string },
+  constructor(private readonly expected: { version: string },
     private readonly busy: () => boolean, private readonly reload: () => Promise<unknown>) {}
 
+  /**
+   * Version, protocol and capabilities decide; the build fingerprint (`version_name`) does not.
+   * The browser runs the Web Store copy, never the files bundled beside this bridge, so at the
+   * same version the two builds differ whenever extension code changed after that version was
+   * published (0.1.4: the store's `d37f658388c010e3`, the bundle's `f8c4adefbd4d6ebd` from rc.6).
+   * Reloading the store copy loads that same build again: judged by the fingerprint, it read
+   * "reload required" for good, and the host held every browser task back on it.
+   */
   status(connected: boolean) {
     const r = this.runtime;
     const order = r ? compareVersions(r.version, this.expected.version) : 0;
     const compatibility = !connected ? 'unknown'
       : r && r.protocol > 1 ? 'app-update-required'
       : order < 0 ? 'update-required'
-      : !r || r.protocol !== 1 || !['discarded-tabs', 'safe-reload'].every((c) => r.capabilities.includes(c))
-        || (order === 0 && r.build && this.expected.version_name && r.build !== this.expected.version_name) ? 'reload-required' : 'ready';
+      : !r || r.protocol !== 1 || !['discarded-tabs', 'safe-reload'].every((c) => r.capabilities.includes(c)) ? 'reload-required' : 'ready';
     return { version: r?.version ?? null, expectedVersion: this.expected.version, compatibility,
       canReload: !!r?.capabilities.includes('safe-reload'), updateVersion: this.updateVersion,
       reloadPending: this.pending || this.reloading, error: this.error };

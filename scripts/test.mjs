@@ -29,7 +29,7 @@ const GROUPS = {
     'blank-args', 'viewport-line', 'journal-drain', 'repl-guards', 'paired-timeouts',
     'macos-ui', 'macos-windows', 'macos-budgets', 'macos-targets', 'macos-elements', 'macos-marks',
     'macos-window-match', 'macos-grants', 'macos-diagnostics', 'macos-mouse', 'macos-heard', 'macos-app-notes', 'macos-forms', 'bridge-acquire', 'bridge-stalled-tab', 'bridge-status', 'macos-cleanup', 'macos-helper-limits',
-    'ownership', 'setup-skill', 'windows-approval', 'windows-opt-in', 'shot-files', 'download-staging', 'bridge-idle-exit',
+    'ownership', 'setup-skill', 'windows-approval', 'windows-opt-in', 'shot-files', 'download-staging', 'bridge-idle-exit', 'extension-updates',
   ],
   browser: [
     'smoke', 'scroll-behaviors', 'forms-fill', 'select-text', 'paste', 'repl', 'settle-controlled',
