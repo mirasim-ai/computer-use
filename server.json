@@ -1,0 +1,49 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mirasim-ai/computer-use",
+  "title": "Mirasim Computer Use",
+  "description": "Drive browsers, macOS apps and Electron apps through their accessibility trees.",
+  "repository": {
+    "url": "https://github.com/mirasim-ai/computer-use",
+    "source": "github",
+    "id": "1452460804"
+  },
+  "version": "0.1.1-rc.10",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@mirasim/computer-use",
+      "version": "0.1.1-rc.10",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "COMPUTER_USE_PLATFORMS",
+          "description": "What the agent may drive, comma-separated: browser, macos, electron",
+          "default": "browser",
+          "isRequired": false
+        },
+        {
+          "name": "COMPUTER_USE_BROWSER",
+          "description": "extension: drive your own signed-in Chrome through the Mirasim extension instead of a Chrome of its own",
+          "choices": ["extension"],
+          "isRequired": false
+        },
+        {
+          "name": "COMPUTER_USE_ELECTRON_CDP_URL",
+          "description": "Debugging endpoint of the Electron app to drive (port or URL)",
+          "default": "http://127.0.0.1:9333",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

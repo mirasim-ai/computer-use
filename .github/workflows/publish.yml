@@ -143,3 +143,50 @@ jobs:
           spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
           if npm view "$spec" version >/dev/null 2>&1; then echo "$spec already published"; exit 0; fi
           npm publish --access public --tag "$DIST_TAG" $PROVENANCE $DRY_RUN
+
+  # Lists the release in the official MCP Registry (registry.modelcontextprotocol.io) as
+  # io.github.mirasim-ai/computer-use, from server.json with the version set to this release. The
+  # registry accepts it only once npm has that version and its package.json names the server in
+  # `mcpName`, so this waits for the publish job. GitHub OIDC grants this repository the
+  # io.github.mirasim-ai/* namespace: no secret. A manual run publishes nothing here.
+  mcp-registry:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: server.json carries the released version
+        run: |
+          node -e '
+            const fs = require("fs");
+            const { version, mcpName } = require("./package.json");
+            const s = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            if (s.name !== mcpName) { console.error(`server.json names ${s.name}, package.json ${mcpName}`); process.exit(1); }
+            s.version = version;
+            for (const p of s.packages) p.version = version;
+            fs.writeFileSync("server.json", JSON.stringify(s, null, 2) + "\n");
+            console.log(`registering ${s.name} ${version}`);'
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish

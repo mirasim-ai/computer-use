@@ -17,6 +17,13 @@ user guide for Mirasim users (chapter 19, "Computer Use", of the guide at mirasi
 kept in the website's repository). A change to the extension's panel, its toolbar icon or the
 tab verbs reaches all three.
 
+After npm has the release, the `mcp-registry` job lists it in the official MCP Registry
+(registry.modelcontextprotocol.io) as `io.github.mirasim-ai/computer-use`: it copies the
+version from `package.json` into `server.json` and publishes that with `mcp-publisher`, signed in
+through GitHub OIDC. The registry accepts it only because the npm package names the server in
+`mcpName`; keep `mcpName` and `server.json`'s `name` the same. The version written in
+`server.json` itself does not matter, the job overwrites it. A manual run skips this job.
+
 Running the workflow by hand is a dry run unless `dry_run` is unticked. npm versions are
 immutable, so a re-run skips whatever the registry already has.
 
