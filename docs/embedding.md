@@ -112,6 +112,13 @@ question it had open to the user is taken back. The calls after it still wait fo
 ended, so it never runs beside them. A host driving the tools as a library passes the same thing
 as `execute(args, { signal })`.
 
+What a cancelled call did is not lost with its answer. The next call whose answer is read says,
+once and after its own journal, that a call before it was cancelled and lists that call's
+journal: the steps it made, and that nothing after them ran. `computer.lastRun()` returns the
+same for the call before the current one, whether it was cancelled or not; it is what an agent
+asks after a tool call its client timed out on without sending a cancellation, which this server
+cannot see. A host that kills the process keeps no such account: the process is where it lives.
+
 **Ending a turn.** A host with turns can call the tool `turn_ended`, which `tools/list` does not
 show (the same shape as Codex's hook): arguments `{ session_id, turn_id, hook_event_name?,
 keep_browser_tabs? }`. It resets the REPL (a call still running gets 5 seconds to finish and is then

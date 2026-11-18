@@ -26,6 +26,7 @@ import type { OwnershipProvider } from '../ownership.ts';
  */
 function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: number }): ComputerUseToolSpec {
   const inner = s.execute.bind(s);
+  const accounts = s as { unanswered?(): void; neverStarted?(): void };
   return spec({
     ...s,
     async execute(params: unknown, call?: ToolCallOptions) {
@@ -33,12 +34,17 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
       const run = chain.p.then(async () => {
         if (epoch !== chain.epoch) return text("This queued call was cancelled by a runtime reset; bind fresh handles before continuing.", { error: "runtime_reset" });
         // Cancelled while it waited its turn: nobody reads the answer, so nothing is run for it.
-        if (call?.signal?.aborted) return text("This call was cancelled by the client before it started; nothing was run.", { error: "cancelled", cancelled: true });
+        if (call?.signal?.aborted) {
+          accounts.neverStarted?.();
+          return text("This call was cancelled by the client before it started; nothing was run.", { error: "cancelled", cancelled: true });
+        }
         const cleaned = withoutBlankOptionals(params, s.parameters);
         const invalid = argComplaint(s.parameters, s.name, cleaned);
         if (invalid) return text(invalid, { error: "bad_arguments" });
         try {
           const result = await inner(cleaned, call);
+          // Cancelled by the time it answers: the answer is nobody's, so what it says is owed to the next one (repl.ts).
+          if (call?.signal?.aborted) accounts.unanswered?.();
           for (const part of result.content) if (part.type === "text") part.text = wellFormed(part.text);
           return result;
         } catch (e) {

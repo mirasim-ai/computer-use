@@ -37,6 +37,24 @@ const READ_KINDS = new Set(["observe", "find", "text", "value", "page", "screens
 /** Verbs whose effect is not on the observed surface (an answer for a LATER dialog, a tab closed
  *  beside this one): a frozen screen after them is not "no effect". */
 const OFF_SURFACE_KINDS = new Set(["dialog", "close_tab"]);
+/** One call's account of itself: its result's head line and journal. */
+interface RunAccount { at: number; lines: string[]; cancelled: boolean }
+/** Accounts kept for an answer that will be read; the oldest goes first. */
+const OWED_MAX = 3;
+const NEVER_STARTED = "This call was cancelled by the client before it started; nothing was run.";
+
+/** The accounts an answer carries, set apart from the journal of the call that carries them. */
+function owedLines(accounts: RunAccount[]): string[] {
+  const ago = (at: number) => `${Math.max(1, Math.round((Date.now() - at) / 1000))}s ago`;
+  return [
+    accounts.length === 1
+      ? `Before this call, a call was cancelled by its client (${ago(accounts[0]!.at)}) and its answer reached nobody. What it did, in its own words:`
+      : `Before this call, ${accounts.length} calls were cancelled by their client and their answers reached nobody. What each did, in its own words:`,
+    ...accounts.flatMap((a, i) => [...(accounts.length > 1 ? [`  | (${i + 1}, ${ago(a.at)})`] : []), ...a.lines.map((l) => `  | ${l}`)]),
+    "Steps listed there were made and nothing after them was: read the surface before repeating any of them.",
+  ];
+}
+
 /** What a call its client cancelled is told, at the verb it would have started next. */
 const CANCELLED_HEAD = "the client cancelled this call";
 const CANCELLED = `${CANCELLED_HEAD}, so it stops before its next operation`;
@@ -71,6 +89,20 @@ export function createReplTools(
   let idleReleasing: Promise<void> | null = null;
   const idleReleaseMs = opts.idleReleaseMs ?? IDLE_RELEASE_MS;
   let requestedHelp: string | null = null;
+  /**
+   * What a call did, in its own journal, kept after the call: the call before the current one
+   * (`computer.lastRun()`), and the calls whose answer reached nobody.
+   *
+   * A call its client took back (the user stopped the turn, or the client's own timeout ran out)
+   * stops at its next verb, but the steps it had made are made, and the answer that listed them
+   * was read by no one: the model saw a timeout, knew nothing of them, and ran the batch again.
+   * Such an account is OWED: it rides the next answer that is read, once. `handedOver` is what the
+   * answer being built carries, until it is known to have been read (@see unanswered).
+   */
+  let lastRun: RunAccount | null = null;
+  let owed: RunAccount[] = [];
+  let handedOver: RunAccount[] = [];
+  const owe = (accounts: RunAccount[]) => { owed = [...new Set([...accounts, ...owed])].sort((a, b) => a.at - b.at).slice(-OWED_MAX); };
   let lastBound: SurfaceHandle | null = null;
   /** Which slice the last bind landed on — the one the end-of-run observation reads. */
   let landed: Slice;
@@ -452,6 +484,8 @@ export function createReplTools(
       ?? (want === undefined ? await emptyHandle() : null) ?? handleFor(await resolve(want)),
     // Touches no surface, which is why it is the one member that never belonged on a handle.
     log: raw.log,
+    // Read-only and off every surface, like help: it answers from what the runtime kept.
+    lastRun: () => lastRun && { secondsAgo: Math.round((Date.now() - lastRun.at) / 1000), cancelled: lastRun.cancelled, journal: [...lastRun.lines] },
     help: () => requestedHelp = slices.map((sl) => apiReference(sl.driver, windowsApps)).join("\n\n"),
   });
 
@@ -765,6 +799,11 @@ export function createReplTools(
           + `${[...REPL_ARGS].join(", ")}; the code ran without ${ignored.length > 1 ? "them" : "it"}.`
           + (ignored.includes("url") ? " A page is opened in the code: await w.openUrl({url: \"…\"})." : ""));
       }
+      // This call's account of itself, and the ones owed from before it: they go with this answer
+      // unless it is already known that nobody reads it.
+      lastRun = { at: Date.now(), lines: [...lines], cancelled: cancelled || !!signal?.aborted };
+      handedOver = lastRun.cancelled ? [] : owed.splice(0);
+      if (handedOver.length) lines.push(...owedLines(handedOver));
       /** A result that is the ledger alone, with no observation under it: `tail` goes after the
        *  ledger's lines without counting as one, `attach` after the text. */
       const ledgerOnly = (attach: ToolResult["content"], tail = "", extra: Record<string, unknown> = {}): ToolResult => {
@@ -776,7 +815,9 @@ export function createReplTools(
       // A call ended from outside is not observed: its surface is the one that stopped answering
       // (or was just let go of), and its runtime is gone, so there is nothing still bound to name.
       if (ended.why !== null) {
-        lines.push("The next call starts a fresh runtime: nothing declared so far survives, and every surface is bound again from computer.surface().");
+        const restart = "The next call starts a fresh runtime: nothing declared so far survives, and every surface is bound again from computer.surface().";
+        lines.push(restart);
+        lastRun.lines.push(restart);
         return ledgerOnly(images, "", { error: "run_stopped", ended: true });
       }
       // A throw ends the call before `return`; say here what survives a stop.
@@ -980,5 +1021,19 @@ export function createReplTools(
     },
   });
 
-  return [repl, reset];
+  return [Object.assign(repl, {
+    /** The answer just returned was read by nobody (its client had cancelled by then): its
+     *  account, and any it carried, are owed to the next one. */
+    unanswered(): void {
+      if (lastRun) lastRun.cancelled = true;
+      owe([...handedOver, ...(lastRun ? [lastRun] : [])]);
+      handedOver = [];
+    },
+    /** A call cancelled while it waited its turn: nothing of it ran, which is worth as much to
+     *  know as what did. */
+    neverStarted(): void {
+      lastRun = { at: Date.now(), lines: [NEVER_STARTED], cancelled: true };
+      owe([lastRun]);
+    },
+  }), reset];
 }

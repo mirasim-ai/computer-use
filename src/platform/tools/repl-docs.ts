@@ -108,6 +108,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "  await computer.surface(name)  → handle — by id, by whole title, or by a piece of the title; several matches or none is a refusal that lists the candidates, never a guess. With several platforms mounted an id carries its platform (browser/t2); the bare id (t2) also binds when only one platform has it",
     "  await computer.surface()      → handle — the surface this call was given by its host (the call's own target / app argument), else the ONE surface when there is only one, else the tab this session opened or claimed (the one it is on, when it has several). A session that has opened nothing yet gets a handle whose openUrl({url}) / newTab({url}) opens its first tab. Not \"whatever is in front\": with several open and none of them this session's own, it refuses and lists them, so a script always says which it meant",
     "  Bind once per surface and keep the handle in a top-level declaration — it stays valid for later calls, and re-binding costs a read each time.",
+    "  computer.lastRun()            → {secondsAgo, cancelled, journal:[line]} | null — what the call BEFORE this one did, in its own journal. Ask it first after a call that timed out or never answered you: its steps may have been made, and making them again can submit twice. A call your client cancelled is also told to you by the next result, once, without asking.",
     ...(driver.platform === "browser" ? ["  A browser tab marked unloaded:true is still discoverable. Using its handle restores that exact tab in the background after acquiring ownership; merely listing tabs never reloads it."] : []),
     "",
     ],
@@ -147,7 +148,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     // Worded by the PLATFORM: console and failed requests on a page, the accessibility helper's
     // own complaints on macOS.
     ...(driver.supportsDiagnostics ? [`  w.diagnostics({id?})     → ${driver.diagnosticsAbout.empty} — the newest 20, with the ones new since your last read marked "new"`] : []),
-    "  computer.log(…)               → a line in the journal; the one member that is not on a surface",
+    "  computer.log(…)               → a line in the journal; like help() and lastRun() it is on `computer`, not on a surface",
     "",
     ],
     actions: [
