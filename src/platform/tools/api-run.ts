@@ -65,16 +65,30 @@ export function stringify(v: unknown): string {
 /** Journal lines kept at each end when a run is longer than 2×this. */
 const JOURNAL_EDGE = 12;
 
-/** First N and last N, with the middle counted rather than printed: the ends are where the
- *  story is, and a 100-step run must not cost 100 lines of context. */
+/** A step the reader has to see wherever it sits: one that failed, was refused, or whose effect is unknown. */
+const tells = (l: JournalLine): boolean => !l.ok || l.outcome === "blocked" || l.outcome === "uncertain";
+
+/**
+ * The journal as the result prints it. A long run keeps both ends and counts the middle, but only
+ * the steps that went through are counted away: a step in the middle that failed and was caught by
+ * the code, or that came back uncertain, used to vanish into "16 steps not listed", and the model
+ * then read a run it could not tell from a clean one.
+ */
 export function renderJournal(journal: JournalLine[]): string[] {
   const line = (l: JournalLine) =>
     `  ${l.i}. ${l.kind}${l.target ? ` ${l.target}` : ""}${l.ok ? "" : " FAILED"}${l.outcome ? ` [${l.outcome}]` : ""}${l.note ? `: ${l.note}` : ""}`;
   if (journal.length <= JOURNAL_EDGE * 2) return journal.map(line);
-  const cut = journal.length - JOURNAL_EDGE * 2;
-  return [
-    ...journal.slice(0, JOURNAL_EDGE).map(line),
-    `  … ${cut} steps not listed …`,
-    ...journal.slice(-JOURNAL_EDGE).map(line),
-  ];
+  const out = journal.slice(0, JOURNAL_EDGE).map(line);
+  let skipped = 0;
+  const flush = () => {
+    if (skipped) out.push(`  … ${skipped} ${skipped === 1 ? "step that went through is" : "steps that went through are"} not listed …`);
+    skipped = 0;
+  };
+  for (const l of journal.slice(JOURNAL_EDGE, -JOURNAL_EDGE)) {
+    if (tells(l)) { flush(); out.push(line(l)); }
+    else skipped++;
+  }
+  flush();
+  out.push(...journal.slice(-JOURNAL_EDGE).map(line));
+  return out;
 }

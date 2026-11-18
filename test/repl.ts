@@ -325,7 +325,7 @@ async function main() {
     // ── The journal is bounded ────────────────────────────────────────────────
     const long = await run(`for (let i = 0; i < 40; i++) computer.log('tick ' + i);`);
     check("a long run prints both ends and counts the middle",
-      /1\. log: tick 0/.test(long) && /… 16 steps not listed …/.test(long) && /40\. log: tick 39/.test(long), line(long, /not listed/));
+      /1\. log: tick 0/.test(long) && /… 16 steps that went through are not listed …/.test(long) && /40\. log: tick 39/.test(long), line(long, /not listed/));
 
     // ── Two calls in flight are serialized by the tool layer ──────────────────
     // A model may emit several tool calls in one turn and the loop may run them concurrently,
