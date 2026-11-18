@@ -7,7 +7,7 @@
  * {@link sharedHome} is the exception: the default home whatever a host set, for state every
  * process on the machine must agree on — the ownership database (one arbiter per OS user), the
  * native-messaging host records (one wrapper per host name) and the browser's download staging
- * (Chrome keeps it process-wide). README → Install lists the same three.
+ * (Chrome keeps it process-wide). docs/embedding.md → Browser startup and state lists the same three.
  */
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";

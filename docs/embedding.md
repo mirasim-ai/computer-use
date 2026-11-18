@@ -307,7 +307,7 @@ fallback. A capture-service restart does not change any system permission.
 
 ## Configuration and state
 
-What the README's Install section leaves out.
+What [setup.md](setup.md) leaves out.
 
 ### Native helpers
 
