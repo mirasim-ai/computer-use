@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
+import { hearPress, type ClickReceipt } from "./click-receipt.ts";
 import { coverOf, isEditorProxy } from "./coverer-label.ts";
 
 /**
@@ -90,9 +91,12 @@ export async function clickNamingCover(
   opts: { button: "left" | "right" | "middle"; clickCount: number }, ref?: string, name?: string,
 ): Promise<ActResult | null> {
   const watch = watchClick(loc.page());
+  // Armed before the click and read only if the click is sent and not heard back about (click-receipt.ts).
+  const receipt = await hearPress(target);
   try {
-    return await clickWatched(target, loc, opts, watch, ref, name);
+    return await clickWatched(target, loc, opts, { ...watch, receipt, what: `${ref ?? "the target"}${name ? ` "${name}"` : ""}` }, ref, name);
   } finally {
+    receipt?.drop();
     watch.stop();
   }
 }
@@ -100,6 +104,12 @@ export async function clickNamingCover(
 /** What is known of a click from outside the page: when it began, and whether a navigation
  *  started while it ran. */
 interface ClickWatch { started: number; navigating(): boolean; stop(): void }
+/** The watch, with the page's own account of the press and the target's name for a refusal. */
+interface ClickSent extends ClickWatch {
+  receipt: ClickReceipt | null; what: string;
+  /** A forced click at an editor proxy's point lands on the editor's own text, by design: any press on the page is its press. */
+  anywhere?: boolean;
+}
 
 function watchClick(page: Page): ClickWatch {
   const urlBefore = page.url();
@@ -117,7 +127,7 @@ function watchClick(page: Page): ClickWatch {
 
 async function clickWatched(
   target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
-  opts: { button: "left" | "right" | "middle"; clickCount: number }, watch: ClickWatch, ref?: string, name?: string,
+  opts: { button: "left" | "right" | "middle"; clickCount: number }, watch: ClickSent, ref?: string, name?: string,
 ): Promise<ActResult | null> {
   try {
     await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
@@ -135,7 +145,7 @@ async function clickWatched(
     try {
       await target.click({ ...opts, force: true, timeout: CLICK_BUDGET_MS - COVER_CHECK_AFTER_MS });
     } catch (e) {
-      const after = await afterDispatch(e, loc.page(), watch);
+      const after = await afterDispatch(e, loc.page(), { ...watch, anywhere: true });
       if (after) return after;
       throw e;
     }
@@ -222,8 +232,12 @@ const HANDLED_MIN_MS = 2_000;
  * thread is what handles the click and what answers, in that order, so an answer means the
  * click's handlers have run.
  *
- *  · The page answers, and no navigation started: the click is done. Said plainly, with how long
- *    the page took when that was long.
+ *  · The page answers, and no navigation started: the click is done, IF the page saw its press
+ *    (click-receipt.ts). Said plainly, with how long the page took when that was long. A page
+ *    that answers and never saw a press was not clicked: its input went somewhere else, and
+ *    "the page answers" was all that used to be asked. That is refused, and so is a press that
+ *    fell on another element. Without a receipt (it could not be armed) the answer stands alone,
+ *    as before.
  *  · A navigation started (a request for a document went out, or the address changed): the click
  *    landed and its navigation is still loading, e.g. a form posting to a slow server. Only then
  *    is a navigation named: Playwright waits after EVERY click for navigations it may have
@@ -233,7 +247,7 @@ const HANDLED_MIN_MS = 2_000;
  *
  * Null for a timeout before dispatch, which the caller handles (cover check, second attempt).
  */
-async function afterDispatch(e: unknown, page: Page, watch: ClickWatch): Promise<ActResult | null> {
+async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<ActResult | null> {
   const err = e as { name?: string; message?: string } | null;
   if (err?.name !== "TimeoutError") return null;
   const msg = String(err.message ?? "");
@@ -245,9 +259,34 @@ async function afterDispatch(e: unknown, page: Page, watch: ClickWatch): Promise
   const answered = await answersWithin(page, left);
   if (watch.navigating()) return navigation();
   const took = Math.round((Date.now() - watch.started) / 100) / 10;
-  if (answered) return { ok: true, note: `clicked — the page was busy for ${took}s handling it` };
+  if (answered) {
+    const landing = await landed(watch.receipt);
+    if (landing?.on === "nothing") {
+      throw new Error(`the click was sent, but the page never received it: no press reached ${watch.what} or anything else on this page${took >= 1 ? ` in the ${took}s since` : ""}, `
+        + "so nothing here was clicked — the input may have gone to something in front of the page; observe before clicking again");
+    }
+    if (landing?.on === "elsewhere" && !watch.anywhere) {
+      throw new Error(`the click was sent, and its press fell on ${landing.who}, not on ${watch.what} — what that did is unknown; observe before clicking again`);
+    }
+    return { ok: true, note: `clicked — the page was busy for ${took}s handling it` };
+  }
   throw new Error(`the click was sent, and the page has not answered in the ${took}s since — it may have landed; `
     + "observe before clicking again");
+}
+
+/** How long a receipt that has seen nothing is given before that is taken as its answer. */
+const PRESS_GRACE_MS = 500;
+
+/**
+ * What the receipt says once the page has answered. Input and the question that found the page
+ * answering travel different roads, so a press sent before the question can still arrive just
+ * after it: a receipt that has seen nothing is asked once more, {@link PRESS_GRACE_MS} later.
+ */
+async function landed(receipt: ClickReceipt | null) {
+  const first = await receipt?.read() ?? null;
+  if (first?.on !== "nothing") return first;
+  await new Promise((resolve) => setTimeout(resolve, PRESS_GRACE_MS));
+  return await receipt?.read() ?? first;
 }
 
 /** Does the page's main document answer a trivial evaluate within `ms`? */
