@@ -13,12 +13,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const NEW_TAB_WAIT_MS = 5_000;
 
 /**
- * Open a tab WITHOUT raising the browser. `context.newPage()` makes Chrome the frontmost
+ * Open a tab WITHOUT raising the browser, on `url` (blank unless given: a tab opened FOR a page
+ * opens on it, so its window never shows a blank page first — see {@link opensAt}). `context.newPage()` makes Chrome the frontmost
  * application even with the window off-screen, stealing the user's keyboard; CDP's
  * `Target.createTarget` with `background: true` does not, so every tab this driver opens goes
  * through here.
  */
-export async function newBackgroundPage(ctx: BrowserContext): Promise<Page> {
+export async function newBackgroundPage(ctx: BrowserContext, url = "about:blank"): Promise<Page> {
   // Anchor on a SHARED page, never an isolated-context one: Playwright files foreign-created
   // isolated contexts' pages under this same wrapper, and a CDP session anchored on one would
   // put the new tab (and its cookies) inside that surface's private context.
@@ -33,7 +34,7 @@ export async function newBackgroundPage(ctx: BrowserContext): Promise<Page> {
     // existing window, causing element shots to hang; a dedicated window avoids that. macOS uses
     // the same approach for consistency: the window opens in the background either way, so it
     // never raises the user's focus regardless of platform.
-    ({ targetId } = await session.send("Target.createTarget", { url: "about:blank", background: true, newWindow: true }));
+    ({ targetId } = await session.send("Target.createTarget", { url, background: true, newWindow: true }));
   } finally {
     await session.detach().catch(() => {});
   }
@@ -101,13 +102,35 @@ async function tabStamp(p: Page, budgetMs = 1000): Promise<string> {
   }
 }
 
-/** Adopt the tab stamped with this key, else open a background tab and stamp it. */
-export async function claimNamedTab(ctx: BrowserContext, key: string): Promise<Page> {
+/** The open tab stamped with this key, or null. */
+export async function findNamedTab(ctx: BrowserContext, key: string): Promise<Page | null> {
   for (const p of ctx.pages()) {
     if (!p.isClosed() && (await stampedWith(p, key))) return p;
   }
+  return null;
+}
+
+/** Stamp a tab as this key's; whether it took. A page mid-navigation can refuse the evaluate, so
+ *  a tab opened ON its page is stamped once that page has loaded (driver-verbs.ts). */
+export async function stampTab(page: Page, key: string): Promise<boolean> {
+  // Bounded like a read of the stamp ({@link tabStamp}): a page that answers nothing must not
+  // hold the open that stamps it.
+  let timer: NodeJS.Timeout | undefined;
+  const bounded = new Promise<boolean>((r) => { timer = setTimeout(() => r(false), 2000); timer.unref?.(); });
+  try {
+    const done = page.evaluate(`window.name = ${JSON.stringify(TAB_STAMP + key)}`).then(() => true, () => false);
+    return await Promise.race([done, bounded]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Adopt the tab stamped with this key, else open a background tab and stamp it. */
+export async function claimNamedTab(ctx: BrowserContext, key: string): Promise<Page> {
+  const found = await findNamedTab(ctx, key);
+  if (found) return found;
   const page = await newBackgroundPage(ctx);
-  await page.evaluate(`window.name = ${JSON.stringify(TAB_STAMP + key)}`).catch(() => {});
+  await stampTab(page, key);
   return page;
 }
 
@@ -204,15 +227,19 @@ export async function pageContextId(page: Page): Promise<string> {
  *  - `COMPUTER_USE_TAB=reuse` — for EXCLUSIVE browsers: continue the most recent working tab,
  *    whose page state is the continuity between errands. Never the default on a shared browser.
  *  - named (`name:<key>`, pre-parsed by the caller) — the one stamped tab, never a stray blank,
- *    which may be another surface's tab being born.
+ *    which may be another surface's tab being born; with `lazyNamed`, none until it is opened.
  *  - an endpoint we did not launch — a new tab too; on the extension bridge NONE (null).
  */
 export async function claimSessionTab(
   ctx: BrowserContext,
   namedKey: string | null,
   cfg: BrowserConfig = browserConfigFromEnv(),
+  opts: { lazyNamed?: boolean } = {},
 ): Promise<Page | null> {
-  if (namedKey) return claimNamedTab(ctx, namedKey);
+  // `lazyNamed` (the managed browser): a key with no stamped tab yet holds NONE, and the first
+  // open_url / new_tab opens it on its page. Opened here, it was a blank window that sat on the
+  // person's screen until the agent's next call named a page (driver-verbs.ts `perform`).
+  if (namedKey) return opts.lazyNamed ? await findNamedTab(ctx, namedKey) : await claimNamedTab(ctx, namedKey);
   // Shared pages only: a `reuse` continuation must not seize an isolated surface's page,
   // and a fresh about:blank may be an isolated tab being born.
   const pages = await sharedPages(ctx);
@@ -256,24 +283,43 @@ async function sharedPages(ctx: BrowserContext): Promise<Page[]> {
 }
 
 /**
- * Give a windowless browser its first page, without raising it. Only meaningful right after a
- * `--silent-launch` launch; a no-op when a page already exists.
+ * Give a windowless browser its first page, without raising it, on `url` when the launch was for
+ * a page (its first window then opens on that page, never blank first). Only meaningful right
+ * after a `--silent-launch` launch; a no-op when a page already exists. Answers the targetId of
+ * the tab it opened, null when it opened none.
  */
-export async function ensureBackgroundTab(browser: Browser): Promise<void> {
+export async function ensureBackgroundTab(browser: Browser, url = "about:blank"): Promise<string | null> {
   try {
     const ctx = browser.contexts()[0] ?? (await browser.newContext());
-    if (ctx.pages().some((p) => !p.isClosed())) return;
+    if (ctx.pages().some((p) => !p.isClosed())) return null;
     const session = await browser.newBrowserCDPSession();
+    let targetId: string;
     try {
-      await session.send("Target.createTarget", { url: "about:blank", background: true });
+      ({ targetId } = await session.send("Target.createTarget", { url, background: true }));
     } finally {
       await session.detach().catch(() => {});
     }
     for (let i = 0; i < 40; i++) {
-      if (ctx.pages().some((p) => !p.isClosed())) return;
+      if (ctx.pages().some((p) => !p.isClosed())) return targetId;
       await sleep(25);
     }
+    return targetId;
   } catch {
     // A browser that will not open its first tab fails loudly on the caller's first action.
+    return null;
   }
+}
+
+/**
+ * Can a tab be opened directly ON this url, so it never shows a blank page first? Only for what
+ * a navigation would load as a document: the opener then waits for that load instead of
+ * navigating again (driver-verbs.ts). Anything else opens blank and navigates, as before.
+ */
+export function opensAt(url: unknown): url is string {
+  return typeof url === "string" && /^(https?|file|data):/i.test(url.trim());
+}
+
+/** The open page for a target, by id, among a context's pages — null when it never surfaced. */
+export async function pageForTarget(ctx: BrowserContext, targetId: string): Promise<Page | null> {
+  return await pageWithTarget(ctx, targetId, new Set());
 }

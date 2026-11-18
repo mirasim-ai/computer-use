@@ -15,7 +15,7 @@ import { endpointFileFor, keepInBackground } from "./acquire.ts";
 import { isFrontmost, returnFocusIfTaken } from "./focus-guard.ts";
 import { BrowserDriverConnect } from "./driver-connect.ts";
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
-import { newBackgroundPage } from "./tabs.ts";
+import { newBackgroundPage, opensAt, stampTab } from "./tabs.ts";
 import { detectInterference, overlaySensitive } from "./overlay-guard.ts";
 import { locateOnPage } from "../chromium/locate.ts";
 import { performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
@@ -67,7 +67,8 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     }
     else if (this.closedItsLastTab) return { ok: false, note: NO_TAB_OPEN_NOTE };
     const waking = this.wokeAfterSelfClose;
-    await this.ensure();
+    const opens = kind === "open_url" || kind === "new_tab";
+    await this.ensure(opens ? { url: typeof a.url === "string" ? a.url : undefined } : undefined);
     // Holding no tab yet (the extension bridge opens none up front): the two verbs that
     // open one open it here — and new_tab's tab IS this one, or a second would sit blank beside it.
     let openedTab: string | null = null;
@@ -80,15 +81,24 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     }
     if (!this.active) {
       if (kind !== "open_url" && kind !== "new_tab") return { ok: false, note: NO_TAB_YET_NOTE };
-      const fresh = await newBackgroundPage(this.context);
+      // On the managed browser the tab opens ON its page, so its window never shows a blank page
+      // first; the navigation below then waits for that load (see preOpened). A named claim is
+      // stamped once the page has loaded, or at once on a blank tab.
+      const at = this.managedProfileDir && !this.attached && !this.tab?.isolated && opensAt(a.url) ? a.url : undefined;
+      const fresh = await newBackgroundPage(this.context, at);
       this.setActive(fresh);
       this.claim(fresh);
+      const stamp = this.tab && !this.tab.isolated ? this.tab.key : null;
+      if (at) this.preOpened = { page: fresh, url: at, stamp };
+      else if (stamp) await stampTab(fresh, stamp);
+      await this.publishClaim();
       if (kind === "new_tab") {
         openedTab = this.shownTabId(fresh);
         if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
         kind = "open_url"; // what is left of new_tab is the navigation
       }
     }
+    await this.restamp();
     // Before the verb: the navigation listener must exist when the navigation fires, and
     // `open_url` is answered above `dispatchPage`, where the read paths attach it. Missed, the
     // session's FIRST navigation gets no post-nav wait and hands back a shell.
@@ -212,6 +222,46 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     }
   }
 
+  /**
+   * open_url's answer for a tab opened ON its url: the load that is already under way, judged as
+   * `goto` judges its own. A load that failed (Chrome's error page) is navigated once more, the
+   * way any open_url is, so the answer carries the reason; nothing was loaded to load twice.
+   */
+  private async awaitPreOpened(page: Page, url: string, stamp: string | null): Promise<ActResult> {
+    // The load may have committed before the navigation listener was hooked: the next
+    // observation still waits for the page to settle, as after any navigation.
+    this.navPending = true;
+    let stamped = false;
+    try {
+      await page.waitForURL((u) => u.href !== "about:blank", { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+      if (!page.url().startsWith("chrome-error://")) return { ok: true, note: landedNote("opened", url, page.url()) };
+      // Chrome's error page takes no stamp and keeps none: back to a blank page for the stamp,
+      // which a later navigation keeps, then the load once more, as a tab opened blank had it.
+      if (stamp) {
+        await page.goto("about:blank").catch(() => {});
+        stamped = await stampTab(page, stamp);
+      }
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+        return { ok: true, note: landedNote("opened", url, page.url()) };
+      } catch (e) { return navVerdict(e); }
+    } catch (e) {
+      return navVerdict(e);
+    } finally {
+      if (stamp && !stamped && !(await stampTab(page, stamp))) this.unstamped = { page, key: stamp };
+    }
+  }
+
+  /** A tab whose stamp did not take when it was opened (its page was navigating again): tried
+   *  once more before each verb, so a respawned driver still finds the session's tab. */
+  private unstamped: { page: Page; key: string } | null = null;
+
+  private async restamp(): Promise<void> {
+    const due = this.unstamped;
+    if (!due) return;
+    if (due.page.isClosed() || (await stampTab(due.page, due.key))) this.unstamped = null;
+  }
+
   private async dispatch(kind: string, a: Record<string, any>): Promise<ActResult> {
     const page = this.page();
     switch (kind) {
@@ -243,13 +293,18 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
         return { ok: true, note: `the next JS dialog will be ${a.answer}ed — `
           + "nothing on the page has changed yet; the answer is used when the action that raises the dialog runs" };
       }
-      case "open_url":
+      case "open_url": {
+        // A tab opened ON this url is already loading it: wait for that load, not a second one.
+        const pre = this.preOpened;
+        this.preOpened = null;
+        if (pre?.page === page && pre.url === a.url) return await this.awaitPreOpened(page, a.url, pre.stamp);
         // No `navPending` here: the navigation itself raises it (ChromiumPageDriver.hookNavigation),
         // which is the only way a click- or Enter-driven navigation gets the same treatment.
         try {
           await page.goto(a.url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
           return { ok: true, note: landedNote("opened", a.url, page.url()) };
         } catch (e) { return navVerdict(e); }
+      }
       case "activate":
         await page.bringToFront();
         return { ok: true, note: "activated this browser tab and its window — foreground focus was requested explicitly" };

@@ -35,7 +35,7 @@ const GROUPS = {
     'smoke', 'scroll-behaviors', 'forms-fill', 'select-text', 'paste', 'repl', 'settle-controlled',
     'ref-lifecycle', 'nesting', 'read-page-behaviors', 'readonly-refs', 'screenshot-scopes', 'tab-targeting',
     'named-tabs', 'attach-recovery', 'attached-profile', 'connection-recovery', 'browser-state', 'mcp-log',
-    'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why', 'page-opened-tabs', 'quick-misses', 'tab-note-ids', 'managed-stalled-tab', 'stuck-call', 'slow-click', 'iframe-editor', 'page-tabs-leftover', 'overlay-guard', 'service-worker-site', 'tab-identity',
+    'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why', 'page-opened-tabs', 'quick-misses', 'tab-note-ids', 'managed-stalled-tab', 'stuck-call', 'slow-click', 'iframe-editor', 'page-tabs-leftover', 'overlay-guard', 'service-worker-site', 'tab-identity', 'managed-first-page',
   ],
 };
 // Through the real extension, in a Chromium that still loads one from the command line

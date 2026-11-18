@@ -217,11 +217,12 @@ export const NO_TAB_OPEN_NOTE =
   + "left as the user had it. open_url or new_tab starts a fresh tab when you need one";
 
 /** The session has not opened or bound a tab yet: on the extension bridge it opens none up front
- *  (tabs.ts `claimSessionTab`), and a host's embedded browser is the same before its first tab —
- *  so the wording names neither browser. */
+ *  (tabs.ts `claimSessionTab`), a host's embedded browser is the same before its first tab, and so
+ *  is a managed one before it was opened on a page (driver-connect.ts `ensure`) — so the wording
+ *  names no browser. */
 export const NO_TAB_YET_NOTE =
   "this session holds no tab yet — none is opened until asked. Bind one of the listed tabs to act "
-  + "in it, or new_tab opens one of the session's own";
+  + "in it, or open_url / new_tab opens one of the session's own";
 
 /**
  * The extension bridge serves one extension at a time: when the active browser goes, another

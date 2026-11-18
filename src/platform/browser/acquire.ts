@@ -152,8 +152,10 @@ async function connect(cdpUrl: string, timeoutMs: number): Promise<Browser | nul
 export async function acquireManagedBrowser(
   profileDir?: string,
   cfg: BrowserConfig = browserConfigFromEnv(),
-): Promise<{ browser: Browser; cdpUrl: string; profileDir: string; notes?: string[] }> {
+  opts: { firstUrl?: string } = {},
+): Promise<ManagedBrowser> {
   profileDir ??= cfg.profileDir;
+  const firstUrl = opts.firstUrl;
   const attached = cfg.attached;
   mkdirSync(profileDir, { recursive: true });
   const existing = readDevToolsPort(profileDir);
@@ -176,20 +178,10 @@ export async function acquireManagedBrowser(
       }
       await killByProfileDir(profileDir);
       rmSync(join(profileDir, "DevToolsActivePort"), { force: true });
-      return await launchManaged(profileDir, cfg);
+      return await launchManaged(profileDir, cfg, firstUrl);
     }
-    const adopted = await connect(cdpUrl, ADOPT_TIMEOUT_MS);
-    if (adopted) {
-      await publishEndpoint(profileDir, existing, null, cfg);
-      return { browser: adopted, cdpUrl, profileDir };
-    }
-    // Pinged but no CDP within the short deadline. A browser that still answers is not replaced:
-    // it is one of its tabs holding the handshake up, or the handshake only needs longer.
-    const live = await adoptPastStalledTabs(cdpUrl, profileDir, attached);
-    if (live) {
-      await publishEndpoint(profileDir, existing, null, cfg);
-      return { browser: live.browser, cdpUrl, profileDir, ...(live.notes.length ? { notes: live.notes } : {}) };
-    }
+    const live = await adoptLive(cdpUrl, existing, profileDir, cfg);
+    if (live) return live;
     // A frozen leftover, replaced (see header).
     // ATTACHED: that would mean SIGTERM to the user's browser. Never; say what is wrong.
     if (attached) throw attachedDeadEnd(profileDir, msgAttachedWhyHandshake());
@@ -197,7 +189,7 @@ export async function acquireManagedBrowser(
     rmSync(join(profileDir, "DevToolsActivePort"), { force: true });
   }
   try {
-    return await launchManaged(profileDir, cfg);
+    return await launchManaged(profileDir, cfg, firstUrl);
   } catch (err) {
     // A profile held by a browser with no usable port (what a crashed session leaves): Chrome
     // refuses a second instance on a locked profile, so every call would fail forever. Recover
@@ -208,8 +200,52 @@ export async function acquireManagedBrowser(
     if (attached) throw attachedDeadEnd(profileDir, msgAttachedWhyNoPort());
     await killByProfileDir(profileDir);
     rmSync(join(profileDir, "DevToolsActivePort"), { force: true });
-    return await launchManaged(profileDir, cfg);
+    return await launchManaged(profileDir, cfg, firstUrl);
   }
+}
+
+/** What acquiring the managed browser hands back. `firstTargetId`: the tab a LAUNCH opened, on
+ *  `firstUrl` when one was given — the session's tab, since nobody else can have one yet. */
+export interface ManagedBrowser {
+  browser: Browser;
+  cdpUrl: string;
+  profileDir: string;
+  notes?: string[];
+  firstTargetId?: string;
+}
+
+/**
+ * The managed browser when one is ALREADY running with a window to drive, else null: never
+ * launched, replaced or revived. For a session's reads before it has opened anything — a listing
+ * or an observation is no reason to put a window on the screen; the first page it opens is
+ * (driver-connect.ts). A leftover that needs replacing is left for that open to replace.
+ */
+export async function adoptManagedBrowser(
+  profileDir?: string,
+  cfg: BrowserConfig = browserConfigFromEnv(),
+): Promise<ManagedBrowser | null> {
+  profileDir ??= cfg.profileDir;
+  const existing = readDevToolsPort(profileDir);
+  if (existing === null || !(await pingDevTools(existing))) return null;
+  const cdpUrl = `http://127.0.0.1:${existing}`;
+  if (!(await hasPageTarget(cdpUrl))) return null;
+  return await adoptLive(cdpUrl, existing, profileDir, cfg);
+}
+
+/** Connect to a running browser that has a page, past a tab that holds the handshake up; null
+ *  when it does not answer (a frozen leftover, the caller's to replace). */
+async function adoptLive(cdpUrl: string, port: number, profileDir: string, cfg: BrowserConfig): Promise<ManagedBrowser | null> {
+  const adopted = await connect(cdpUrl, ADOPT_TIMEOUT_MS);
+  if (adopted) {
+    await publishEndpoint(profileDir, port, null, cfg);
+    return { browser: adopted, cdpUrl, profileDir };
+  }
+  // Pinged but no CDP within the short deadline. A browser that still answers is not replaced:
+  // it is one of its tabs holding the handshake up, or the handshake only needs longer.
+  const live = await adoptPastStalledTabs(cdpUrl, profileDir, cfg.attached);
+  if (!live) return null;
+  await publishEndpoint(profileDir, port, null, cfg);
+  return { browser: live.browser, cdpUrl, profileDir, ...(live.notes.length ? { notes: live.notes } : {}) };
 }
 
 /**
@@ -250,7 +286,7 @@ function attachedDeadEnd(profileDir: string, why: string): Error {
   return new Error(msgAttachedDeadEnd(profileDir, why));
 }
 
-async function launchManaged(profileDir: string, cfg: BrowserConfig): Promise<{ browser: Browser; cdpUrl: string; profileDir: string }> {
+async function launchManaged(profileDir: string, cfg: BrowserConfig, firstUrl?: string): Promise<ManagedBrowser> {
   const exe = findChrome(cfg);
   if (!exe) throw chromeMissingError();
   // Clear a previous browser's stale port file, so the wait reads the one THIS launch publishes.
@@ -327,11 +363,12 @@ async function launchManaged(profileDir: string, cfg: BrowserConfig): Promise<{ 
     try { child.kill("SIGKILL"); } catch { /* already gone */ }
     throw new Error(msgChromeRefusedAttach());
   }
-  // --silent-launch left nothing to drive: make the first tab, in the background.
-  await ensureBackgroundTab(browser);
+  // --silent-launch left nothing to drive: make the first tab, in the background — on the page the
+  // launch is for, when there is one, so the first window does not show a blank page first.
+  const firstTargetId = await ensureBackgroundTab(browser, firstUrl);
   // Launch-time only: an ADOPTED browser keeps its position (the user may have revealed it).
   if (offscreen) await parkWindowOffscreen(browser);
   else await unparkWindow(browser);
   await publishEndpoint(profileDir, port, child.pid ?? null, cfg);
-  return { browser, cdpUrl, profileDir };
+  return { browser, cdpUrl, profileDir, ...(firstTargetId ? { firstTargetId } : {}) };
 }

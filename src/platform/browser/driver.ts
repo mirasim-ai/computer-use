@@ -300,6 +300,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
 
   async listTargets(): Promise<TargetInfo[]> {
     await this.ensure();
+    // A managed browser that is not running yet: nothing to list, and nothing launched to list it.
+    if (!this.browser) return [];
     // Refresh metadata before reading Page objects: reconciliation may retire a renderer
     // Chrome just discarded, and no title read should revive it as a side effect.
     const { dormant, browserSession, access } = !this.tab && !this.attached && !this.managedProfileDir
@@ -380,6 +382,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
 
   private async selectTarget(id: string): Promise<ActResult> {
     let res: ActResult = { ok: false, note: `no target with id ${id}; call computer.surfaces() for current ids` };
+    // A managed browser not running yet has no tab to switch to (driver-connect.ts `ensure`).
+    if (!this.browser) return res;
     // Visible, not own: switching INTO the user's tab is the point of seeing it. What stays
     // refused is closing it — see the close_tab branch.
     const visible = await this.visiblePages();

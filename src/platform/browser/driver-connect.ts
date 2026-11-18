@@ -14,9 +14,9 @@
 import type { Browser, Frame, Page } from "playwright-core";
 import { connectBrowserCdp } from "./cdp-connection.ts";
 import { unansweringTabs } from "./stalled-tabs.ts";
-import { acquireManagedBrowser, openBlankTab, publishTabIdentity } from "./acquire.ts";
+import { acquireManagedBrowser, adoptManagedBrowser, openBlankTab, publishTabIdentity } from "./acquire.ts";
 import { acquireBridge, bridgeJustStarted, extensionHeldElsewhere, waitForExtension } from "./bridge/acquire-bridge.ts";
-import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, newBackgroundPageIn, pageTargetInfo } from "./tabs.ts";
+import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, newBackgroundPageIn, opensAt, pageForTarget, pageTargetInfo, stampTab } from "./tabs.ts";
 import { bridgeBrowserSession } from "./bridge-tabs.ts";
 import { BROWSER_SWITCHED_NOTE, endpointStalledTabs, isBridgeExtensionGone, msgBridgeExtensionElsewhere, msgBridgeExtensionGone, msgBridgeJustStarted, msgEndpointUnavailable, REOPENED_NOTE, SURFACE_REIDENTIFIED_NOTE, TAB_DETACHED_NOTE, TAB_REOPENED_AFTER_SELF_CLOSE_NOTE, TAB_REOPENED_NOTE, tabRefusedNote, tabUnansweredNote } from "./messages.ts";
 import { SurfaceUnreadableError } from "../types.ts";
@@ -39,17 +39,35 @@ const SLOW_CONNECT_MS = 4_000;
 /** The endpoint answers, and a tab of it does not: nothing a blank tab or a retry gets past. */
 class StalledTabs extends Error {}
 
+/** A verb about to open a page (`open_url` / `new_tab`): what it opens, when it names a page. */
+export interface Opening {
+  url?: string;
+}
+
 export abstract class BrowserDriverConnect extends BrowserDriverTabs {
+  /**
+   * The tab this session just opened ON its page (tabs.ts `opensAt`), whose navigation is already
+   * under way: the open_url that asked for it waits for that load instead of navigating again,
+   * then stamps the tab with the session's claim (`stamp`), which a page mid-load can refuse.
+   */
+  protected preOpened: { page: Page; url: string; stamp: string | null } | null = null;
+
   private endpoints(): string[] {
     if (this.explicit) return [this.cdpUrl];
     return [...new Set([this.cdpUrl, this.fallbackCdpUrl])];
   }
 
-  protected async ensure(): Promise<void> {
+  /**
+   * Have the session connected, and on its tab when it has one. `opening`: the call is a verb that
+   * opens a page, so a managed browser that is not running is launched for it — on that page.
+   * Without it a managed browser is only ADOPTED: a listing or an observation before anything
+   * was opened launched one, whose first window then sat blank until the agent named a page.
+   */
+  protected async ensure(opening?: Opening): Promise<void> {
     // Every path below reaches the browser through the endpoint, so one wrapper covers them all:
     // a bridge whose extension has gone is UNREADABLE, not failed (see msgBridgeExtensionGone).
     try {
-      await this.ensureInner();
+      await this.ensureInner(opening);
     } catch (e) {
       if (isBridgeExtensionGone(e)) throw new SurfaceUnreadableError(await this.extensionGoneMessage());
       throw e;
@@ -116,7 +134,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     return true;
   }
 
-  private async ensureInner(): Promise<void> {
+  private async ensureInner(opening?: Opening): Promise<void> {
     if (this.browser?.isConnected()) {
       // Holding no tab is not having lost one: on the extension bridge the session opens none up front.
       if (!this.active) return;
@@ -223,11 +241,24 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       }
     }
 
+    /** The tab a launch just opened for this session (acquire.ts `firstTargetId`). */
+    let launchedTarget: string | null = null;
     if (!this.browser && !this.explicit) {
       // The managed browser (acquire.ts): keeps logins and OUTLIVES this process, so the next
       // run attaches through its published port. Throws with guidance when no Chrome exists —
       // never a silent degrade.
-      const acquired = await acquireManagedBrowser(this.cfg.profileDir, this.cfg);
+      // Not for a session's reads before it opens anything: those only adopt a running browser,
+      // and without one the session holds nothing yet — the verb that opens a page launches the
+      // browser ON that page. A connection that dropped under the session is relaunched as before.
+      // Attached: the user's own Chrome, whose own window is theirs either way.
+      const adoptOnly = !opening && !dropped && !this.attached;
+      // The first tab opens on the page only where it is the session's own tab: an isolated claim
+      // opens its tab in a context of its own, and attached mode a window of its own.
+      const firstUrl = !this.attached && !this.tab?.isolated && opensAt(opening?.url) ? opening.url : undefined;
+      const acquired = adoptOnly ? await adoptManagedBrowser(this.cfg.profileDir, this.cfg)
+        : await acquireManagedBrowser(this.cfg.profileDir, this.cfg, firstUrl ? { firstUrl } : {});
+      if (!acquired) return;
+      launchedTarget = !this.attached && !this.tab?.isolated ? acquired.firstTargetId ?? null : null;
       this.browser = acquired.browser;
       this.cdpUrl = acquired.cdpUrl;
       this.managedProfileDir = acquired.profileDir;
@@ -261,6 +292,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       this.ctxId = claim.ctxId;
       this.pageCtxIds.set(claim.page, claim.ctxId);
       this.context = claim.page.context();
+    } else if (launchedTarget && (await this.takeLaunchedTab(launchedTarget, opening))) {
+      // Taken: the tab the launch opened is this session's (see takeLaunchedTab).
     } else {
       // A connection this driver has made before (a turn ended and closed it, or it dropped):
       // the tabs the session owned are still open, under new page objects. They are its own
@@ -277,7 +310,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         if (dropped) this.pendingNote = SURFACE_REIDENTIFIED_NOTE;
       } else {
         // Tab selection policy (new tab / reuse / named claim / none) lives with acquisition.
-        const claimed = await claimSessionTab(this.context, this.tab?.key ?? null, this.cfg);
+        // On the managed browser a named claim with no tab yet holds none until it opens one.
+        const claimed = await claimSessionTab(this.context, this.tab?.key ?? null, this.cfg, { lazyNamed: !!this.managedProfileDir });
         this.setActive(claimed ?? undefined);
       }
     }
@@ -285,6 +319,22 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     this.wireContext();
     await this.installPageTabs(this.active);
     await this.publishClaim();
+  }
+
+  /**
+   * Take the tab a launch of the managed browser opened as the session's: nobody else can have a
+   * tab in a browser this call started. Left out, a named claim opened a second window beside it
+   * and the launch's sat blank for the browser's life. Opened on `opening.url` (when it named a
+   * page it could open on), the tab is {@link preOpened}; a blank one is stamped at once.
+   */
+  private async takeLaunchedTab(targetId: string, opening: Opening | undefined): Promise<boolean> {
+    const page = await pageForTarget(this.context, targetId);
+    if (!page) return false;
+    this.setActive(page);
+    const stamp = this.tab && !this.tab.isolated ? this.tab.key : null;
+    if (opensAt(opening?.url)) this.preOpened = { page, url: opening.url, stamp };
+    else if (stamp) await stampTab(page, stamp);
+    return true;
   }
 
   /**
@@ -355,7 +405,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
   /** After every claim, a tab surface records in its endpoint file WHICH slice of the shared
    *  browser is its own, so a host acting on the file (the preview card's ×) closes that slice,
    *  never the whole browser (`publishTabIdentity` in acquire.ts). */
-  private async publishClaim(): Promise<void> {
+  protected async publishClaim(): Promise<void> {
     if (!this.tab || !this.managedProfileDir || !this.active) return;
     try {
       const { targetId, ctxId } = await pageTargetInfo(this.active);

@@ -36,7 +36,7 @@ host passes the same values as `ProfileOptions` instead; the table is the mappin
 | `COMPUTER_USE_ELECTRON_CDP_URL` | the Electron app's renderer debugging endpoint (port or full URL) |
 | `COMPUTER_USE_BROWSER` | `extension`: the user's own browser through the Mirasim extension; with no `COMPUTER_USE_CDP_URL` the session finds or starts the bridge itself (`<home>/bridge.json`). A host that supervises its own bridge passes its endpoint in `COMPUTER_USE_CDP_URL` instead |
 | `COMPUTER_USE_CDP_URL` / `COMPUTER_USE_CHROME` / `COMPUTER_USE_PROFILE_DIR` / `COMPUTER_USE_WINDOW` | browser settings (Managed-browser settings below) |
-| `COMPUTER_USE_TAB` | one durable tab in a SHARED browser instead of a browser of its own, so several sessions are several tabs of one Chrome: `name:<key>` (shares cookies with the other named tabs), `ctx:<key>` (its own isolated context: cookies and storage), or `reuse` (an exclusive browser continues its most recent tab). The tab is stamped by `window.name`, so a respawned child re-adopts it |
+| `COMPUTER_USE_TAB` | one durable tab in a SHARED browser instead of a browser of its own, so several sessions are several tabs of one Chrome: `name:<key>` (shares cookies with the other named tabs), `ctx:<key>` (its own isolated context: cookies and storage), or `reuse` (an exclusive browser continues its most recent tab). The tab is stamped by `window.name`, so a respawned child re-adopts it. On the managed browser a `name:` tab is opened by the session's first `openUrl` / `newTab`, on its page; until then the session holds none |
 | `COMPUTER_USE_RUN_SLUG` | the run-directory name under `<home>/run/` (endpoint, journal, shots); default the profile dir's basename. Set it when several sessions share one profile dir, so each keeps its own |
 | `COMPUTER_USE_REPL_DOCS_DELIVERED=1` | the caller already has `computer_repl`'s API reference (it came with the first result of an earlier child of the same session), so the first result carries a one-line pointer instead. For a host that respawns children |
 | `COMPUTER_USE_MACOS_CAPTURE_SOCKET` / `_TOKEN` / `_LEASE` | a host-owned native capture service shared by its runtimes; see [Shared native capture](#shared-native-capture-macos) |
@@ -349,6 +349,11 @@ renderer froze is detected by a short attach deadline, killed **by identity** (o
 whose command line names our profile directory — the user's own Chrome is unreachable by
 construction) and replaced in about a second.
 
+A session's reads only adopt a managed browser that is already running. Before the session has
+opened anything, a listing or an observation launches nothing and reports that it holds no tab
+yet; the first `openUrl` / `newTab` launches the browser, and its first window opens directly on
+that page instead of on a blank one.
+
 ### Managed-browser settings
 
 
@@ -490,7 +495,7 @@ A host that keeps its own approval list turns the stored one off with
 ## Device lifecycle
 
 The driver installs nothing. The one thing it starts is the surface it drives: the managed
-Chrome, adopted or launched on the first browser call (see Browser startup and state above). Hosts that want
+Chrome, adopted on the first browser call and launched by the first one that opens a page (see Browser startup and state above). Hosts that want
 dependency bootstrap shell out to the same verbs users type: `mirasim-cu setup browser`
 (verify a driveable Chrome), `setup macos` (check the Accessibility and Screen Recording grants)
 and `setup extension` (record the native-messaging host for the browser extension).
