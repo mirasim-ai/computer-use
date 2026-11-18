@@ -1,6 +1,6 @@
 ---
 name: mirasim-computer-use
-description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, returning what is being verified instead of asserting it, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
+description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, a macOS permission that is missing, asking before an app is brought to the front, an Electron app with no debugging port, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, returning what is being verified instead of asserting it, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
 ---
 
 # Mirasim Computer Use
@@ -51,6 +51,40 @@ In extension mode the user decides what you may reach (the extension's panel). T
 - With "Ask me" the user gets a small prompt before you use a tab outside the group. "Waiting for
   the user to allow tab …" means they have not answered yet: say which tab you need and why, and
   try again once they have. "The user declined" is an answer — do not ask the browser again.
+
+## macOS apps
+
+Reads and most actions run in the background: the app stays where it is, and the user keeps
+their pointer, keyboard and clipboard.
+
+- **A missing permission is not an empty app.** When a result says Accessibility is not granted,
+  no app will read or act until the user grants it. Stop and tell them which permission is
+  missing and where to grant it: in Mirasim, Settings › Plugins › Computer Use › macOS apps ›
+  Manage; standalone, System Settings › Privacy & Security, for the app that launched the server.
+  Do not try another app or retry in a loop. Screen Recording missing stops only screenshots;
+  reading and acting still work.
+- **Ask before anything comes to the front.** "requires desktop interaction" means the step
+  needs the real pointer, the app in front or the clipboard, and it was not done. Tell the user
+  which app will come forward and what of theirs it uses, wait for a yes, then repeat that step
+  with `interaction: "desktop"`. Never start in desktop mode or call `activate()` just to make a
+  step go through: whatever the user types next lands in that app.
+- **Menu commands and keys go to the app's key window**, which need not be the window you bound.
+  With several documents open in one app, a Paste or Save can land in the user's other document:
+  act through refs (`click`, `setText`), or work in a document you opened yourself.
+- **Every window unreadable at once** (no window listed, none on screen) usually means the
+  screen is locked, or the window is minimised or on another Space. Say what the note says and
+  ask the user; launching the app again or observing in a loop changes nothing.
+
+## Electron apps
+
+- The driver attaches to an app that is **already running** with its renderer debugging port
+  open, and never starts one. "no Electron app is listening on …" means that port is not there:
+  ask the user to start their dev build with `--remote-debugging-port=<port>` and to tell you the
+  port (Mirasim: pass it per call as `cdp`; standalone: `COMPUTER_USE_ELECTRON_CDP_URL`). Do not
+  relaunch their app yourself or probe for ports.
+- **An installed app opens no such port**, the installed Mirasim desktop app included, and no
+  retry changes that. Use the route the app ships (Mirasim's is `mirasim ui-cli`); on macOS an
+  installed app other than Mirasim can be operated as a macOS app instead.
 
 ## Arguments
 
