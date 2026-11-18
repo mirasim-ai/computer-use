@@ -26,8 +26,9 @@ managed browser), and you cannot switch from inside a session.
   user (install or enable it, or turn browser control on in Mirasim) instead of silently
   redoing the task in the managed browser — that one has none of their logins.
 - In Mirasim, a call that names no `browser` takes the extension when it is on and connected, then
-  the embedded browser, then the managed one. When the result notes that the extension is on but
-  not connected, the call ran elsewhere: if the task needed the user's logins, say so.
+  the managed browser, then the embedded one (a browser the user lent from a Mirasim window on
+  another computer comes before the managed one). When the result notes that the extension is on
+  but not connected, the call ran elsewhere: if the task needed the user's logins, say so.
 - Do not ask the user to sign in to a site in the managed browser when they are already signed in
   to it in their own Chrome and the extension is connected; use the extension.
 - The extension serves one bridge at a time and the Mirasim desktop app's comes first: while
