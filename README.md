@@ -4,20 +4,86 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Benchmark: DevBrowse Bench on Hugging Face](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
 
-Open-source computer use for any agent, faster and more efficient than ChatGPT Computer Use on
-[DevBrowse Bench v1](#benchmark): 26% less time, 45% fewer model requests and half the input
-tokens (2026-11-06 and 2026-11-07).
+Computer use for Claude Code, Codex and any MCP agent: an open-source MCP server that drives
+browsers, macOS apps and Electron apps through their accessibility trees. It runs no model of its
+own and needs no API key. The [Mirasim](https://mirasim.ai) desktop app ships the same tools
+built in (Settings → Computer Use).
 
-An MCP server that lets the agent you already use (Claude Code, Codex, or any MCP host) operate
-browsers, macOS apps and Electron apps. It runs no model of its own and needs no
-API key. The [Mirasim](https://mirasim.ai) desktop app ships the same tools built in
-(Settings → Computer Use).
+![Claude Code checks its change in the browser with mirasim-cu, finds the Add task button covered by a new header layer, fixes the CSS and checks again](docs/media/demo.gif)
 
-Capable models plan several GUI steps at once, the way a person goes through a website they use
-every day. So the agent writes a short script, one call runs the whole chain of steps, and every
-step reports back exactly what happened: the model does not check the screen after each click.
-The screen reads back as text, a numbered list of elements from the accessibility tree, and
-pixels are used only when text is not enough.
+<sub>A real run, 24 s with the model's wait trimmed to 15 s: Claude Code checks its change in the
+browser, finds a control covered by a new header layer, fixes the CSS and checks again in one
+call. The red and green marks are added for the video. [MP4](docs/media/demo.mp4)</sub>
+
+- **One call runs a whole chain of steps, and every step reports back.** The agent writes a
+  short script (open, type, pick, click, wait, read), and the result says what each step did
+  and ends with one observation, so the model does not look at the screen after every click.
+  The screen reads back as text, a numbered list of elements from the accessibility tree;
+  pixels only when text is not enough.
+- **A click lands where a user's mouse would.** A click on a control under another layer fails
+  and names the layer in the way («fixed bar at the top of the viewport»), instead of reaching
+  the control a user could not click.
+- **Your own browser and your desktop.** It drives the Chrome you are signed into through the
+  Mirasim extension, native macOS apps in the background without taking your mouse and
+  keyboard, and Electron apps over their debugging port.
+
+On [DevBrowse Bench v1](#benchmark) it took 26% less time and 45% fewer model requests than
+ChatGPT Computer Use, with half the input tokens.
+
+## Install
+
+Needs Node.js 22.19 or later.
+
+```sh
+claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp   # Claude Code
+codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp    # Codex
+```
+
+Then ask your agent to check something in the mirasim-cu browser. Codex asks before every MCP
+call until you approve the two tools in `~/.codex/config.toml`; that, your signed-in Chrome,
+macOS and Electron apps, the agent skill and the command line are in
+[docs/setup.md](docs/setup.md).
+
+## How it compares
+
+What each project documents, read on 2026-11-18 (sources below the table).
+
+| | Mirasim Computer Use | [Playwright MCP](https://github.com/microsoft/playwright-mcp) | [browser-use](https://github.com/browser-use/browser-use) | [Anthropic computer use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool) | [ChatGPT Computer Use](https://learn.chatgpt.com/docs/computer-use) |
+|---|---|---|---|---|---|
+| Open source | Apache-2.0 | Apache-2.0 | MIT; Browser Use Cloud is a paid service | No: an API tool (MIT reference demo) | No: part of the ChatGPT desktop app |
+| MCP server for Claude Code and Codex | Yes | Yes | Yes (`browser-use --cli-mcp`) | No: an API tool; built into Claude Code | No: inside the ChatGPT desktop app |
+| Model of its own | None; your agent drives it | None | Its agent has one; the MCP mode does not | Claude | OpenAI's models |
+| What the model reads | Accessibility tree as text; screenshots on request | Accessibility snapshot as text; vision opt-in | What its Python prints, plus screenshots | Screenshots and pixel coordinates | Screenshots; more is not documented |
+| Many steps in one call | Yes: a script, each step reported | One tool per action; `browser_run_code_unsafe` runs a Playwright script | Yes: `browser_exec` runs Python | Several actions per turn (a batch), one tool call each | Not documented |
+| A click on a covered control | Fails and names the covering layer | Waits until the element would receive the click, then times out | Not documented | Not documented | Not documented |
+| Your signed-in browser | Mirasim extension | Playwright extension (Chrome, Edge) or a CDP endpoint | Running Chrome through remote debugging | Claude in Chrome extension | ChatGPT extension |
+| Native desktop apps | macOS, in the background | No | No (a separate, experimental macOS project) | Any app in your VM or container; macOS in Claude Code (preview) | macOS (in the background) and Windows |
+| Electron apps | Yes, over the debugging port | Not in the MCP server | Not documented | Through screen control in Claude Code | Not documented |
+| DevBrowse Bench v1 | −26% time, −45% model requests | Not run | Not run | Not run | The baseline |
+
+<details>
+<summary>Sources</summary>
+
+- Playwright MCP: [README](https://github.com/microsoft/playwright-mcp) (v0.0.85); covered
+  elements: Playwright's [actionability checks](https://playwright.dev/docs/actionability)
+  ("Receives Events").
+- browser-use: [README](https://github.com/browser-use/browser-use) (v1.0.6),
+  [MCP server](https://docs.browser-use.com/open-source/mcp),
+  [browsers](https://docs.browser-use.com/open-source/browsers),
+  [macos-harness](https://github.com/browser-use/macos-harness).
+- Anthropic: [computer use tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool),
+  [reference demo](https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo),
+  Claude Code [computer use](https://code.claude.com/docs/en/computer-use) and
+  [Chrome](https://code.claude.com/docs/en/chrome).
+- OpenAI: ChatGPT [computer use](https://learn.chatgpt.com/docs/computer-use),
+  [browser](https://learn.chatgpt.com/docs/browser),
+  [Chrome extension](https://learn.chatgpt.com/docs/chrome-extension); the API's
+  [computer use tool](https://developers.openai.com/api/docs/guides/tools-computer-use) takes an
+  `actions` array per call, which the table does not count as the app's behaviour.
+- DevBrowse Bench v1 compared only Mirasim Computer Use and ChatGPT Computer Use; its harness
+  drives Codex in the ChatGPT desktop app, so the other tools have no comparable run.
+
+</details>
 
 ## Benchmark
 
@@ -71,20 +137,6 @@ the same tasks here. That rerun is not part of v1.
 Tasks, judges, every run and the full report are on Hugging Face, in the
 [devbrowse-bench dataset](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
 ([v1 report](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench/blob/main/results/v1/REPORT.md)).
-
-## Install
-
-Needs Node.js 22.19 or later.
-
-```sh
-claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp   # Claude Code
-codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp    # Codex
-```
-
-Then ask your agent to check something in the mirasim-cu browser. Codex asks before every MCP
-call until you approve the two tools in `~/.codex/config.toml`; that, your signed-in Chrome,
-macOS and Electron apps, the agent skill and the command line are in
-[docs/setup.md](docs/setup.md).
 
 ## Tools
 
