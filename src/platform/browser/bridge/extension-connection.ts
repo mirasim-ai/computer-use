@@ -47,6 +47,11 @@ export class ExtensionConnection {
   private readonly tabProbes = new Map<number, Promise<boolean>>();
   private lastId = 0;
   private probing = false;
+  /** What the extension sent and this side has not handled yet, in the order it arrived. */
+  private readonly inbox: string[] = [];
+  private handling = false;
+  /** Pending from the moment an answer is handed to its caller until that caller has run. */
+  private answersLanding: Promise<void> | null = null;
   onEvent: ((method: string, params: unknown[]) => void) | null = null;
   onClose: (() => void) | null = null;
 
@@ -210,21 +215,52 @@ export class ExtensionConnection {
     finally { this.dispose(); }
   }
 
+  /**
+   * Answers and events leave here in the order the extension sent them.
+   *
+   * An answer reaches its caller through a promise, so the caller runs only after this function
+   * returns; an event is handed over at once. Several messages often arrive in one read, and then
+   * an event that came AFTER an answer was passed on before it. A CDP client relies on the order:
+   * Playwright starts listening for a page's lifecycle events when `Page.getFrameTree` is
+   * answered, so a `load` that overtook that answer was never seen, and waiting for the page to
+   * load timed out on a page that had loaded (a popup that finished loading as it was attached,
+   * about one time in three on a busy machine).
+   *
+   * So an event that follows an answer waits until that answer's caller has run: the callers'
+   * continuations are microtasks, and all of them are done by the next `setImmediate`.
+   */
   private onMessage(text: string): void {
-    let message: { id?: number; method?: string; params?: unknown[]; result?: unknown; error?: string };
+    this.inbox.push(text);
+    if (!this.handling) void this.handleInbox();
+  }
+
+  private async handleInbox(): Promise<void> {
+    this.handling = true;
     try {
-      message = JSON.parse(text);
-    } catch (e) {
-      this.log("malformed extension message:", e);
-      return;
+      while (this.inbox.length > 0) {
+        const text = this.inbox.shift()!;
+        let message: { id?: number; method?: string; params?: unknown[]; result?: unknown; error?: string };
+        try {
+          message = JSON.parse(text);
+        } catch (e) {
+          this.log("malformed extension message:", e);
+          continue;
+        }
+        if (message.id !== undefined && this.callbacks.has(message.id)) {
+          const callback = this.callbacks.get(message.id)!;
+          if (message.error !== undefined) callback.reject(new ExtensionRefusal(message.error));
+          else callback.resolve(message.result);
+          this.answersLanding ??= new Promise((landed) => setImmediate(() => { this.answersLanding = null; landed(); }));
+          continue;
+        }
+        if (!message.method) continue;
+        if (this.answersLanding) await this.answersLanding;
+        try { this.onEvent?.(message.method, message.params ?? []); }
+        catch (e) { this.warn(`handling ${message.method} from the extension failed:`, e); }
+      }
+    } finally {
+      this.handling = false;
     }
-    if (message.id !== undefined && this.callbacks.has(message.id)) {
-      const callback = this.callbacks.get(message.id)!;
-      if (message.error !== undefined) callback.reject(new ExtensionRefusal(message.error));
-      else callback.resolve(message.result);
-      return;
-    }
-    if (message.method) this.onEvent?.(message.method, message.params ?? []);
   }
 
   private dispose(): void {
