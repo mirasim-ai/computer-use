@@ -12,9 +12,10 @@ get wrong in practice.
 ## Which browser
 
 There are up to three browser connections. A host that offers a choice (Mirasim's
-`computer_repl` takes a `browser` argument) lets you pick per call; with the open-source MCP
-server it is fixed when the server is configured (`COMPUTER_USE_BROWSER=extension`, else the
-managed browser), and you cannot switch from inside a session.
+`computer_repl` takes a `browser` argument) lets you pick per call. Standalone only (the
+open-source MCP server, not Mirasim): the connection is fixed when the server is configured
+(`COMPUTER_USE_BROWSER=extension`, else the managed browser), and you cannot switch from inside
+a session.
 
 | Connection | What it is | Use it when |
 |---|---|---|
@@ -178,5 +179,6 @@ Do not reset to "start over" on the page (navigate or reload instead), to retry 
 or to take a target another session holds. After closing the session's last tab no reset is
 needed either: `openUrl({url})` or `newTab({url})` on the old handle opens a fresh one.
 
-In Codex, `computer_repl_reset` must be approved like `computer_repl`
-(`approval_mode = "approve"`), or the call is refused exactly when you need it.
+Standalone only (the open-source MCP server registered in Codex, not Mirasim):
+`computer_repl_reset` must be approved like `computer_repl` (`approval_mode = "approve"`), or
+the call is refused exactly when you need it.
