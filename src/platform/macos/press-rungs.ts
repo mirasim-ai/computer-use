@@ -428,6 +428,31 @@ export async function activateByKey(host: MouseHost, acts: ElementActs, ref: unk
 /** One ancestor as the helper reports it (`ancestors`). */
 type Ancestor = { key: string; role: string; actions: string[]; selectable: boolean; selected?: boolean; name: string };
 
+/** The containers a row's keyboard focus belongs to: a mouse click on a row makes its list the
+ *  first responder, and that is where Delete, Enter and the arrows then go. */
+const LIST_ROLES = new Set(["AXTable", "AXOutline", "AXList"]);
+
+/**
+ * The other half of a single click on a list row: the KEYBOARD FOCUS. Setting a row's selection
+ * through accessibility moves the selection only; the app's focus stays where it was (Notes: the
+ * note's body), so the Delete or Enter that follows lands there instead of on the row. Gives the
+ * focus to the nearest list above the selected row in `chain`, the way the mouse would.
+ *
+ * Answers the clause that ends the click's note: what holds the focus now, said either way.
+ */
+async function focusListAbove(host: MouseHost, chain: Ancestor[], from: number): Promise<string> {
+  const list = chain.slice(from + 1).find((a) => LIST_ROLES.has(a.role));
+  if (!list) return "";
+  const kind = list.role.replace(/^AX/, "").toLowerCase();
+  try {
+    const { focused } = await host.call<{ focused: boolean }>("focus", { key: list.key });
+    if (focused) return `; the keyboard focus was given to that ${kind} as a mouse click would, so keys (Delete, Enter, the arrows) now go to the selected row`;
+  } catch (e) {
+    if (!(e instanceof AxRequestError)) throw e;
+  }
+  return `; the keyboard focus could NOT be moved to that ${kind}, so keys still go wherever ${host.appName()}'s focus was, not to the selected row`;
+}
+
 /**
  * The rung between a control that carries NO action and the mouse: act on what CONTAINS it.
  *
@@ -467,7 +492,8 @@ export async function activateByAncestor(host: MouseHost, acts: ElementActs, ref
     // Answered as done, not handed on: the mouse on a selected file's name opens Finder's rename editor.
     if (act === "select" && up.selected) {
       const container = up.name ? `the ${up.role.replace(/^AX/, "").toLowerCase()} "${up.name}"` : "its row";
-      return { ok: true, note: `${target.name ? `"${target.name}"` : "this element"} carries no click of its own and ${container} is already selected — which is what a single click here means, so nothing more was done` };
+      const focus = await focusListAbove(host, chain, chain.indexOf(up));
+      return { ok: true, note: `${target.name ? `"${target.name}"` : "this element"} carries no click of its own and ${container} is already selected, so it was not selected again${focus}` };
     }
     const was = host.listing?.();
     const minted = host.minted?.();
@@ -492,11 +518,12 @@ export async function activateByAncestor(host: MouseHost, acts: ElementActs, ref
     // both fields go in; a partial element would throw.
     const kind = roleOf({ role: up.role, actions: up.actions } as AxElement);
     const container = up.name ? `the ${kind} "${up.name}"` : `its containing ${kind}`;
+    const focus = act === "select" ? await focusListAbove(host, chain, chain.indexOf(up)) : "";
     return {
       ok: true,
       note: `${target.name ? `"${target.name}"` : "this element"} carries no click of its own, so ${act === "press" ? "AXPress ran on" : "the selection was set on"} ${container} `
         + `instead — ${selectedNow ? "it reads back selected" : "that DID change the window"}, and unlike a mouse click it left ${host.appName()} where it was, so the user's `
-        + `front window, keyboard and pointer are untouched${diff ? `. It ${diff}` : ""}`,
+        + `front window, keyboard and pointer are untouched${focus}${diff ? `. It ${diff}` : ""}`,
     };
   }
   return null;

@@ -543,6 +543,30 @@ async function main() {
     check("…and the note says what it acted on and that the app stayed where it was",
       /carries no click of its own/.test(note) && /selection was set/.test(note) && /left 计算器 where it was/.test(note),
       note.split("\n")[0].slice(0, 120));
+    // A click on a row also gives its list the keyboard focus. Selecting through accessibility
+    // alone left Notes' focus in the note's body, so the Delete that followed went there.
+    const focusAt = stub.calls.findIndex((c) => c.op === "focus" && String(c.params.key).startsWith("kSO"));
+    check("…the keyboard focus is then given to the outline that owns the row, after the selection",
+      focusAt > stub.calls.findIndex((c) => c.op === "select") && focusAt >= 0 && /keyboard focus was given to that outline/.test(note),
+      `${JSON.stringify(stub.calls.map((c) => c.op))} · ${note.split("\n")[0].slice(-140)}`);
+
+    // Clicked again: the row is already selected, so nothing is re-selected — but the focus is
+    // still moved, or keys go wherever the app's focus has wandered since.
+    stub.calls.length = 0;
+    const again = String(await sideH.api.click((await sideH.api.observe()).elements.find((e) => e.name === "文稿")!.ref));
+    check("…a row already selected is not selected again, and its outline still takes the focus",
+      !stub.calls.some((c) => c.op === "select") && stub.calls.some((c) => c.op === "focus" && String(c.params.key).startsWith("kSO"))
+      && /already selected/.test(again) && /keyboard focus was given/.test(again),
+      `${JSON.stringify(stub.calls.map((c) => c.op))} · ${again.split("\n")[0].slice(0, 160)}`);
+
+    // An outline that will not take the focus is SAID, so the model does not send Delete blind.
+    const stuck = stubTransport();
+    stuck.sidebar = true;
+    stuck.focusRefused = true;
+    const stuckH = createHarness(new MacosDriver({ transport: stuck.transport, ...ONE_APP }));
+    const stuckNote = String(await stuckH.api.click((await stuckH.api.observe()).elements.find((e) => e.name === "文稿")!.ref));
+    check("…and an outline that refuses the focus is reported: keys will not go to the selected row",
+      /focus could NOT be moved/.test(stuckNote) && /selection was set/.test(stuckNote), stuckNote.split("\n")[0].slice(-160));
 
     // The rung is for a control with NOTHING of its own: an element whose own action the app
     // refused must not be re-aimed at its container, which would act on something else entirely.

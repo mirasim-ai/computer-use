@@ -298,7 +298,9 @@ export function stubTransport(): Stub {
           if (!String(params.key).startsWith("k30")) return { ancestors: [] };
           return { ancestors: [
             { key: `kSCg${state.generation}`, role: "AXCell", actions: ["AXOpen"], selectable: false, name: "" },
-            { key: `kSRg${state.generation}`, role: "AXRow", actions: ["AXShowDefaultUI"], selectable: true, name: "" },
+            { key: `kSRg${state.generation}`, role: "AXRow", actions: ["AXShowDefaultUI"], selectable: true, name: "", selected: state.sidebarSelected },
+            // The outline that owns the rows: where a mouse click on one leaves the keyboard focus.
+            { key: `kSOg${state.generation}`, role: "AXOutline", actions: [], selectable: false, name: "" },
           ] };
         }
         case "select": {
@@ -314,6 +316,8 @@ export function stubTransport(): Stub {
           // ChatGPT's dialog buttons (Electron web content): AXPress is ignored, but the element takes
           // the focus and answers Space — the keyboard rung's case.
           if (op === "focus" && state.spaceActs) return { focused: true };
+          // The sidebar's outline takes the keyboard focus and reads it back, as Notes' note list does.
+          if (op === "focus" && String(params.key).startsWith("kSO")) return { focused: true };
           if (op === "setvalue" && state.setValueRefused) {
             throw new AxRequestError("ax_error", `set value on ${params.key}`, -25205);
           }
