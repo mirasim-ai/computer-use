@@ -67,13 +67,9 @@ export async function waitForControlImpl(
   gone: boolean,
   capMs: number,
 ): Promise<ActResult> {
-  const want = name.trim().toLowerCase();
   const present = async () => {
     const els = await list().catch(() => null);
-    if (els === null) return null;
-    const named = els.filter((e) => e.role !== "text");
-    return named.some((e) => e.name.trim().toLowerCase() === want)
-      || named.some((e) => e.name.toLowerCase().includes(want));
+    return els === null ? null : controlListed(els, name);
   };
   const { met, elapsed, overran } = await pollUntil(present, gone, capMs);
   if (met) {
@@ -87,6 +83,46 @@ export async function waitForControlImpl(
         + "so observe and act on what is holding it there rather than waiting again" + overran
       : `waited ${elapsed}s and no control named "${name}" appeared — observe to see what the surface lists now; `
         + "the name may differ, or the step before this did not take" + overran,
+  };
+}
+
+/** Does a listed CONTROL carry `name`? {@link waitForControlImpl}'s rule, for one read. */
+export function controlListed(els: Array<{ role: string; name: string }>, name: string): boolean {
+  const want = name.trim().toLowerCase();
+  const named = els.filter((e) => e.role !== "text");
+  return named.some((e) => e.name.trim().toLowerCase() === want)
+    || named.some((e) => e.name.toLowerCase().includes(want));
+}
+
+/**
+ * Does the readable text show `name` as a LINE of its own — "Loading tasks…", "⏳ Saving 40%"? A
+ * progress bar, a spinner's label and a status paragraph are not listed controls, so a
+ * `control_gone` on one is met at once while it is still on screen. Only a line that IS the name
+ * (around it nothing but punctuation, digits and symbols) counts: the word inside a sentence
+ * ("press Stop to cancel") is not a status line.
+ */
+export function statusLineShows(text: string, name: string): boolean {
+  const edge = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+  const want = name.trim().toLowerCase().replace(edge, "");
+  if (!want) return false;
+  return text.split("\n").some((l) => {
+    const core = l.trim().toLowerCase().replace(/^[^\p{L}\p{N}]+/u, "");
+    return core.startsWith(want) && !/\p{L}/u.test(core.slice(want.length));
+  });
+}
+
+/** Poll `read` until no line of it shows `name` ({@link statusLineShows}), or until `capMs`. */
+export async function waitForStatusLineGoneImpl(read: () => Promise<string>, name: string, capMs: number): Promise<ActResult> {
+  const present = async () => {
+    const t = await read().catch(() => null);
+    return t === null ? null : statusLineShows(t, name);
+  };
+  const { met, elapsed, overran } = await pollUntil(present, true, capMs);
+  if (met) return { ok: true, note: `the line "${name}" is gone after ${elapsed}s` };
+  return {
+    ok: false,
+    note: `waited ${elapsed}s and the line "${name}" is still in the readable text — it did not go away on its own, `
+      + "so observe and act on what is holding it there rather than waiting again" + overran,
   };
 }
 

@@ -8,6 +8,10 @@ import { cutText } from "../text-cut.ts";
 import type { ComputerUseDriver } from "../driver.ts";
 import type { ActResult } from "../types.ts";
 import { noteOf, options, type RunLedger } from "./api-contract.ts";
+import { controlListed, statusLineShows, waitForStatusLineGoneImpl } from "../driver-wait.ts";
+
+/** The drivers' own budget for a wait that names no ms and is not an appearance. */
+const DRIVER_WAIT_MS = 16_000;
 
 /** Longest a bare `wait({ms})` may sleep — the run's own wall clock is the real cap. */
 const MAX_WAIT_MS = 60_000;
@@ -98,6 +102,18 @@ export function waitVerb(driver: ComputerUseDriver, ledger: () => RunLedger, clo
     const controlGone = typeof opts.control_gone === "string";
     const textGone = typeof opts.text_gone === "string";
     const appearing = url !== null ? !urlGone : opts.loaded ? false : control !== null ? !controlGone : needle !== null && !textGone;
+    // control_gone on a name no control carries is met at once — while a progress bar or a
+    // "Loading…" line the text still shows may be exactly what the caller meant. Then the wait is
+    // for that line to go, as text_gone would wait, and the journal says which it was.
+    if (controlGone && control !== null && url === null && !opts.loaded) {
+      const els = await (async () => (await driver.readElements()).elements)().catch(() => null);
+      if (els && !controlListed(els, control) && statusLineShows(await driver.readTextForWait().catch(() => ""), control)) {
+        const res = await waitForStatusLineGoneImpl(() => driver.readTextForWait(), control, ms ?? DRIVER_WAIT_MS);
+        ledger().push("wait", control, res.ok, `no control is named "${control}", but the readable text shows it as a line of its own `
+          + `(a progress bar, spinner or status line is not a listed control), so this waited for that line to go: ${noteOf(res)}`);
+        return res.ok;
+      }
+    }
     let res = url !== null
       ? await driver.waitForUrl(url, urlGone, budget(urlGone))
       : opts.loaded

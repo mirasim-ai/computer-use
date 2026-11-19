@@ -8,6 +8,7 @@
 import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
+import { statusLineShows } from "../src/platform/driver-wait.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -102,6 +103,13 @@ async function main() {
       await second.close();
     }
   }
+  // ── Which text a control_gone falls back to: a status line, never a word in a sentence ───
+  check("a line that is the name, with an ellipsis, a glyph or a percentage around it, is a status line",
+    statusLineShows("Tasks\nLoading tasks…\nSave", "Loading tasks") && statusLineShows("⏳ Saving… 40%", "Saving…")
+      && statusLineShows("FETCHING TASKS", "Fetching tasks"));
+  check("…a sentence that carries the name is not, nor is a longer label",
+    !statusLineShows("Press Stop to cancel", "Stop") && !statusLineShows("Loading tasks for Bob", "Loading tasks") && !statusLineShows("", "…"));
+
   console.log(failures ? `\n${failures} check(s) failed` : "\nall first-use checks passed");
   process.exit(failures ? 1 : 0);
 }
