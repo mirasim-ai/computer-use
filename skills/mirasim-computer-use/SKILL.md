@@ -68,9 +68,10 @@ their pointer, keyboard and clipboard.
   which app will come forward and what of theirs it uses, wait for a yes, then repeat that step
   with `interaction: "desktop"`. Never start in desktop mode or call `activate()` just to make a
   step go through: whatever the user types next lands in that app.
-- **Menu commands and keys go to the app's key window**, which need not be the window you bound.
-  With several documents open in one app, a Paste or Save can land in the user's other document:
-  act through refs (`click`, `setText`), or work in a document you opened yourself.
+- **Menu commands (⌘-chords) go to the app's key window**, which need not be the window you
+  bound, and so do plain keys while the app is in front (in the background they go to the bound
+  window). With several documents open in one app, a Paste or Save can land in the user's other
+  document: act through refs (`click`, `setText`), or work in a document you opened yourself.
 - **Every window unreadable at once** (no window listed, none on screen) usually means the
   screen is locked, or the window is minimised or on another Space. Say what the note says and
   ask the user; launching the app again or observing in a loop changes nothing.
