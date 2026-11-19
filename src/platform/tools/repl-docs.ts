@@ -74,7 +74,7 @@ function extraSignature(kind: string, schema: TSchema): string {
 function parts(driver: ComputerUseDriver, windowsApps: boolean) {
   const extras = driver.extraVerbs();
   const nativeApps = windowsApps ? "macOS and Windows" : "macOS";
-  const target = "a find() handle, a ref string, or a point {x, y} read off a screenshot";
+  const target = "a find() handle or a ref string (click and hover also take a point {x, y} read off a screenshot)";
   return {
     head: [
     "API reference — computer_repl (this text comes once per session; computer.help() returns it again)",
@@ -94,12 +94,12 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     ],
     reads: [
     ...driver.interactionNotes(),
-    "Reads (return data to your code; none of them is shown to you except through `return` or computer.log):",
+    "Reads (return data to your code; you see it only through `return` or computer.log — except a screenshot, whose image is attached to the result):",
     "  w.observe({screenshot?}) → {url, title, elements:[{ref, role, name, state, rect, offscreen?}], groups?, headings?, partial?, coverage, target?} — every control, viewport and beyond; filter the array rather than asking it to narrow. `rect` {x, y, w, h} is the control's box — compare boxes to answer layout questions (which row a control sits on, whether it moved) without a screenshot. `groups` is the page's OWN labelling of those controls — [{label, members:[ref]}] over that same set, off-viewport members included — present where the author wrote one, and the only place some facts exist (a feed labels each post's button row with its counts, bookmarks included, which no control name and no page text carries). `headings` (web surfaces) is [{name, level, rect}] for the page's headings, never listed as controls — the fixed point to measure a control's box against, since a click can scroll the container under every control in a card. `partial` (a reason) says the read stopped before covering the surface, so what it did not list may still be there. screenshot:true also attaches the picture of the same screen (one call, two reads), for when you need to SEE where something is",
     "    coverage reports exact {offscreen, covered, capped, modal?} counts (null when unreported) even when repeated context notes are omitted. Electron target reports the CDP endpoint, windowId and, when its user agent carries them, the app's own name/version; never infer the app version from the tool or helper path.",
     "  w.find(name, {role?, within?, visible?, near?, why?}) → {ref, name, matches, others, incidental?} | null — by visible name, "
       + "whole surface"
-      + " (an exact name beats a partial one, a partial the query is most of beats one it is only a fragment of, and a control beats a text label); a handle that re-resolves itself when used, so a loop survives a re-render; `matches` says how many controls carried the name and `others` names the runners-up, so an ambiguous name is visible BEFORE you act on the pick; `incidental: true` says NOTHING here is NAMED that and the pick is only a long name that happens to contain the word — the one `matches: 1` not to trust; narrow it with role (button / textbox / …), within (a ref or handle — matches inside that element's box, e.g. one sheet or one message)"
+      + " (an exact name beats a partial one, a partial the query is most of beats one it is only a fragment of, and a control beats a text label); a handle that re-resolves itself when used, so a loop survives a re-render; `matches` says how many controls carried the name and `others` names the runners-up, so an ambiguous name is visible BEFORE you act on the pick — and a write (click, setText, a platform verb's ref) on a pick whose runner-up has the same role and name is refused as a guess, so narrow it first; `incidental: true` says NOTHING here is NAMED that and the pick is only a long name that happens to contain the word — the one `matches: 1` not to trust; narrow it with role (button / textbox / …), within (a ref or handle — matches inside that element's box, e.g. one sheet or one message)"
       + " visible (on screen only)"
       + " and near (a labelled group restricts candidates to its members; otherwise prefer the control closest to what it names — another control by name, ref or handle"
       + (driver.locateAnchor ? ", a heading, a labelled region, or any text the page shows, so near:'Revenue by day' picks that card's Share" : "")
@@ -117,12 +117,12 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
       + (driver.readsCovered ? "" : ". This platform's read never reports what an overlay covers, so a covered control reads as 'absent'")
       + ". `note` is the journal's line; `partial` (a reason) says the read stopped early, so even 'absent' is not proof. "
       + "e.g. let m = await w.find('Menu', {role: 'button', why: true}); if (!m.ref && m.reason === 'covered') { await w.keys('Escape'); await w.wait({}); m = await w.find('Menu', {role: 'button', why: true}); } await w.click(m); — a miss passed to a verb is refused with its own note, so no check is written around it.",
-    "  w.text()                 → the surface's full readable text",
+    "  w.text()                 → the surface's readable text (on a web page: its main content, with a note saying what header / navigation / footer text was left out — wait({text}) still searches all of it)",
     // Offered only where a driver can answer for one element: promising it elsewhere would send
     // the model at a name that throws, and text() is the honest answer there.
     ...(driver.readValue ? ["  w.value(t)               → ONE control's whole value as a string — a long field, a clipped label, "
       + "the text you are about to edit. The listing shows a value cut to what a line holds; this is the rest of it, for one element, "
-      + "where text() re-reads the entire surface"] : []),
+      + "where text() re-reads the whole surface"] : []),
     ...(driver.readPage ? ["  w.page({ref?, depth?, node?}) → the content tree as text, with a completeness receipt on its first line"] : []),
     "  w.screenshot({ref?, padding?|region:{x,y,width,height}?|fullPage?, path?}) → {path, host, width, height, note, capture?} — the image is attached to this result for you to see AND written to a file the code can keep: to `path` (absolute, never overwrites an existing file, extension must match the surface's format — .jpg on web surfaces, .png on " + nativeApps + ") or else to a rolling temp directory; `host` names the machine the path is on; no image → {path: null, note: why}. ref is a ref string and crops to a visible element's box; padding keeps its surroundings. fullPage is web-only. On " + nativeApps + ", ref/region preserve native detail; region uses FULL screenshot pixels, so take a full screenshot first. " + (windowsApps ? "Windows padding and crop bounds use physical pixels; " : "") + "macOS padding uses full-screenshot pixels when available, otherwise window points. capture reports the window, crop, units, pointsPerPixel, and toFullScreenshot (null without a full screenshot or when window geometry changed). " + (windowsApps ? "Windows refuses a region based on old window geometry; take a new full screenshot. " : "") + "Convert crop pixel p to full screenshot coordinates with toFullScreenshot.origin + p * toFullScreenshot.scale on each axis. A crop never changes point-action coordinates; use a current mapping or act by ref.",
     // Worded by the PLATFORM: console and failed requests on a page, the accessibility helper's
@@ -139,7 +139,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "    click and hover also take a POINT — w.click({x, y}) — in the coordinates of the last screenshot, for a control you",
     "    can see and cannot name. It checks no identity (no stale-ref gate, no name, no surface check) and so acts on",
     "    whatever is at that spot NOW: take observe({screenshot: true}) and read the coordinates off that picture.",
-    "    click / hover / keys / scroll / focus answer with what they did, as text — the same note the journal shows, e.g. which",
+    "    click / hover / keys / scroll answer with what they did, as text — the same note the journal shows, e.g. which",
     "    rung a click ended on. A verb that FAILS throws instead, so a returned string always describes something that happened.",
     "  w.keys(chord, count?, {focus?})  e.g. w.keys('Enter'), w.keys('Backspace', 3), w.keys('Enter', {focus: field}) — one key or chord, never a text string. setText replaces a whole field; use the platform's paste/type verb to edit at a selection or caret.",
     "    keys go wherever the surface has the keyboard focus. Pass focus: <target> to REQUIRE it be there: if it is not,",
@@ -169,7 +169,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "    for what is known to be slow — w.wait({text:'Calculated in', ms:20000}) for a report that computes — and a short one for a GUESS at the wording,",
     "    since a guess no page ever matches costs its whole budget.",
     "    A wait that gave up on a control or on text APPEARING says, in its journal line, which control names or lines of text come closest.",
-    "  w.focus() — select w as the target for this runtime; target selection is not an OS-activation guarantee (see platform interaction notes)",
+    "  w.focus() — select w as the target for this runtime (returns nothing); target selection is not an OS-activation guarantee (see platform interaction notes)",
     `  w.release() — release this target and its input resources for other sessions. Claims span calls until release, reset, turn end, process exit or ${IDLE_RELEASE_MS / 60_000} minutes with no call (the next call takes the target back unless another session has it by then). Observe again before acting after handoff; old refs are invalidated. Separate windows can still share app/account/document state; ownership does not isolate those or a human editor.`,
     "  w.expect({text, control, url, value, equals, ms}) — verify exactly ONE condition; value takes a ref/find handle and equals:string. Read-only polling, default 3000 ms, maximum 16000 ms. Returns true when verified; otherwise throws before subsequent steps, and the reason says what was there instead — the value the field holds, the closest control names, the closest lines of text, the address — so the next call can act on it without observing first. It never repeats the preceding action. Use it for what the NEXT step depends on (the save went through, the list is back), not for the outcome you are checking: return that (see \"Verify by returning\" below).",
     "  w.setText(t, text, {ifValue:previousValue}) — optional precondition: refuse before writing if the field changed or cannot be read. This is a checked precondition, not an atomic transaction with a human or another app.",
@@ -199,8 +199,9 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "  · one verb in flight — a second one before the first resolves is refused by name (one focus, one caret)",
     "  · a ref read on surface A is refused on surface B — act on it through A's handle",
     "  · a handle whose surface is gone throws: re-acquire with computer.surfaces()",
+    "  · a target another session holds refuses every verb on it, reads included (\"in use by another runtime\"): use another target or wait for its release",
     "  · 100 actions and 60 s per call; reads, find(), waits, verification and computer.log() also spend this budget",
-    "  · nothing outside this API exists but URL and URLSearchParams: no require, import, fetch, process, timers, console",
+    "  · JavaScript's own built-ins (JSON, Math, Date, Promise, Intl…) plus URL and URLSearchParams, and nothing else: no require, import, fetch, process, timers (setTimeout), console — computer.log writes a journal line",
     "",
     "Persistence: top-level const/let/var/function/class declarations live until computer_repl_reset. Keep a",
     "handle in one and reuse it; collect results in a variable across calls; return only what you need.",
@@ -226,7 +227,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "failed or came back [uncertain] — stop, read its result, and act on what you see.",
     ...(extras.some((v) => v.kind === "dialog") ? [
       "  dialog({answer:'accept'}) answers a confirm you have not read: never arm it before the click that raises one. Click without arming —",
-      "  a confirm is then dismissed and the journal quotes its text — read it, and only if it says what you meant to do, arm accept and click again.",
+      "  a confirm is then dismissed and the result's NOTE line quotes its text — read it, and only if it says what you meant to do, arm accept and click again.",
     ] : []),
     "Keep a top-level checkpoint after each confirmed stage. After an uncertain save/submit, inspect or expect its result before resuming; replaying the whole batch can submit twice. A dispatched checkpoint is not proof of success. Reset or runtime restart loses checkpoints, so recover from surface facts then.",
     "Returned values are capped at 12000 characters and a cut JSON value is not parseable. Read a large result once into a top-level variable, return a small slice per call, and check the final count/identity; do not re-read or replay the task to retrieve the next slice.",
