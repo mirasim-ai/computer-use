@@ -36,8 +36,11 @@ const PAGE_TAB_ACTIVATION_MS = 5000;
  * benchmark), and the handle they called it on stays on ITS tab: say both, and how to bind the new one.
  */
 const secondTabNote = (id: string) =>
-  `new tab ${id} is now the target — newTab answers with this note, not a handle, and the handle it was called on `
-  + `stays on its own tab: const t = await computer.surface('${id}') binds the new one`;
+  `opened new tab ${id} — newTab answers with this note, not a handle, and the handle it was called on `
+  + `stays on its own tab and acts there: const t = await computer.surface('${id}') binds the new one`;
+/** What new_tab says when the session held no tab: the handle it was called on takes this one
+ *  (tools/repl.ts `adopt`), so there is nothing else to bind. */
+const firstTabNote = (id: string) => `opened new tab ${id} — the session held no tab, so the handle it was called on is on this one now`;
 
 export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
   /** close_tab on an id the session holds no page for: a subclass that lists such tabs answers
@@ -76,7 +79,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     // session's own: new_tab takes THAT one, as above, rather than leave it blank beside another.
     if (kind === "new_tab" && waking && !this.wokeAfterSelfClose && this.active && (!this.active.url() || this.active.url() === "about:blank")) {
       openedTab = this.shownTabId(this.active);
-      if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
+      if (!a.url) return { ok: true, note: firstTabNote(openedTab) };
       kind = "open_url";
     }
     if (!this.active) {
@@ -94,7 +97,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
       await this.publishClaim();
       if (kind === "new_tab") {
         openedTab = this.shownTabId(fresh);
-        if (!a.url) return { ok: true, note: `new tab ${openedTab} is now the target` };
+        if (!a.url) return { ok: true, note: firstTabNote(openedTab) };
         kind = "open_url"; // what is left of new_tab is the navigation
       }
     }
@@ -154,7 +157,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
     // A tab the page asked for during the verb (a `target=_blank` link, `window.open`) is opened
     // by us, and is the session's target before this verb answers: the run that clicked lists it.
     while (this.pageTabJobs.size) await Promise.allSettled([...this.pageTabJobs]);
-    if (openedTab) res = { ...res, note: `new tab ${openedTab} is now the target; ${res.note ?? ""}` };
+    if (openedTab) res = { ...res, note: `${firstTabNote(openedTab)}; ${res.note ?? ""}` };
     // Journal the dispatch verdict as-is — the pending note below is model context ("the
     // browser had been closed"), not evidence about THIS action, so it stays out of the line.
     this.journal?.publishAction(kind, a, this.lastPoint, res);

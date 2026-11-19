@@ -77,6 +77,12 @@ async function main() {
     const tab = head(await run(`return await w.newTab('${at("/app.html")}');`));
     check("…and a verb whose one string option is optional takes it there too", tab.includes(`newTab({url: "${at("/app.html")}"})`), tab);
 
+    // ── newTab says the new tab opened, never that it became the handle's ───────────────────
+    const made = await run(`return await w.newTab({url: '${at("/app.html")}'});`);
+    check("newTab's note says it opened a new tab and the handle stays, without calling the new tab the target",
+      /opened new tab t\d+ — newTab answers with this note, not a handle, and the handle it was called on stays on its own tab and acts there/.test(made)
+        && !/is now the target/.test(made), line(made, /new tab/));
+
     // ── keys refuses text before pressing anything; a tab inserts at the caret by paste ─────
     const typed = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.click(await w.find('Quantity')); await w.keys('hello world');`);
     check("keys('hello world') is refused before dispatch, pointing at setText and paste",

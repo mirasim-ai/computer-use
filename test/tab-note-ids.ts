@@ -77,7 +77,7 @@ async function main() {
 
     // ── The tab newTab made ─────────────────────────────────────────────────────────────────
     const second = await run(`return await w.newTab({ url: '${at("/doc.html?from=new-tab")}' });`);
-    const made = /new tab (\S+) is now the target/.exec(second)?.[1] ?? "";
+    const made = /opened new tab (\S+) —/.exec(second)?.[1] ?? "";
     const toBindMade = /computer\.surface\('([^']+)'\) binds the new one/.exec(second)?.[1] ?? "";
     check("newTab's note names its tab as the listing does", !!made && made === toBindMade && (await listed()).includes(made),
       line(second, /new tab|STOPPED/));
@@ -97,7 +97,7 @@ async function main() {
     // ── The first tab of a session that had closed them all ─────────────────────────────────
     await run(`await (await computer.surface(${JSON.stringify(moved?.[2] ?? "")})).closeTab({ all: true });`);
     const woke = await run(`const again = await computer.surface(); return await again.newTab({ url: '${at("/doc.html?from=woke")}' });`);
-    const fresh = /new tab (\S+) is now the target/.exec(woke)?.[1] ?? "";
+    const fresh = /opened new tab (\S+) —/.exec(woke)?.[1] ?? "";
     check("the tab newTab opens for a session holding none is named as the listing does",
       /^browser\/t\d+$/.test(fresh) && (await listed()).includes(fresh), line(woke, /new tab|STOPPED/));
   } finally {
