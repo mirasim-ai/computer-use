@@ -61,6 +61,13 @@ async function main() {
       /Returned: \{"goto":"undefined","then":false,"json":true\}/.test(plain), plain.split("\n").find((l) => l.startsWith("Returned")) ?? head(plain));
     const own = head(await run("const o = {}; o.goto();"));
     check("a script's own object missing a method keeps V8's words", /^Run STOPPED .*TypeError: o\.goto is not a function$/.test(own), own);
+    // ── expect refuses an option by name, and a "gone" condition is sent to wait ──────────
+    const gone = head(await run("await w.expect({text_gone: 'Loading'});"));
+    check("expect({text_gone}) names the option, lists what it takes and writes the wait guard",
+      /expect does not take text_gone — it takes one of text, control, url or value \(with equals\), and ms/.test(gone)
+        && /if \(!await w\.wait\(\{text_gone: "…"\}\)\) throw new Error/.test(gone), gone);
+    const odd = head(await run("await w.expect({text: 'x', timeout: 3000});"));
+    check("…and any other unknown option is named too", /expect does not take timeout — /.test(odd) && !/wait\(\{/.test(odd), odd);
   } finally {
     await driver.close();
   }

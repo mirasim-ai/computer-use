@@ -6,6 +6,18 @@ import { nearText, type ClosestControls } from "./api-wait.ts";
 
 const clip = (s: string, max = 120) => (s.length > max ? `${cutText(s, max)}… (+${s.length - max} chars)` : s);
 
+/**
+ * Why expect refused what it was handed, by name. The "gone" conditions are the usual ones: they
+ * belong to `wait`, which ANSWERS false where expect would throw, so the guard is written out.
+ */
+function unknownOption(keys: string[]): string {
+  const gone = keys.find((k) => k === "text_gone" || k === "control_gone" || k === "url_gone");
+  return `expect does not take ${keys.join(", ")} — it takes one of text, control, url or value (with equals), and ms`
+    + (gone
+      ? `. A condition that something is GONE is wait's: if (!await w.wait({${gone}: "…"})) throw new Error("still there");`
+      : "");
+}
+
 export function expectVerb(
   driver: ComputerUseDriver,
   ledger: () => RunLedger,
@@ -16,7 +28,8 @@ export function expectVerb(
     const opts = options<Record<string, unknown>>("expect", raw,
       "expect({text:'Saved', ms:3000}) or expect({value:field, equals:'draft', ms:3000})");
     const allowed = new Set(["text", "control", "url", "value", "equals", "ms"]);
-    if (Object.keys(opts).some(k => !allowed.has(k))) throw new Error("expect received an unknown option");
+    const unknown = Object.keys(opts).filter(k => !allowed.has(k));
+    if (unknown.length) throw new Error(unknownOption(unknown));
     const conditions = ["text", "control", "url", "value"].filter(k => opts[k] !== undefined);
     if (conditions.length !== 1) throw new Error("expect needs exactly one of text, control, url, or value");
     const kind = conditions[0]!;
