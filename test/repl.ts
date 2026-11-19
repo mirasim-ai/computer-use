@@ -428,7 +428,7 @@ async function main() {
       return 'click returned';
     `);
     check("a self-closing click completes or says its completion is uncertain",
-      /Returned: "click returned"/.test(closing)
+      /^Returned: click returned$/m.test(closing)
         || (/\[uncertain\]/.test(closing) && /page closed during click dispatch/.test(closing) && /do not repeat the click/.test(closing)),
       line(closing, /uncertain|Returned|STOPPED/));
     const gone = await run(`await tabB.observe();`);
