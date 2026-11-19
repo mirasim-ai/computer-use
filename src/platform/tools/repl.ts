@@ -527,10 +527,11 @@ export function createReplTools(
   const freshSandbox = () => createContext({ computer, console: sandboxConsole(), URL, URLSearchParams });
   /** Top-level names in the runtime that hold a surface handle, as `name → id «title»`. A handle
    *  is recognised by identity (`owner`), never by shape: a script's own `{ id, title }` is not one. */
-  const boundHandles = (ctx: object): string[] =>
+  const boundHandles = (ctx: object, live: (h: SurfaceHandle) => boolean = () => true): string[] =>
     Object.entries(ctx).flatMap(([name, value]) =>
       // A handle dropped from `handles` is gone or spent (bind, claim): not one to keep using.
       value && typeof value === "object" && owner.has(value as SurfaceHandle) && handles.get((value as SurfaceHandle).id) === value
+        && live(value as SurfaceHandle)
         ? [`${name} → ${(value as SurfaceHandle).id} «${(value as SurfaceHandle).title}»`]
         : []);
 
@@ -787,11 +788,16 @@ export function createReplTools(
       if (failure) {
         // A handle's title is the one it had when bound; the page has usually moved on since
         // (a click, a navigation), and the line would name the tab by a title it no longer has.
-        for (const t of await allTargets().catch((): MountedTarget[] => [])) {
+        const listed = await allTargets().catch((): MountedTarget[] | null => null);
+        for (const t of listed ?? []) {
           const h = handles.get(t.id);
           if (h) h.title = t.title;
         }
-        const held = sandbox ? boundHandles(sandbox) : [];
+        // A handle whose surface is no longer listed (a tab closed by closeTab({id}) through
+        // another handle) is not one to "use directly": its next verb is refused. The stand-in
+        // that opens a tab (no surface yet) is listed nowhere and still is one.
+        const open = listed ? new Set(listed.map((t) => t.id)) : null;
+        const held = sandbox ? boundHandles(sandbox, (h) => !open || open.has(h.id) || !owner.get(h)?.inner) : [];
         if (held.length) lines.push(`Still bound: ${held.join(", ")} — use ${held.length === 1 ? "it" : "them"} directly in the next call.`);
       }
       if (returned !== undefined) {

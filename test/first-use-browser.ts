@@ -91,6 +91,13 @@ async function main() {
     const still = await run("return (await w.observe()).title;");
     check("…and w goes on working on its own tab", /Returned: Tasks/.test(still), line(still, /Returned|STOPPED/));
 
+    // ── A handle whose tab was closed is not offered as still bound ───────────────────────
+    await run(`t9 = await computer.surface('${newId}'); await t9.observe(); return await w.closeTab({id: t9.id});`);
+    const after = await run("await w.frobnicate();");
+    const bound = line(after, /^Still bound:/);
+    check("after closeTab({id}) the closed tab's handle drops out of Still bound, the live one stays",
+      /^Still bound: .*\bw → t\d+/.test(bound) && !/\bt9 →/.test(bound), bound);
+
     // ── keys refuses text before pressing anything; a tab inserts at the caret by paste ─────
     const typed = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.click(await w.find('Quantity')); await w.keys('hello world');`);
     check("keys('hello world') is refused before dispatch, pointing at setText and paste",
