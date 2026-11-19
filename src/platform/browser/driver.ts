@@ -146,7 +146,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
   }
   protected override previewTarget() {
     if (this.dormantSelection) return Promise.resolve(null);
-    if (!this.browser?.isConnected() || !this.active || this.active.isClosed()) return Promise.resolve(null);
+    if (!this.browser?.isConnected() || !this.active || this.active.isClosed() || !this.cdpUrl) return Promise.resolve(null);
     return previewPage(this.active, this.cdpUrl, "browser");
   }
   readonly platform = "browser";

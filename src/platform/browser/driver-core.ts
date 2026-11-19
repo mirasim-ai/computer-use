@@ -137,7 +137,8 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   /** An endpoint was NAMED (`--cdp`, `COMPUTER_USE_CDP_URL`, `COMPUTER_USE_CDP_STRICT`): the browser is
    *  someone else's, not one we launched — read by the focus posture in `driver.ts`. */
   protected readonly explicit: boolean;
-  protected readonly fallbackCdpUrl: string;
+  /** The conventional local endpoint, tried when nothing named a browser; null where something did. */
+  protected readonly fallbackCdpUrl: string | null;
 
   /** The per-session surface knobs (profile dir, tab claim, window posture, attachment).
    *  Resolved ONCE, at construction rather than module load (so hosts can set the env after
@@ -162,10 +163,18 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
     // claim's filters would match nothing and every `ensure()` would read "all tabs gone" and
     // open yet another window in the USER'S browser. Dropping the claim here keeps them honest.
     this.tab = this.cfg.attached ? null : this.cfg.tab;
-    this.fallbackCdpUrl = fallbackCdpUrl;
-    this.cdpUrl = this.cfg.cdpUrl ?? fallbackCdpUrl;
+    // :9222 is a GUESS that whatever answers there is a browser meant for this session, and it is
+    // made only where nothing named one. A host that named the profile (its managed dir, or the
+    // user's own with `attached`) picked THAT browser: the program on :9222 is someone else's — an
+    // Electron app being debugged, the user's own Chrome started with a debugging port — and the
+    // guess drove it instead, before the managed Chrome was even tried and again whenever that one
+    // was down (measured: an Electron app on :9222 answered every call with
+    // `Target.createTarget: Not supported` until it quit). A strict session keeps its endpoint.
+    this.fallbackCdpUrl = this.cfg.profileNamed && !this.cfg.cdpStrict ? null : fallbackCdpUrl;
+    this.cdpUrl = this.cfg.cdpUrl ?? this.fallbackCdpUrl;
   }
-  protected cdpUrl: string;
+  /** The endpoint connected to, or to try first; null before a session that guesses nothing connects. */
+  protected cdpUrl: string | null;
 
   /** Hand over (and clear) the pending fact, so it is delivered exactly once. Read by
    *  `perform` here and by the base class's observation path. */

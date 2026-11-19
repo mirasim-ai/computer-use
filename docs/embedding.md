@@ -329,7 +329,10 @@ it from its sources on first use (`swiftc` from the Xcode command line tools) an
 Browser startup is automatic. In normal use computer-use tries, in order:
 
 1. `COMPUTER_USE_CDP_URL` when set (treated as a recoverable hint),
-2. an existing Chrome at `http://127.0.0.1:9222`,
+2. an existing Chrome at `http://127.0.0.1:9222`, only while `COMPUTER_USE_PROFILE_DIR` is unset: a
+   named profile means that profile's browser, so whatever answers on :9222 (an Electron app
+   being debugged, a Chrome started with a debugging port) is left alone — name it with
+   `COMPUTER_USE_CDP_URL` to drive it,
 3. the managed Chrome: adopt-or-launch on a persistent profile at `<home>/chrome`.
 
 `<home>` is where computer-use keeps its own state: `COMPUTER_USE_HOME` when set, else
