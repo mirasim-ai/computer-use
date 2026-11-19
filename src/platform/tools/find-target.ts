@@ -332,6 +332,17 @@ export function findScope(opts: unknown): FindScope {
   const within = typeof o.within === "string" ? o.within
     : o.within && typeof o.within === "object" && typeof (o.within as Handle).ref === "string" ? (o.within as Handle).ref
       : undefined;
+  // `within: await w.find('Dialog')` that matched nothing: say so, not that a handle is the
+  // wrong kind of thing — and never search the whole surface instead.
+  if ("within" in o && (o.within === null || o.within === undefined)) {
+    throw new Error(`find's \`within\` is ${o.within === null ? "null" : "undefined"} — the find() passed as within matched nothing (its line `
+      + "above says what is there). Check that control's role and name, or drop within to search the whole surface");
+  }
+  const miss = o.within && typeof o.within === "object" && (o.within as { ref?: unknown }).ref === null
+    ? (o.within as { note?: unknown }).note : undefined;
+  if (miss !== undefined) {
+    throw new Error(`find's \`within\` is a find() that matched nothing: ${String(miss)}. Check that control's role and name, or drop within`);
+  }
   if (o.within !== undefined && within === undefined) throw new Error("find's `within` must be a ref string or a find() handle");
   // A name, a ref, or the handle of the control meant — which says WHICH one where a name is shared.
   const near = typeof o.near === "string" ? o.near.trim()

@@ -94,6 +94,12 @@ async function main() {
       /launchApp takes an options object, not "com\.apple\.TextEdit" — pass its arguments as an object: launchApp\(\{bundle: "com\.apple\.TextEdit"\}\)/.test(launch), launch);
     const ax = head(await run("await w.axAction('AXPress');"));
     check("…and a verb that requires two options shows both", /axAction\(\{ref: t, action: "…"\}\)/.test(ax), ax);
+    // ── find within a find that matched nothing says so ──────────────────────────────────
+    const inside = head(await run("return await w.find('全部清除', {within: await w.find('No such dialog anywhere')});"));
+    check("find(…, {within: null}) says the find passed as within matched nothing",
+      /find's `within` is null — the find\(\) passed as within matched nothing .* Check that control's role and name/.test(inside), inside);
+    const why = head(await run("return await w.find('全部清除', {within: await w.find('No such dialog anywhere', {why: true})});"));
+    check("…and a why-miss passed as within quotes its own note", /find's `within` is a find\(\) that matched nothing: no match/.test(why), why);
   } finally {
     await driver.close();
   }
