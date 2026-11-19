@@ -27,7 +27,7 @@ export const SELECT_TEXT_VERB: VerbSpec = {
       [Type.Literal("select"), Type.Literal("before"), Type.Literal("after")],
       { description: "select (default) leaves it selected — keys then replaces it; before / after place the caret there instead" },
     )),
-  }, { description: "Select part of a text field's value, or place the caret in it, so keys edits exactly that — set_text always replaces the whole field." }),
+  }, { description: "Select part of a text field's value, or place the caret in it, so keys edits exactly that — setText always replaces the whole field." }),
 };
 
 /**
@@ -49,7 +49,7 @@ export async function selectTextVerb(acts: ElementActs, ref: unknown, name: unkn
   if (!("key" in k)) return k;
   const what = acts.what(k, ref);
   if (!o.want) {
-    if (o.caret === "select") return { ok: false, note: "select_text needs the text to select, or caret:'before' / caret:'after' alone to place the caret at the start / end of the field" };
+    if (o.caret === "select") return { ok: false, note: "selectText needs the text to select, or caret:'before' / caret:'after' alone to place the caret at the start / end of the field" };
     // Placing the caret in an EMPTY field is the way to focus it for keys, so no value is required.
     let whole = "";
     try { whole = String((await acts.call<{ value: string }>("value", { key: k.key })).value ?? ""); }
@@ -73,7 +73,7 @@ export async function selectTextVerb(acts: ElementActs, ref: unknown, name: unkn
   // No value at all is a different answer from "your text is not in it", which would have the
   // model retry at a button forever. AX gives both shapes (an error, an empty string).
   if (!value) {
-    return { ok: false, note: `${what} has no readable text value — select_text works on text `
+    return { ok: false, note: `${what} has no readable text value — selectText works on text `
       + "fields and text areas; act on one of those, or use click" };
   }
   const hits: number[] = [];
@@ -104,12 +104,12 @@ export async function selectTextVerb(acts: ElementActs, ref: unknown, name: unkn
     if (e instanceof AxRequestError && e.code === "stale_key") return acts.staleRef(ref);
     if (e instanceof AxRequestError && e.code === "ax_error") {
       return { ok: false, note: `${what} will not take a selection (AXError ${e.ax ?? "?"}) — the app does not expose `
-        + "one for this control; set_text replaces its whole value instead" };
+        + "one for this control; setText replaces its whole value instead" };
     }
     throw e;
   }
   const of = hits.length > 1 ? ` (match ${index + 1} of ${hits.length}${o.near ? `, the one nearest "${o.near}"` : ", the first"})` : "";
   return o.caret === "select"
-    ? { ok: true, note: `selected "${o.want}" in ${what}${of} — keys now replaces exactly this (set_text still replaces the whole field)` }
-    : { ok: true, note: `caret placed ${o.caret} "${o.want}" in ${what}${of} — keys now types there (set_text still replaces the whole field)` };
+    ? { ok: true, note: `selected "${o.want}" in ${what}${of} — keys now replaces exactly this (setText still replaces the whole field)` }
+    : { ok: true, note: `caret placed ${o.caret} "${o.want}" in ${what}${of} — keys now types there (setText still replaces the whole field)` };
 }

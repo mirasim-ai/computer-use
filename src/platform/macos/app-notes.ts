@@ -22,10 +22,10 @@
  *  localised (Finder and Calculator have other names on a Chinese-locale machine). */
 const APP_NOTES: Record<string, string> = {
   "com.apple.finder": `Finder, known quirks:
-- RENAMING a file does not work with set_text. The name cell accepts AXSetValue and reads the new
+- RENAMING a file does not work with setText. The name cell accepts AXSetValue and reads the new
   name back, and the file keeps its old name — the cell commits on Enter and starts a fresh edit.
   The route that works is: select the row, keys('Enter') to open the editor, type({text}) the new
-  name, keys('Enter') to commit. A field that offers AXConfirm says so in its set_text result; that
+  name, keys('Enter') to commit. A field that offers AXConfirm says so in its setText result; that
   is the same warning.
 - The rename editor is a transient untitled WINDOW while it is open, so an "opened a window" note
   and a surfaces() entry that vanishes after Enter are both expected, not a problem.`,
@@ -69,7 +69,7 @@ const APP_NOTES: Record<string, string> = {
   observe() shows five window-chrome elements and no player at all. So hover({x, y}) over the video
   and ACT IN THE SAME CALL — a ref minted in one call is dead in the next, and re-observing without
   a hover will list those same five for ever, whatever the stale-ref advice says.
-- The Timeline slider takes set_text and discards it (the value reads back unchanged), and AXDecrement
+- The Timeline slider takes setText and discards it (the value reads back unchanged), and AXDecrement
   on it does nothing. Move the playhead with Rewind / Fast Forward — one click starts a CONTINUOUS 5x scan
   that only Play/Pause stops — or drag the slider.`,
 
@@ -95,16 +95,16 @@ const APP_NOTES: Record<string, string> = {
 - THE SHEET IS NOT IN THE TREE until a real mouse click lands in a cell. Until then the window is
   ribbon only, with no cell at all. One click({x, y}) inside the grid — coordinates read off
   observe({screenshot:true}) — publishes the whole used range, and it stays for the rest of the
-  session. Navigating with the name box does NOT do it: set_text is AXSetValue, not a click.
+  session. Navigating with the name box does NOT do it: setText is AXSetValue, not a click.
 - After it: a filled cell is a textbox named by its address whose value is its content, an empty one
   a cell named by its address, and text() renders the sheet row by row. Read the table from there
   rather than one cell at a time.
-- Before it, the only read is one cell at a time: set_text the name box to an address, Enter, then
+- Before it, the only read is one cell at a time: setText the name box to an address, Enter, then
   read the FORMULA BAR ELEMENT'S NAME — "Formula Bar. B,4 =SUM(B2:B3)" carries the address and the
   content together. Its own value is always empty and its state says empty; believe neither.`,
 
   "com.microsoft.Word": `Word, known quirks:
-- set_text on the document body answers success and writes NOTHING (the read-back is empty). Type
+- setText on the document body answers success and writes NOTHING (the read-back is empty). Type
   into it instead. Word also autocorrects what arrives, so the text you read back may differ from
   the text you sent — compare meaning, not bytes.
 - The ribbon's Bold checkbox never changes state, whether or not the format applied. Decide by

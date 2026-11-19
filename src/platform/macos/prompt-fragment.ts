@@ -12,7 +12,7 @@ import { MACOS_INTERACTION_RULE } from "./interaction-notes.ts";
 
 export function promptFragmentFor(): string {
   return MACOS_INTERACTION_RULE + " Grounding: observations are text lists of one macOS application window's controls with refs, read from the app's accessibility tree. " +
-    "Act by ref from the latest observation. Clicks and set_text go through the app's own accessibility actions and work while the app stays in the " +
+    "Act by ref from the latest observation. Clicks and setText go through the app's own accessibility actions and work while the app stays in the " +
     "BACKGROUND — the user keeps their keyboard and pointer. When an app accepts a click and ignores it (Electron web content does), the control is " +
     "focused and sent one key instead, still in the background; only if that changes nothing is the click redone as a real mouse event, which can bring the " +
     "app to the front — the result says which of the three acted. That last one waits if the user is typing or moving the pointer right then, and says " +
@@ -32,7 +32,7 @@ export function promptFragmentFor(): string {
     "to the front and takes the user's keyboard. " +
     "Plain keys and typing in a native background window use the same protected delivery. Interrupted input reports how much was posted; " +
     "read the field before continuing, since replaying a partial operation can duplicate input. " +
-    "set_text fills a field by ref; a field that commits on Enter says so in its result (w.keys('Enter') commits). Where set_text does not stick — a file " +
+    "setText fills a field by ref; a field that commits on Enter says so in its result (w.keys('Enter') commits). Where setText does not stick — a file " +
     "being renamed, a search field that filters as you type — focus the field (click, or selectText with caret) and w.type({text}) sends real keystrokes. " +
     "Background input is bound to the driven window; remote-panel keys and typing go to the panel's own process. " +
     // The ChatGPT-specific half lives in `app-notes.ts`; this is the part any web field needs.

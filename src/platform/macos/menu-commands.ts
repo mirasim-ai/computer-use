@@ -216,7 +216,7 @@ export async function pasteVerb(host: MenuHost, pid: number, a: Record<string, a
   let item = (await menuItems(host, pid)).find(isPaste) ?? null;
   if (!item) {
     return { ok: false, note: `${host.appName()} has no Paste command bound to ⌘V — `
-      + "set_text writes a field's whole value instead, and `menu` lists what this app does offer" };
+      + "setText writes a field's whole value instead, and `menu` lists what this app does offer" };
   }
   if (!item.enabled) {
     if (!(await host.isFrontmost(pid))) {

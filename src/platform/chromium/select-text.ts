@@ -134,7 +134,7 @@ export async function performSelectText(
   locate: () => Promise<Locator | null>,
 ): Promise<ActResult> {
   const want = String(a.text ?? "");
-  if (!want) return { ok: false, note: "select_text needs the text to select" };
+  if (!want) return { ok: false, note: "selectText needs the text to select" };
   let root: unknown = null;
   if (a.ref) {
     const loc = await locate();
@@ -148,7 +148,7 @@ export async function performSelectText(
     .catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
 
   const where = a.ref ? ` in ${a.ref}` : "";
-  if (out.error) return { ok: false, note: `select_text failed: ${String(out.error).split("\n")[0]}` };
+  if (out.error) return { ok: false, note: `selectText failed: ${String(out.error).split("\n")[0]}` };
   if (out.found === 0) {
     return { ok: false, note: `"${want}" is not${where ? ` in ${a.ref}` : " on this page"} — `
       + "read it back with text() and copy the text exactly, whitespace included"

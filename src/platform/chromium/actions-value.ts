@@ -52,7 +52,7 @@ export async function setTextWithFallbacks(page: Page, loc: Locator, a: Record<s
   // on an unknown control (a link navigates away, then "ok" because it has no value to read
   // back). Every widget the fallbacks exist for is a real input refusing fill for another reason.
   if (/is not an? <input>/i.test(fillError)) {
-    return { ok: false, note: `set_text did nothing: this element is not a text field (${fillError}). `
+    return { ok: false, note: `setText did nothing: this element is not a text field (${fillError}). `
       + "Nothing was clicked and nothing was typed. Locate the field itself — find(name, {role: 'textbox'}) — "
       + "and if the handle came from a find() marked incidental, nothing on this surface is named that" };
   }
@@ -69,7 +69,7 @@ export async function setTextWithFallbacks(page: Page, loc: Locator, a: Record<s
     await page.keyboard.type(a.text, { delay: 20 });
     return await done(loc, `typed via keyboard fallback${rejected}`);
   } catch (e) {
-    return { ok: false, note: `set_text failed${rejected}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}` };
+    return { ok: false, note: `setText failed${rejected}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}` };
   }
 }
 
@@ -130,7 +130,7 @@ export const PASTE_VERB: VerbSpec = {
     kind: Type.Literal("paste"),
     text: Type.String({ description: "The content as plain text (Markdown goes here too — editors that understand it read this)" }),
     html: Type.Optional(Type.String({ description: "The same content as HTML, for editors that accept rich text; they take this and everything else falls back to text" })),
-    ref: Type.Optional(Type.String({ description: "Paste into this element. Omit to paste at the page's current caret — where select_text left it." })),
+    ref: Type.Optional(Type.String({ description: "Paste into this element. Omit to paste at the page's current caret — where selectText left it." })),
     name: Type.Optional(Type.String({ description: "Visible name of that element — identity check + fallback locator" })),
   }, { description: "Paste content at the caret, over any selection — the way ⌘V does, including rich text via html. Does NOT touch the user's real clipboard." }),
 };

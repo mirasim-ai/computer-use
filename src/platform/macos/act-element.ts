@@ -158,7 +158,7 @@ export class ElementActs {
     if (!k.actions.includes("AXPress") && (k.role === "textbox" || k.role === "combobox") && !k.actions.includes("AXOpen")) {
       const focused = await this.focus(ref, name);
       return focused.ok
-        ? { ok: true, note: `a ${k.role} has no press, so the click focused it — set_text, type or keys go there now` }
+        ? { ok: true, note: `a ${k.role} has no press, so the click focused it — setText, type or keys go there now` }
         : focused;
     }
     const act = k.actions.includes("AXPress")
@@ -228,7 +228,7 @@ export class ElementActs {
       if (e instanceof AxRequestError && e.code === "ax_error") {
         return { ok: false, mayHaveActed: true,
           note: `the app answered AXError ${e.ax ?? "?"} to AXSetValue on ${this.what(k, ref)} — it takes typed input only. `
-            + "Focus it (click it, or select_text with a caret), then type({text})." };
+            + "Focus it (click it, or selectText with a caret), then type({text})." };
       }
       throw e;
     }
@@ -236,7 +236,7 @@ export class ElementActs {
     const where = focused
       ? " The field now holds the keyboard focus, so keys and type go here."
       : ` ${this.what(k, ref)} would NOT take the keyboard focus, so keys and type go to whatever the app has focused — `
-        + "click the field, or select_text with a caret, before pressing a key.";
+        + "click the field, or selectText with a caret, before pressing a key.";
     // A field that offers AXConfirm commits on Enter, and until then the value is the app's to keep
     // or drop (Finder's name cell reads the new name back and renames nothing), so the read-back is
     // no verification here and the note says what commits it.

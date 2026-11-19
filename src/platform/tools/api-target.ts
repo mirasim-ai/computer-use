@@ -206,7 +206,7 @@ export function createTargeting(
         const has = focused[0]!;
         if (has.ref === ref) return;
         throw new Error(`the keyboard focus is on ${has.ref} ${has.role}${has.name ? ` "${has.name}"` : ""}, not on `
-          + `${ref}${name ? ` "${name}"` : ""} — nothing was pressed. click it, set_text it, or select_text with a caret to `
+          + `${ref}${name ? ` "${name}"` : ""} — nothing was pressed. click it, setText it, or selectText with a caret to `
           + "focus it first, then send the key");
       }
       if (Date.now() >= deadline) {

@@ -546,7 +546,7 @@ export class MacosDriver extends MacosDriverTargets {
           if (!(await this.menu.isFrontmost(pid))) {
             return { ok: false, note: `${this.app!.name}'s focus is in its Open/Save panel (a separate process), and a ⌘-chord there `
               + "takes effect only with the app frontmost — activate, then send it again. The panel's fields and buttons still "
-              + "answer by ref in the background (set_text a field, click a button)" };
+              + "answer by ref in the background (setText a field, click a button)" };
           }
           for (let i = 0; i < n; i++) await this.call("key", { pid: to, chord });
           this.lastKeyAt = Date.now();

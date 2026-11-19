@@ -19,7 +19,7 @@ export const TYPE_VERB: VerbSpec = {
   schema: Type.Object({
     kind: Type.Literal("type"),
     text: Type.String({ description: "Text to type, character by character" }),
-  }, { description: "Type text with key events at the app's keyboard focus — for a field that takes typed input only (a file being renamed, a search field that filters as you type). set_text fills a field by ref; type is for where that does not stick. Focus the field first (click, or select_text with caret)." }),
+  }, { description: "Type text with key events at the app's keyboard focus — for a field that takes typed input only (a file being renamed, a search field that filters as you type). setText fills a field by ref; type is for where that does not stick. Focus the field first (click, or selectText with caret)." }),
 };
 
 /**

@@ -60,7 +60,7 @@ async function main() {
   stub.focusRefused = true;
   const unfocused = await h.act("set_text", { ref: searchRef, text: "鼠标" });
   check("set_text whose field refuses focus still succeeds and warns that keys go elsewhere",
-    unfocused.ok && /would NOT take the keyboard focus/.test(unfocused.note ?? "") && /select_text with a caret/.test(unfocused.note ?? ""), unfocused.note);
+    unfocused.ok && /would NOT take the keyboard focus/.test(unfocused.note ?? "") && /selectText with a caret/.test(unfocused.note ?? ""), unfocused.note);
   stub.focusRefused = false;
 
   // ── A field that refuses AXSetValue answers with the `type` route, it does not throw ──
