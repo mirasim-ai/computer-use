@@ -68,6 +68,15 @@ async function main() {
     check("computer.openUrl says to bind a handle first",
       /openUrl is a verb on a surface handle, bound first: const w = await computer\.surface\(\); await w\.openUrl\(\{url: "https:\/\/…"\}\)/.test(top), top);
 
+    // ── A platform verb handed a string shows the object it meant ──────────────────────────
+    const open = head(await run(`await w.openUrl('${at("/app.html")}');`));
+    check("openUrl('<url>') is answered with openUrl({url: '<url>'})",
+      open.includes(`pass its arguments as an object: openUrl({url: "${at("/app.html")}"})`), open);
+    const js = head(await run("return await w.runJs('location.href');"));
+    check("runJs('<code>') is answered with runJs({code: '<code>'})", js.includes('runJs({code: "location.href"})'), js);
+    const tab = head(await run(`return await w.newTab('${at("/app.html")}');`));
+    check("…and a verb whose one string option is optional takes it there too", tab.includes(`newTab({url: "${at("/app.html")}"})`), tab);
+
     // ── keys refuses text before pressing anything; a tab inserts at the caret by paste ─────
     const typed = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.click(await w.find('Quantity')); await w.keys('hello world');`);
     check("keys('hello world') is refused before dispatch, pointing at setText and paste",

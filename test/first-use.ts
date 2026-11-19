@@ -88,6 +88,12 @@ async function main() {
     const typed = head(await run("await w.keys('hello world');"));
     check("keys('hello world') is refused as text, pointing at setText and, on macOS, type",
       /"hello world" is text, not a key or chord — nothing was pressed\. To fill a field: setText\(t, "hello world"\) replaces its value; to insert at the caret: type\(\{text: "hello world"\}\)/.test(typed), typed);
+    // ── A platform verb handed a string shows the object it meant, the string in place ──────
+    const launch = head(await run("await w.launchApp('com.apple.TextEdit');"));
+    check("launchApp('<bundle>') is answered with launchApp({bundle: '<bundle>'})",
+      /launchApp takes an options object, not "com\.apple\.TextEdit" — pass its arguments as an object: launchApp\(\{bundle: "com\.apple\.TextEdit"\}\)/.test(launch), launch);
+    const ax = head(await run("await w.axAction('AXPress');"));
+    check("…and a verb that requires two options shows both", /axAction\(\{ref: t, action: "…"\}\)/.test(ax), ax);
   } finally {
     await driver.close();
   }

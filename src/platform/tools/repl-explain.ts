@@ -82,6 +82,14 @@ function required(schema: TSchema | undefined): string[] {
   return (s?.required ?? []).filter((k) => k !== "kind");
 }
 
+/** The one STRING option a verb takes, when it takes exactly one (newTab's url, closeTab's id):
+ *  where a string passed positionally to a verb that requires nothing was meant to go. */
+function onlyString(schema: TSchema | undefined): string | null {
+  const props = Object.entries((schema as { properties?: Record<string, { type?: unknown }> } | undefined)?.properties ?? {})
+    .filter(([k, p]) => k !== "kind" && p.type === "string");
+  return props.length === 1 ? props[0]![0] : null;
+}
+
 /** Where a sentence about a verb ends: after a paste or a type, say what each does. */
 const NOTES: Record<string, string> = {
   paste: "  — inserts at the caret",
@@ -95,8 +103,10 @@ const NOTES: Record<string, string> = {
  */
 export function verbShape(verb: string, schema?: TSchema, given?: string): string {
   if (SHAPES[verb]) return SHAPES[verb]!;
-  const keys = required(schema);
+  let keys = required(schema);
   if (!schema && !keys.length) return `${verb}(…)`;
+  const lone = !keys.length && given !== undefined ? onlyString(schema) : null;
+  if (lone) keys = [lone];
   const value = (k: string) => (given !== undefined && keys.length === 1 ? JSON.stringify(given) : PLACEHOLDERS[k] ?? "\"…\"");
   return `${verb}(${keys.length ? `{${keys.map((k) => `${k}: ${value(k)}`).join(", ")}}` : ""})${NOTES[verb] ?? ""}`;
 }

@@ -27,6 +27,7 @@ import { ambiguityNote, findScope, scopeLabel } from "./find-target.ts";
 import { argComplaint } from "./validate.ts";
 import { createTargeting } from "./api-target.ts";
 import { waitVerb } from "./api-wait.ts";
+import { verbShape } from "./repl-explain.ts";
 import { expectVerb } from "./api-expect.ts";
 import { checkShotPath, saveShot } from "./shot-file.ts";
 import { fnName, firstLine, firstText, noteOf, options, type ApiHooks, type JournalLine, type RunLedger, type WriteRound } from "./api-contract.ts";
@@ -470,7 +471,9 @@ export function createComputerUseApi(
     api[fnName(kind)] = async (raw: unknown = {}) => {
       // Shape gate: a string would SPREAD into {0:'h',1:'t',…}, which an all-optional schema
       // would accept and run with its defaults.
-      const args = options<Record<string, unknown>>(fnName(kind), raw, `pass its arguments as an object, e.g. ${fnName(kind)}({…})`);
+      // The refusal is the call that was meant: the string in the option it belongs to.
+      const args = options<Record<string, unknown>>(fnName(kind), raw,
+        `pass its arguments as an object: ${verbShape(fnName(kind), specs.get(kind), typeof raw === "string" ? raw : undefined)}`);
       const t = args.ref !== undefined ? await resolve(args.ref, { write: true }) : null;
       return acted(kind, { ...args, ...(t ? { ref: t.ref } : {}) }, String(args.ref ?? ""));
     };
