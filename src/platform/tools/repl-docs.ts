@@ -50,17 +50,18 @@ function extraSignature(kind: string, schema: TSchema): string {
   const props = Object.keys(s.properties ?? {}).filter((k) => k !== "kind");
   const required = new Set(s.required ?? []);
   const parameter = (key: string) => required.has(key) ? key : `${key}?`;
-  // The verb's own description when it has one; else the description of its distinctive field
-  // (targeting fields have their own lines below, since their meaning varies by platform).
-  const own = props.filter((k) => k !== "ref" && k !== "name").map((k) => s.properties?.[k]?.description).find(Boolean);
-  const said = s.description ?? own ?? "";
-  const sentence = /^.*?[.!?](?=\s+[A-Z(`]|$)/s.exec(said)?.[0] ?? said;
-  const targeting = props.filter((key) => key === "ref" || key === "name")
+  // The verb's own description when it has one; else the description of its distinctive field,
+  // which then is not repeated on a line of its own. Said WHOLE: a cut to the first sentence lost
+  // what models then got wrong (newTab answers with a note, not a handle; drag needs an end).
+  const ownKey = s.description ? undefined
+    : props.filter((k) => k !== "ref" && k !== "name").find((k) => s.properties?.[k]?.description);
+  const said = (s.description ?? (ownKey ? s.properties?.[ownKey]?.description : "") ?? "").trim();
+  const fields = props.filter((key) => key !== ownKey)
     .flatMap((key) => s.properties?.[key]?.description
       ? [`    ${parameter(key)}: ${s.properties[key].description}`] : []);
   return [
-    `  w.${fnName(kind)}({${props.map(parameter).join(", ")}})${sentence ? ` — ${sentence.trim()}` : ""}`,
-    ...targeting,
+    `  w.${fnName(kind)}({${props.map(parameter).join(", ")}})${said ? ` — ${said}` : ""}`,
+    ...fields,
     ...(required.has("ref") && props.includes("name") ? ["    name does not replace the required ref."] : []),
   ].join("\n");
 }
