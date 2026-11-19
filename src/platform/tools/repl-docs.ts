@@ -160,7 +160,7 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     "    whatever is at that spot NOW: take observe({screenshot: true}) and read the coordinates off that picture.",
     "    click / hover / keys / scroll answer with what they did, as text — the same note the journal shows, e.g. which",
     "    rung a click ended on. A verb that FAILS throws instead, so a returned string always describes something that happened.",
-    "  w.keys(chord, count?, {focus?})  e.g. w.keys('Enter'), w.keys('Backspace', 3), w.keys('Enter', {focus: field}) — one key or chord, never a text string. setText replaces a whole field; use the platform's paste/type verb to edit at a selection or caret.",
+    "  w.keys(chord, count?, {focus?})  e.g. w.keys('Enter'), w.keys('Backspace', 3), w.keys('Enter', {focus: field}) — one key or chord, never a text string (text is refused: setText replaces a field, the platform's paste/type verb inserts at the caret); count is at most 20, and a larger one is refused before anything is pressed. setText replaces a whole field; use the platform's paste/type verb to edit at a selection or caret.",
     "    keys go wherever the surface has the keyboard focus. Pass focus: <target> to REQUIRE it be there: if it is not,",
     "    nothing is pressed, including when focus is unknown or ambiguous. Omit focus only to send without that check. Focusing stays explicit (click / setText / selectText with a caret).",
     "  w.scroll({direction?: up|down|left|right, count?: screens (default 1), to?: top|bottom, ref?})   w.wait({} | {ms} | {text} | {text_gone} | {control} | {control_gone} | {url} | {url_gone} | {loaded}) → ok",
