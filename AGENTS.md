@@ -34,6 +34,10 @@ publishing.
 
 ## Code
 
+- `plugins/mirasim-computer-use` is the Claude Code / Codex plugin (listed by
+  `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`). Its skill is a copy of
+  `skills/mirasim-computer-use`: edit the one in `skills/`, then run `node scripts/sync-plugin.mjs`.
+
 - No linter or formatter is configured; match the surrounding file. In `src/`: 2-space indent,
   double quotes, semicolons.
 - Comments and docs are in English. Non-English text appears only as data or examples

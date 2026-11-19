@@ -44,6 +44,33 @@ approval_mode = "approve"
 `codex mcp add` under a name that is already registered rewrites the entry, and
 `codex mcp remove` deletes it; both drop these two tables, so append them again afterwards.
 
+## Plugin
+
+The repository is also a plugin marketplace for Claude Code and for Codex. The plugin,
+`mirasim-computer-use` in the marketplace `mirasim`, brings the MCP server (pinned to the release
+the plugin was made with) together with the [agent skill](#agent-skill), so there is no
+`setup skill` step.
+
+```sh
+# Claude Code 2.1.292 or later; in a session: /plugin install mirasim-computer-use --marketplace mirasim-ai/computer-use
+claude plugin install mirasim-computer-use --marketplace mirasim-ai/computer-use
+
+# Codex
+codex plugin marketplace add mirasim-ai/computer-use
+codex plugin add mirasim-computer-use@mirasim
+```
+
+In Claude Code the plugin has two settings, under `/plugin configure mirasim-computer-use@mirasim`
+or `/config`: **Browser** (`managed`, the default, or `extension` for the Chrome you are signed into,
+see [Your own browser](#your-own-browser)) and **What it may drive** (`browser`, or `browser`
+plus `macos` and/or `electron`, see [Native apps](#native-apps)). In Codex the plugin runs with the
+defaults, the managed browser only; for anything else register the server with `codex mcp add` as
+above.
+
+`claude plugin update mirasim-computer-use@mirasim` and `codex plugin marketplace upgrade mirasim`
+bring a newer release. `claude plugin uninstall mirasim-computer-use@mirasim` and
+`codex plugin remove mirasim-computer-use@mirasim` take it back.
+
 ## Browser
 
 The browser works out of the box on macOS, Windows and Linux: computer-use drives a Chrome of

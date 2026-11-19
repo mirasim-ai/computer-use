@@ -27,6 +27,13 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp   # Claude Code
 codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp    # Codex
 ```
 
+プラグインとしてインストールすることもできます。エージェントスキルも一緒に入ります（[詳細](docs/setup.md#plugin)、英語）。
+
+```sh
+claude plugin install mirasim-computer-use --marketplace mirasim-ai/computer-use
+codex plugin marketplace add mirasim-ai/computer-use && codex plugin add mirasim-computer-use@mirasim
+```
+
 あとは、mirasim-cu のブラウザで何かを確認するようエージェントに頼んでください。Codex は、`~/.codex/config.toml` で 2 つのツールを承認するまで、MCP の呼び出しのたびに確認を求めます。その設定、サインイン済みの Chrome、macOS アプリと Electron アプリ、エージェントスキル、コマンドラインについては [docs/setup.md](docs/setup.md)（英語）を参照してください。
 
 ## 他のツールとの比較

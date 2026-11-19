@@ -41,6 +41,13 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp   # Claude Code
 codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp    # Codex
 ```
 
+플러그인으로 설치할 수도 있으며, 이때 에이전트 스킬도 함께 설치됩니다([자세히](docs/setup.md#plugin), 영어).
+
+```sh
+claude plugin install mirasim-computer-use --marketplace mirasim-ai/computer-use
+codex plugin marketplace add mirasim-ai/computer-use && codex plugin add mirasim-computer-use@mirasim
+```
+
 그런 다음 에이전트에게 mirasim-cu 브라우저에서 무언가를 확인해 달라고 요청하면 됩니다. Codex는
 `~/.codex/config.toml`에서 두 도구를 승인하기 전까지 MCP 호출마다 확인을 요청합니다. 이 설정과
 로그인된 Chrome, macOS 앱과 Electron 앱, 에이전트 스킬, 명령줄에 관한 내용은

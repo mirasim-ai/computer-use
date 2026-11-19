@@ -41,6 +41,13 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp   # Claude Code
 codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp    # Codex
 ```
 
+Or install it as a plugin, which brings the agent skill along ([details](docs/setup.md#plugin)):
+
+```sh
+claude plugin install mirasim-computer-use --marketplace mirasim-ai/computer-use
+codex plugin marketplace add mirasim-ai/computer-use && codex plugin add mirasim-computer-use@mirasim
+```
+
 Then ask your agent to check something in the mirasim-cu browser. Codex asks before every MCP
 call until you approve the two tools in `~/.codex/config.toml`; that, your signed-in Chrome,
 macOS and Electron apps, the agent skill and the command line are in

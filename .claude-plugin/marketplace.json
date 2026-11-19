@@ -1,0 +1,15 @@
+{
+  "name": "mirasim",
+  "description": "Mirasim's plugins for Claude Code",
+  "owner": {
+    "name": "MIRASIM, INC.",
+    "url": "https://mirasim.ai"
+  },
+  "plugins": [
+    {
+      "name": "mirasim-computer-use",
+      "source": "./plugins/mirasim-computer-use",
+      "description": "Drive browsers, macOS apps and Electron apps through their accessibility trees"
+    }
+  ]
+}

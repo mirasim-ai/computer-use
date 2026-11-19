@@ -1,0 +1,60 @@
+{
+  "name": "mirasim-computer-use",
+  "displayName": "Mirasim Computer Use",
+  "version": "0.1.1-rc.13",
+  "description": "Drive browsers, macOS apps and Electron apps through their accessibility trees: one call runs a chain of steps and reports each one.",
+  "author": {
+    "name": "MIRASIM, INC.",
+    "url": "https://mirasim.ai"
+  },
+  "homepage": "https://github.com/mirasim-ai/computer-use",
+  "repository": "https://github.com/mirasim-ai/computer-use",
+  "license": "Apache-2.0",
+  "keywords": [
+    "computer-use",
+    "browser-automation",
+    "macos",
+    "electron",
+    "accessibility",
+    "mcp"
+  ],
+  "mcpServers": {
+    "mirasim-cu": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mirasim/computer-use@0.1.1-rc.13",
+        "mcp"
+      ],
+      "env": {
+        "COMPUTER_USE_BROWSER": "${user_config.browser}",
+        "COMPUTER_USE_PLATFORMS": "${user_config.platforms}"
+      }
+    }
+  },
+  "userConfig": {
+    "browser": {
+      "type": "string",
+      "title": "Browser",
+      "description": "managed: a Chrome of its own, logins kept between sessions. extension: the Chrome you are signed into, through the Mirasim extension (install it from the Chrome Web Store first).",
+      "options": [
+        "managed",
+        "extension"
+      ],
+      "default": "managed"
+    },
+    "platforms": {
+      "type": "string",
+      "title": "What it may drive",
+      "description": "browser, plus macos (native macOS apps; grant Accessibility to the app that runs Claude Code) and electron (an app started with --remote-debugging-port=9333).",
+      "options": [
+        "browser",
+        "browser,macos",
+        "browser,electron",
+        "browser,macos,electron"
+      ],
+      "default": "browser"
+    }
+  },
+  "icon": "./assets/icon.png"
+}

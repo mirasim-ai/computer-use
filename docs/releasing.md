@@ -10,6 +10,11 @@ published version ever names a helper the registry lacks. The tag must match `pa
 or the workflow stops before publishing anything. A version with a prerelease part (`0.1.0-rc.1`) is
 published to the `next` dist-tag, all five packages alike; a plain version goes to `latest`.
 
+After bumping `version`, run `node scripts/sync-plugin.mjs`: it writes the version into the
+Claude Code / Codex plugin in `plugins/mirasim-computer-use` (both manifests, and the exact npm
+version its MCP server runs) and copies the agent skill there; the `plugin-manifests` unit test
+fails until it has run.
+
 Before bumping the version, read what the release changes against the three texts that describe
 it to people and agents, and update the ones it makes wrong: the README with its translations
 (README.zh-CN.md, README.ja.md, README.ko.md), docs/setup.md and docs/embedding.md, the agent

@@ -1,0 +1,20 @@
+{
+  "name": "mirasim",
+  "interface": {
+    "displayName": "Mirasim"
+  },
+  "plugins": [
+    {
+      "name": "mirasim-computer-use",
+      "source": {
+        "source": "local",
+        "path": "./plugins/mirasim-computer-use"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
