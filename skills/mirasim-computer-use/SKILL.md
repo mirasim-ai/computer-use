@@ -1,6 +1,6 @@
 ---
 name: mirasim-computer-use
-description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, a macOS permission that is missing, asking before an app is brought to the front, an Electron app with no debugging port, the object arguments of openUrl / newTab / closeTab, going on in one call instead of stopping to look, returning what is being verified instead of asserting it, never pre-accepting a confirm, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
+description: Read before operating a browser tab, macOS app or Electron app with Mirasim Computer Use (the `computer_repl` / `computer_repl_reset` tools). Covers the mistakes agents make most with it — picking the user's browser (extension) or the managed one, a tab the agent cannot see, a macOS permission that is missing, asking before an app is brought to the front, an Electron app with no debugging port, a new tab that never appeared or that a link opened, asserting in code what should be returned, pre-accepting a confirm, signing in from code, what to do with tabs afterwards, and recovering a stuck runtime with computer_repl_reset.
 ---
 
 # Mirasim Computer Use
@@ -86,16 +86,12 @@ their pointer, keyboard and clipboard.
   retry changes that. Use the route the app ships (Mirasim's is `mirasim ui-cli`); on macOS an
   installed app other than Mirasim can be operated as a macOS app instead.
 
-## Arguments
+## New tabs
 
-- Platform verbs take **one object**: `w.openUrl({url})`, `w.newTab({url})`,
-  `w.closeTab({id})`, `w.selectOption({ref, option})`. `w.openUrl("https://…")` is refused.
-- The universal verbs are positional: `w.click(t)`, `w.setText(t, text)`, `w.keys("Enter")`,
-  `w.find("Save", {role: "button"})`.
-- `computer.surface(x)` binds a tab that is **already open**, by id or title. It never takes a
-  URL and never opens anything: bind a tab, then `await w.openUrl({url})`.
-- `w.newTab({url})` returns a **note** naming the new tab's id, not a handle; `w` stays on its
-  own tab. Bind the new one: `const t2 = await computer.surface("<id from the note>")`.
+The reference's first lines show the calls agents most often get wrong (an object for
+`openUrl`, no URL in `computer.surface()`, binding the id `newTab` names). Two cases it does
+not cover:
+
 - If `newTab` fails saying the tab never appeared, nothing else was taken in its place: try once
   more, then list surfaces. Do not act on whichever tab happens to be active instead.
 - A link or `window.open` that asks for a new tab gets a real one (`target="_blank"`, also
@@ -104,83 +100,17 @@ their pointer, keyboard and clipboard.
   To check "does this open in a new tab?", read that line or `computer.surfaces()` in the same
   call — no second tab and the page (or frame) itself navigated means it did not.
 
-## Going on in one call
+## Writing the code
 
-Most extra round trips are a call that only returns a check, followed by a call that does the
-next stage. When the next stage needs a condition to hold, state it with `expect` and keep
-going in the same code — a failed `expect` stops the run and says what was there instead,
-which is what you would have read:
+The reference's "Writing the code" part is the authority on going on in one call, verifying by
+returning, branching only for known detours, and what code must never decide. The three that
+cost the most in practice:
 
-```js
-await w.click(await w.find("Save", {role: "button"}));
-await w.expect({text: "Saved"});                     // the next stage needs the save…
-await w.expect({url: "/tasks"});                     // …and the list it returns to
-await w.click(await w.find("New task", {role: "button"}));   // next stage, same call
-```
-
-- `expect` takes no `…_gone` condition. There, check the wait:
-  `if (!await w.wait({control_gone: "Saving…"})) throw new Error("still saving")`.
-- A `find` that matched nothing needs no check of its own: the verb it is passed to refuses
-  the null, and its journal line says why.
-
-## Checking the outcome: return it
-
-What you want to **see** — the outcome the task asked you to verify, a value to report — is
-not a condition for the code to judge. Read it and return it, then judge it from the result:
-
-```js
-await w.setText(await w.find("Quantity"), "3");
-await w.click(await w.find("Update", {role: "button"}));
-await w.wait({});
-return {
-  total: await w.value(await w.find("Total")),
-  url: (await w.observe()).url,
-  list: (await w.text()).slice(0, 400),
-};
-```
-
-Do not compare such values in code and throw (`if (total !== "$30.00") throw new Error(…)`):
-
-- A comparison that fails ends the call before `return`, so the values you needed are gone
-  and the script is written again. These checks fail often — on a guess at wording, a count,
-  a format — and a long checking script costs more to write than the round trip it saves.
-- Returned values cost nothing when they are as expected, and show what is wrong when not.
-  In a QA or verification task the unexpected value **is** the finding.
-- The observation that ends every result already shows the surface after the last action.
-  Do not `expect` again what it will show.
-
-So: `expect` what the **next step** needs, `return` what **you** need to judge.
-
-## Detours and where code must not choose
-
-Branch on what the page shows only for a **known detour with no side effect**. `find(name,
-{why: true})` answers a miss with its `reason` instead of `null`, so the code can tell an
-overlay (`covered`) from a control that is not there yet (`absent`) and take the right way out:
-
-```js
-let m = await w.find("Menu", {role: "button", why: true});
-if (m.reason === "covered") { await w.keys("Escape"); await w.wait({}); }   // m.by names the cover
-else if (m.reason === "absent") await w.wait({control: "Menu"});
-if (!m.ref) m = await w.find("Menu", {role: "button", why: true});
-await w.click(m);                                    // a miss still there is refused with its note
-const toggle = await w.find("Light mode", {role: "button"}) ?? await w.find("Dark mode", {role: "button"});
-await w.wait({control_gone: "Loading tasks"});       // a load needs no branch: returns at once when idle
-```
-
-Where code must not choose:
-
-- **Confirms, deletes, submits, sends, payments.** No branch leads into one, and no `try/catch`
-  steps past one that failed or came back `[uncertain]`: stop, read the result, then decide.
-- **A confirm dialog.** `dialog({answer: "accept"})` armed before the click accepts text you
-  never read. Click without arming — the confirm is dismissed and the journal quotes it — read
-  it, and only if it says what you meant to do, arm accept and click again.
-- **An unexpected sign-in page.** The session was lost: maybe the change you just made broke it,
-  maybe that is the bug you are looking for. Stop and look; signing in from code hides it. The
-  one exception: the task or the user gave the account and said a sign-in may come up again.
-- **What `why` cannot settle.** `filtered` and `text` mean your query is wrong, not the page;
-  on macOS a covered control reads as `absent`. Fix the query or look.
-- **An option that is not there.** When a select lacks the option you expected, read the
-  options and report it; do not quietly pick another — in a QA task that is the finding.
+- Asserting in code (`if (total !== "$30.00") throw …`) what you should `return` and judge:
+  the failed check ends the call before `return`, and the values are lost.
+- Arming `dialog({answer: "accept"})` before the click: it accepts a confirm you never read.
+- Signing in from code when a sign-in page appears unexpectedly: the lost session may be the
+  bug you are looking for. Stop and look.
 
 ## Tabs afterwards
 

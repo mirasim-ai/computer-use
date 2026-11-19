@@ -181,11 +181,11 @@ async function main() {
     // The examples are copied from repl-docs.ts; a model copies them too, so they must work.
     {
       const ref = await run(`return computer.help();`);
-      check("the reference says to state what the next stage needs and go on in the same call", /Go on in the same call/.test(ref) && /state it with w\.expect/.test(ref));
+      check("the reference says to state what the next stage needs and go on in the same call", /Go on in the same call/.test(ref) && /state it with\s+expect\(\)/.test(ref));
       check("…and to return what is being verified instead of asserting it", /Verify by returning, not by asserting/.test(ref) && /Do not compare such values in code and throw/.test(ref));
       check("…and its examples no longer wrap a find in a hand-written throw", !/throw new Error\(m\.note\)/.test(ref) && !/is missing or ambiguous/.test(ref));
-      check("…and keeps confirms, deletes, submits and payments out of branches", /Never let code decide a confirm, delete, submit, send or payment/.test(ref));
-      check("…and, where the dialog verb exists, says not to arm accept before reading", /never arm it before the click that raises one/.test(ref));
+      check("…and keeps confirms, deletes, submits and payments out of branches", /Where code must not choose/.test(ref) && /a confirm, delete, submit, send or payment: no branch leads into one/.test(ref));
+      check("…and, where the dialog verb exists, says not to arm accept before reading", /armed before the click accepts text you never read/.test(ref));
 
       // The reference's example, verbatim but for the name: once for a control under a layer,
       // once for one the page has not drawn yet.
