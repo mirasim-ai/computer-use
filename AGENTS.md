@@ -1,7 +1,8 @@
 # AGENTS.md
 
 `@mirasim/computer-use`: an MCP server (and Node library) that drives browsers, macOS apps
-and Electron apps through their accessibility trees. README covers what it does;
+and Electron apps through their accessibility trees. README covers what it does
+(README.zh-CN.md, README.ja.md and README.ko.md translate it; change them with it);
 [docs/setup.md](docs/setup.md) covers installing it in Claude Code and Codex, the browser modes,
 native apps and the command line; [docs/embedding.md](docs/embedding.md) covers how a host
 drives it and every `COMPUTER_USE_*` variable; [docs/releasing.md](docs/releasing.md) covers
