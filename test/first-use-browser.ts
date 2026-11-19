@@ -98,6 +98,12 @@ async function main() {
     check("after closeTab({id}) the closed tab's handle drops out of Still bound, the live one stays",
       /^Still bound: .*\bw → t\d+/.test(bound) && !/\bt9 →/.test(bound), bound);
 
+    // ── selectOption journals the ref a find() handle resolved to ───────────────────────────
+    const picked = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.selectOption({ref: await w.find('Priority', {role: 'combobox'}), option: 'High'});`);
+    const pickLine = line(picked, /select_option/);
+    check("selectOption given a find() handle journals its ref, not [object Object]",
+      /select_option e\d+/.test(pickLine) && !/object Object/.test(picked), pickLine);
+
     // ── keys refuses text before pressing anything; a tab inserts at the caret by paste ─────
     const typed = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.click(await w.find('Quantity')); await w.keys('hello world');`);
     check("keys('hello world') is refused before dispatch, pointing at setText and paste",

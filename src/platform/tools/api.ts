@@ -475,7 +475,9 @@ export function createComputerUseApi(
       const args = options<Record<string, unknown>>(fnName(kind), raw,
         `pass its arguments as an object: ${verbShape(fnName(kind), specs.get(kind), typeof raw === "string" ? raw : undefined)}`);
       const t = args.ref !== undefined ? await resolve(args.ref, { write: true }) : null;
-      return acted(kind, { ...args, ...(t ? { ref: t.ref } : {}) }, String(args.ref ?? ""));
+      // The journal names the control by the ref it resolved to: a find() handle stringifies
+      // as [object Object].
+      return acted(kind, { ...args, ...(t ? { ref: t.ref } : {}) }, t ? t.ref : "");
     };
   }
   return api;
