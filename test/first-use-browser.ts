@@ -82,6 +82,14 @@ async function main() {
     check("newTab's note says it opened a new tab and the handle stays, without calling the new tab the target",
       /opened new tab t\d+ — newTab answers with this note, not a handle, and the handle it was called on stays on its own tab and acts there/.test(made)
         && !/is now the target/.test(made), line(made, /new tab/));
+    const newId = /opened new tab (\S+) —/.exec(made)?.[1] ?? "";
+    check("…and the result does not say the bound handle was lost, but that it still holds",
+      !/released, closed or replaced/.test(made) && new RegExp(`Observation skipped: the session is now on ${newId} .* the handle for t\\d+ «Tasks» is still bound`).test(made),
+      line(made, /Observation skipped/));
+    const named = await run(`const nt = await computer.surface('${newId}'); return nt.id;`);
+    check("…nor does a call that only names the new tab", !/released, closed or replaced/.test(named), line(named, /Observation skipped|Returned/));
+    const still = await run("return (await w.observe()).title;");
+    check("…and w goes on working on its own tab", /Returned: Tasks/.test(still), line(still, /Returned|STOPPED/));
 
     // ── keys refuses text before pressing anything; a tab inserts at the caret by paste ─────
     const typed = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.click(await w.find('Quantity')); await w.keys('hello world');`);

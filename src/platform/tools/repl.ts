@@ -843,6 +843,23 @@ export function createReplTools(
         return ledgerOnly([...images, ...docs], "", permissionRefusal ? { permissionRefused: true } : { ownershipRefused: true });
       }
       try {
+        // The run left the driver on ANOTHER surface while the handle it last bound is still good:
+        // a tab newTab or a click opened, or one surface(id) named. Nothing was lost, and saying
+        // "released, closed or replaced … bind again" sent models re-binding an intact handle.
+        // The observation is not taken of either tab: switching back to read would move the
+        // session again, and reading the new one would hand out refs no bound handle owns.
+        if (!resetPending && lastBound && leaseGroups.has(lastBound) && handles.get(lastBound.id) === lastBound
+            && !(await landed.driver.isActiveTarget(owner.get(lastBound)!.inner))) {
+          const listed = await allTargets().catch((): MountedTarget[] => []);
+          const mine = listed.find((t) => t.id === lastBound!.id);
+          const now = listed.find((t) => t.active && t.slice === landed);
+          if (mine && now) {
+            const note = landed.driver.takeNoteForResult();
+            return ledgerOnly([...images, ...docs], `${note ? `\nNOTE: ${note}.` : ""}\nObservation skipped: the session is now on `
+              + `${now.id} «${now.title}», which this run opened or named; the handle for ${mine.id} «${mine.title}» is still bound `
+              + `and its next verb works there. computer.surface('${now.id}') binds ${now.id}, and observe() on either reads it.`);
+          }
+        }
         if (resetPending || (lastBound && (!leaseGroups.has(lastBound)
             || !(await landed.driver.isActiveTarget(owner.get(lastBound)!.inner))))) {
           const note = landed.driver.takeNoteForResult();
