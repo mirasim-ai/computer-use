@@ -11,11 +11,12 @@ or the workflow stops before publishing anything. A version with a prerelease pa
 published to the `next` dist-tag, all five packages alike; a plain version goes to `latest`.
 
 Before bumping the version, read what the release changes against the three texts that describe
-it to people and agents, and update the ones it makes wrong: the README, docs/setup.md and
-docs/embedding.md, the agent skill (`skills/mirasim-computer-use/SKILL.md`), and the Chinese
-user guide for Mirasim users (chapter 19, "Computer Use", of the guide at mirasim.ai/guide,
-kept in the website's repository). A change to the extension's panel, its toolbar icon or the
-tab verbs reaches all three.
+it to people and agents, and update the ones it makes wrong: the README with its translations
+(README.zh-CN.md, README.ja.md, README.ko.md), docs/setup.md and docs/embedding.md, the agent
+skill (`skills/mirasim-computer-use/SKILL.md`), and the Chinese user guide for Mirasim users
+(chapter 19, "Computer Use", of the guide at mirasim.ai/guide, kept in the website's
+repository). A change to the extension's panel, its toolbar icon or the tab verbs reaches all
+three.
 
 After npm has the release, the `mcp-registry` job lists it in the official MCP Registry
 (registry.modelcontextprotocol.io) as `io.github.mirasim-ai/computer-use`: it copies the

@@ -1,5 +1,7 @@
 # Mirasim Computer Use
 
+English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
 [![npm](https://img.shields.io/npm/v/@mirasim/computer-use)](https://www.npmjs.com/package/@mirasim/computer-use)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Benchmark: DevBrowse Bench on Hugging Face](https://img.shields.io/badge/benchmark-DevBrowse%20Bench-ffd21e?logo=huggingface)](https://huggingface.co/datasets/mirasim-ai/devbrowse-bench)
@@ -11,7 +13,7 @@ built in (Settings → Computer Use).
 
 ![Claude Code checks its change in the browser with mirasim-cu, finds the Add task button covered by a new header layer, fixes the CSS and checks again](docs/media/demo.gif)
 
-<sub>A real run, 24 s with the model's wait trimmed to 15 s: Claude Code checks its change in the
+<sub>A real run of 24 s, shown in 15 s with the model's waits cut: Claude Code checks its change in the
 browser, finds a control covered by a new header layer, fixes the CSS and checks again in one
 call. The red and green marks are added for the video. [MP4](docs/media/demo.mp4)</sub>
 
@@ -55,7 +57,7 @@ What each project documents, read on 2026-11-18 (sources below the table).
 | Model of its own | None; your agent drives it | None | Its agent has one; the MCP mode does not | Claude | OpenAI's models |
 | What the model reads | Accessibility tree as text; screenshots on request | Accessibility snapshot as text; vision opt-in | What its Python prints, plus screenshots | Screenshots and pixel coordinates | Screenshots; more is not documented |
 | Many steps in one call | Yes: a script, each step reported | One tool per action; `browser_run_code_unsafe` runs a Playwright script | Yes: `browser_exec` runs Python | Several actions per turn (a batch), one tool call each | Not documented |
-| A click on a covered control | Fails and names the covering layer | Waits until the element would receive the click, then times out | Not documented | Not documented | Not documented |
+| A click on a covered control | Fails and names the covering layer | Waits for the element to receive the click, and times out if it never does | Not documented | Not documented | Not documented |
 | Your signed-in browser | Mirasim extension | Playwright extension (Chrome, Edge) or a CDP endpoint | Running Chrome through remote debugging | Claude in Chrome extension | ChatGPT extension |
 | Native desktop apps | macOS, in the background | No | No (a separate, experimental macOS project) | Any app in your VM or container; macOS in Claude Code (preview) | macOS (in the background) and Windows |
 | Electron apps | Yes, over the debugging port | Not in the MCP server | Not documented | Through screen control in Claude Code | Not documented |
