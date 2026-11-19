@@ -79,6 +79,29 @@ async function main() {
   } finally {
     await driver.close();
   }
+
+  // ── A wait on a surface that went away answers as a wait does, true or false ──────────────
+  // `if (!await w.wait({text: 'Done'}))` must not read a closed window as "Done appeared".
+  {
+    const st = stubTransport();
+    st.extraWindow = "numbered";
+    const second = new MacosDriver({ transport: st.transport, ...ONE_APP });
+    const tools = Object.fromEntries(createComputerUseTools([{ driver: second }], { ownership }).map((t) => [t.name, t]));
+    const go = async (code: string) => allText(await tools.computer_repl!.execute({ code, observation: "brief" }) as Result);
+    try {
+      await go("p = await computer.surface('49403:9911'); await p.observe(); return 1;");
+      st.extraWindow = false;     // the panel closes
+      const out = await go("return [await p.wait({text: 'Done', ms: 100}), await p.wait({control_gone: 'Cancel', ms: 100})];");
+      check("a wait for something to appear on a gone surface answers false, and one for something to go answers true",
+        /Returned: \[false,true\]/.test(out), out.split("\n").find((l) => l.startsWith("Returned")) ?? head(out));
+      check("…and the journal says the surface is gone",
+        /wait 49403:9911 FAILED: 49403:9911 is gone — closed or replaced, so nothing can appear on it any more/.test(out)
+          && /wait 49403:9911: 49403:9911 is gone — closed or replaced, so what was waited on to go went with it/.test(out),
+        out.split("\n").filter((l) => /^\s+\d+\. wait/.test(l)).join(" | "));
+    } finally {
+      await second.close();
+    }
+  }
   console.log(failures ? `\n${failures} check(s) failed` : "\nall first-use checks passed");
   process.exit(failures ? 1 : 0);
 }

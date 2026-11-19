@@ -363,9 +363,15 @@ export function createReplTools(
             // A wait right after the action that CLOSED this surface (a panel's Cancel) is waiting
             // for what happened, so it answers instead of stopping the run. Every other verb still
             // refuses: acting on a gone window must never slide onto whatever the app shows instead.
+            // It answers as a wait does, true or false, so `if (!await w.wait(…))` reads it right:
+            // what was waiting to GO is gone with the surface; nothing else can appear on it.
             if (name === "wait" && e instanceof SurfaceGone) {
-              return `${h.id} is gone — closed or replaced, so there is nothing left on it to wait for. `
-                + "computer.surfaces() lists what remains";
+              const o = (a[0] && typeof a[0] === "object" ? a[0] : {}) as Record<string, unknown>;
+              const gone = ["text_gone", "control_gone", "url_gone"].some((k) => typeof o[k] === "string");
+              current?.push("wait", h.id, gone, `${h.id} is gone — closed or replaced, so `
+                + (gone ? "what was waited on to go went with it" : "nothing can appear on it any more")
+                + "; computer.surfaces() lists what remains");
+              return gone;
             }
             if (e instanceof SurfaceGone && await owner.get(h)!.slice.driver.heldNothing()) {
               throw new SurfaceGone(`${e.message} This session holds no tab now: openUrl({url}) or newTab({url}) on this handle opens a fresh one.`);
