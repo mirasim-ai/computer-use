@@ -37,6 +37,9 @@ export interface AxElement {
   valueCut?: boolean;
   /** `AXSelected`, sent only when true: the chosen one of a set of buttons, rows or cells. Newer. */
   selected?: boolean;
+  /** The element the APP names as its keyboard focus (`AXFocusedUIElement`), sent only when true.
+   *  Settles focus when several elements claim `focused` (Notes' sidebar cells all do). Newer. */
+  appFocus?: boolean;
   /** Set by {@link foldTextRuns}: how many consecutive text fragments this one element stands
    *  for. Never present on a control. */
   runOf?: number;

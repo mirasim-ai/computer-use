@@ -67,6 +67,13 @@ export function mapTree(tree: AxTree, refFor: RefAllocator = positional): Mapped
   const keys: MappedTree["keys"] = new Map();
   const rects = new Map<string, { x: number; y: number; w: number; h: number }>();
   const seen = new Map<string, number>();
+  // The app's own answer to "where is the keyboard" wins over the elements' claims: Notes marks
+  // every sidebar cell focused while the keyboard is in the note's body, and without this the
+  // claims cancel out and nothing is marked. Without it (an older helper, or an app that names no
+  // focus) the claims are taken as they are.
+  if (tree.elements.some((e) => e.appFocus)) {
+    tree = { ...tree, elements: tree.elements.map((e) => (e.focused === !!e.appFocus ? e : { ...e, focused: !!e.appFocus })) };
+  }
   const focusIsExclusive = tree.elements.filter((e) => e.focused).length <= 1;
   const { x: ox, y: oy } = tree.window;
   // The last few static texts, for a control with no name of its own: SwiftUI lays a form out as a

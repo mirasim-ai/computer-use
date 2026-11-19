@@ -70,6 +70,9 @@ struct Node {
   var help = ""
   /// `AXSelected` — the chosen member of a set of buttons, rows or cells.
   var selected = false
+  /// This is the element the APP names as its keyboard focus (`AXFocusedUIElement`), which
+  /// decides between several nodes that all claim `AXFocused`. Set by the walk.
+  var appFocus = false
 
   /// UNADDRESSABLE: nothing names it — no title, description, value or developer id — and the
   /// keyboard is not in it. Not on its own a reason to drop one (a badly labelled toolbar button is
@@ -104,6 +107,7 @@ struct Node {
     if !help.isEmpty { out["help"] = help }
     if valueCut { out["valueCut"] = true }
     if selected { out["selected"] = true }
+    if appFocus { out["appFocus"] = true }
     if off { out["off"] = true }
     return out
   }

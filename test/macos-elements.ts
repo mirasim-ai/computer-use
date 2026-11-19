@@ -52,6 +52,20 @@ check("an ordinary button carries no action mark — the whitelist is not noise"
   check("the text channel keeps the real line breaks", wordy.text.includes("first line\n\nsecond line"),
     JSON.stringify(wordy.text.slice(0, 40)));
 }
+// Focus when several elements claim it: Notes' sidebar marks every cell focused while the keyboard
+// is in the note's body. The app's own AXFocusedUIElement (`appFocus`) settles it; without that
+// answer the claims cancel out and nothing is marked, as before.
+{
+  const cells = [0, 1, 2].map((i) => el({ key: `kC${i}`, role: "AXCell", title: `folder ${i}`, x: 10, y: 40 + i * 30, w: 180, h: 28, actions: [], focused: true }));
+  const body = el({ key: "kB", role: "AXTextArea", x: 300, y: 40, w: 400, h: 300, actions: [], value: "note body", focused: true });
+  const settled = mapTree({ ...TREE, elements: [...cells, { ...body, appFocus: true }] });
+  const marked = settled.elements.filter((e) => /(^|,)focused$/.test(e.state)).map((e) => e.role);
+  check("several focus claims: the element the app names is the one marked focused, and only it",
+    marked.length === 1 && marked[0] === "textbox", JSON.stringify(settled.elements.map((e) => `${e.role}:${e.state}`)));
+  const unsettled = mapTree({ ...TREE, elements: [...cells, body] });
+  check("…and with no answer from the app the claims still mark nothing",
+    unsettled.elements.every((e) => !/focused/.test(e.state)), JSON.stringify(unsettled.elements.map((e) => e.state)));
+}
 {
   // The driver's allocator, in miniature: reuse a signature's ref, mint for new signatures.
   const bySig = new Map<string, string>();

@@ -32,6 +32,11 @@ extension AXEngine {
     let maxDepth: Int
     /// The window's frame: a node with a real frame that does not touch it is off-screen.
     let viewport: CGRect
+    /// What the APP says holds its keyboard focus (`AXFocusedUIElement`), asked once per walk.
+    /// Elements' own `AXFocused` cannot settle it: Notes' sidebar marks all seven of its cells
+    /// focused while the keyboard is in the note's body, and with several claimants the client
+    /// marks none — so the model, and `keys({focus})`, could not tell where a key would land.
+    let appFocus: AXUIElement?
     var visited = 0
     /// The read budget ran out before the walk finished, and which of the two it was — the client
     /// advises differently: a node count says "narrow the window", a deadline says "the app is slow".
@@ -87,7 +92,8 @@ extension AXEngine {
   private func walk(_ el: AXUIElement, depth: Int, pid: pid_t, _ w: inout Walk, foldRole: String = "") {
     if w.spent() { return }
     w.visited += 1
-    let n = read(el, contentActions: false)
+    var n = read(el, contentActions: false)
+    if let f = w.appFocus, CFEqual(el, f) { n.appFocus = true }
     let clipped = n.frame.isEmpty && n.frame != .zero
     if clipped || (!n.frame.isEmpty && !n.frame.intersects(w.viewport)) {
       if n.included {
@@ -170,9 +176,11 @@ extension AXEngine {
     replaceKeys(pid: pid)
     // The deadline is per WALK, so the nudge's second walk below gets its own.
     let fresh = { (json: [String: Any]) -> Walk in
-      Walk(maxVisited: maxVisited, deadline: CFAbsoluteTimeGetCurrent() + Double(deadlineMs) / 1000,
+      let focus = self.attr(self.appElement(pid), kAXFocusedUIElementAttribute as String)
+      return Walk(maxVisited: maxVisited, deadline: CFAbsoluteTimeGetCurrent() + Double(deadlineMs) / 1000,
            maxElements: maxElements, maxOffscreen: maxOffscreen, maxText: maxText, maxDepth: depth,
-           viewport: windowFrame(json))
+           viewport: windowFrame(json),
+           appFocus: focus.flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil })
     }
     var w = fresh(window.json)
     walk(window.element, depth: 0, pid: pid, &w)
