@@ -115,6 +115,15 @@ async function main() {
       const said = head(await run(code));
       check(`${name} says what to use instead`, want.test(said) && !/If it is a surface handle/.test(said), said);
     }
+    // ── A handle used after a reset blames the reset, not a restart ──────────────────────
+    await tools.computer_repl_reset!.execute({});
+    const afterReset = head(await run("await w.observe();"));
+    check("using a handle after computer_repl_reset says the reset discarded it, and how to bind again",
+      /w is not defined — computer_repl_reset discarded every binding from earlier calls, so this call started a FRESH runtime .*bind it: const w = await computer\.surface\(/.test(afterReset)
+        && !/server was restarted|reaped/.test(afterReset), afterReset);
+    const later = head(await run("await w.observe();"));
+    check("…once: the call after it is not fresh any more", /no call on this runtime declared it/.test(later), later);
+    await run("const w = await computer.surface('com.apple.calculator'); return 1;");
   } finally {
     await driver.close();
   }

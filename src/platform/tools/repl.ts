@@ -488,7 +488,11 @@ export function createReplTools(
     const props = Object.keys(h).filter((k) => typeof h[k] !== "function");
     return `${msg} — ${onHandle(receiver, name, members, props, schemasOf(own.slice))}`;
   };
-  const explain = (msg: string, fresh: boolean): string => {
+  /** Why the runtime the call in progress runs in is fresh, when this runtime knows: a reset it
+   *  was asked for, or the previous call ended from outside. Null otherwise (a first call, or a
+   *  host that respawned the process: then nobody here knows). */
+  let freshBecause: "reset" | "ended" | null = null;
+  const explain = (msg: string, fresh: boolean, because: "reset" | "ended" | null): string => {
     const invented = notAFunction(msg);
     if (invented) return invented;
     if (/^TypeError: A dynamic import callback was not specified\.?$/.test(msg)) return NO_IMPORT;
@@ -504,7 +508,11 @@ export function createReplTools(
     // Any other undefined name is usually a handle the code expected to hold: nothing binds one
     // implicitly, and a restarted runtime has lost earlier bindings.
     return `${msg} — `
-      + (fresh
+      + (fresh && because === "reset"
+        ? "computer_repl_reset discarded every binding from earlier calls, so this call started a FRESH runtime (no surface was touched). "
+        : fresh && because === "ended"
+        ? "the previous call was ended from outside, which discards every binding, so this call started a FRESH runtime. "
+        : fresh
         ? "this call started a FRESH runtime, so nothing declared in an earlier call survives (the server was restarted, or its host reaped it while idle). "
         : "no call on this runtime declared it at the top level, and nothing is predefined but computer, URL and URLSearchParams. ")
       + "If it is a surface handle, bind it: const w = await computer.surface('<id or title>').";
@@ -626,6 +634,9 @@ export function createReplTools(
       };
       const fresh = !sandbox;
       sandbox ??= freshSandbox();
+      // Said about this call only: the one after it is not fresh, or is fresh for another reason.
+      const because = freshBecause;
+      freshBecause = null;
       const callId = {};
 
       let returned: unknown;
@@ -696,7 +707,7 @@ export function createReplTools(
       try {
         const done = await Promise.race([body, endedFromOutside.then((): never => { throw ENDED; })]);
         returned = done.out;
-        if (done.leftFailed) failure = explain(done.left instanceof Error ? done.left.message : String(done.left), fresh);
+        if (done.leftFailed) failure = explain(done.left instanceof Error ? done.left.message : String(done.left), fresh, because);
       } catch (e) {
         if (e === ENDED) failure = ended.why;
         else {
@@ -704,7 +715,7 @@ export function createReplTools(
             e = new Error(`the code ran for ${SYNC_MAX_MS / 1000}s without awaiting anything and was stopped — `
               + "a loop that never awaits blocks the whole runtime; await a verb (or w.wait) inside it");
           }
-          failure = explain(e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e), fresh);
+          failure = explain(e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e), fresh, because);
         }
       } finally {
         clearInterval(watchdog);
@@ -723,6 +734,7 @@ export function createReplTools(
           }
           // The code is suspended wherever it was, its bindings half made: the next call starts over.
           sandbox = null;
+          freshBecause ??= "ended";
           lastBound = null;
           handles.clear();
           refOwner.clear();
@@ -919,6 +931,7 @@ export function createReplTools(
       if (callRunning) resetPending = true;
       else await releaseForReset();
       sandbox = null;
+      freshBecause = "reset";
       lastBound = null;
       handles.clear();
       refOwner.clear();
