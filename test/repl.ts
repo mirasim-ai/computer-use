@@ -423,11 +423,15 @@ async function main() {
     check("each switch is one journaled focus", (both.match(/\d+\. focus /g)?.length ?? 0) >= 3, `${both.match(/\d+\. focus /g)?.length ?? 0} focus lines`);
 
     // ── A handle whose surface closed says so ─────────────────────────────────
-    const gone = await run(`
+    const closing = await run(`
       await tabB.click(await tabB.find('Close me'));
-      await tabB.wait({ ms: 600 });
-      await tabB.observe();
+      return 'click returned';
     `);
+    check("a self-closing click completes or says its completion is uncertain",
+      /Returned: "click returned"/.test(closing)
+        || (/\[uncertain\]/.test(closing) && /page closed during click dispatch/.test(closing) && /do not repeat the click/.test(closing)),
+      line(closing, /uncertain|Returned|STOPPED/));
+    const gone = await run(`await tabB.observe();`);
     check("a closed tab's handle is refused with a re-acquire instruction", /Run STOPPED/.test(gone) && /is gone/.test(gone) && /computer\.surfaces\(\)/.test(gone), line(gone, /^Run/));
     const survivors = await run(`return (await computer.surfaces()).map(s => s.title);`);
     check("the other surface is still there and usable",
