@@ -24,7 +24,6 @@ import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_HOLD, PAGE_TABS_JS, PAGE_
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
 import { ActionJournal } from "./journal.ts";
 import { captureEvidenceShot } from "../chromium/shot.ts";
-import { ensureRefSelector } from "../chromium/page-refs.ts";
 import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
 import { cutText } from "../text-cut.ts";
@@ -235,7 +234,6 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         }
       }
       if (this.browser) {
-        await ensureRefSelector(this.browser);
         this.cdpUrl = url;
         break;
       }
