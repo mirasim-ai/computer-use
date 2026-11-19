@@ -124,6 +124,13 @@ async function main() {
     const later = head(await run("await w.observe();"));
     check("…once: the call after it is not fresh any more", /no call on this runtime declared it/.test(later), later);
     await run("const w = await computer.surface('com.apple.calculator'); return 1;");
+    // ── An argument the tool does not take is reported, and the code still runs ──────────
+    const withUrl = await call({ code: "return 1;", url: "https://example.com" });
+    check("a url beside the code runs the code and says the url was ignored, and how pages are opened",
+      /Returned: 1/.test(withUrl) && /NOTE: computer_repl ignored the argument url — it reads only code, purpose, interaction, platform, target, observation; the code ran without it\. A page is opened in the code: await w\.openUrl\(\{url: "…"\}\)\./.test(withUrl),
+      withUrl.split("\n").find((l) => l.includes("ignored")) ?? head(withUrl));
+    const hosted = await call({ code: "return 2;", purpose: "check", interaction: "background", observation: "none" });
+    check("…while the arguments it does take are never reported", /Returned: 2/.test(hosted) && !/ignored the argument/.test(hosted), head(hosted));
   } finally {
     await driver.close();
   }

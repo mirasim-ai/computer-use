@@ -756,6 +756,14 @@ export function createReplTools(
         ? `Run STOPPED after ${journal.length} steps (${elapsed}s): ${failure}`
         : `Run completed ${journal.length} steps in ${elapsed}s.`;
       const lines = [head, ...renderJournal(journal)];
+      // An argument the tool does not take is dropped, and the code runs without it: say so, or
+      // a `url` passed beside the code reads as a page that was opened.
+      const ignored = Object.keys((params ?? {}) as object).filter((k) => !REPL_ARGS.has(k));
+      if (ignored.length) {
+        lines.push(`NOTE: computer_repl ignored the argument${ignored.length > 1 ? "s" : ""} ${ignored.join(", ")} — it reads only `
+          + `${[...REPL_ARGS].join(", ")}; the code ran without ${ignored.length > 1 ? "them" : "it"}.`
+          + (ignored.includes("url") ? " A page is opened in the code: await w.openUrl({url: \"…\"})." : ""));
+      }
       /** A result that is the ledger alone, with no observation under it: `tail` goes after the
        *  ledger's lines without counting as one, `attach` after the text. */
       const ledgerOnly = (attach: ToolResult["content"], tail = "", extra: Record<string, unknown> = {}): ToolResult => {
@@ -858,6 +866,8 @@ export function createReplTools(
       }
     },
   });
+  /** The arguments computer_repl reads; any other is reported as ignored (@see execute). */
+  const REPL_ARGS = new Set(Object.keys((repl.parameters as { properties?: Record<string, unknown> }).properties ?? {}));
   // What was granted for one call alone (ComputerUseDriver.endCall) ends with it, however the call ends.
   const runCall = repl.execute.bind(repl);
   const disarmIdle = () => { if (idleTimer) clearTimeout(idleTimer); idleTimer = null; };
