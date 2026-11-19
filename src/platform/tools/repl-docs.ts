@@ -79,6 +79,25 @@ function parts(driver: ComputerUseDriver, windowsApps: boolean) {
     head: [
     "API reference — computer_repl (this text comes once per session; computer.help() returns it again)",
     "",
+    // Example first: models copy what they see before they read the rules under it, and every
+    // first-call misuse on record is a line here written wrongly (surface() given a URL, openUrl
+    // given a string, newTab's answer used as a handle).
+    "Start from these — each line is a working call; the rules for every verb follow below:",
+    "  const w = await computer.surface();                       // bind once (an id or title, never a URL); later calls reuse w",
+    ...(extras.some((v) => v.kind === "open_url") ? [
+      "  await w.openUrl({url: 'https://example.com'}); await w.wait({});   // open a page in the bound tab, let it settle",
+    ] : []),
+    "  return (await w.observe()).elements.filter(e => e.role === 'button').map(e => e.name);   // not sure of a name? look first",
+    "  await w.click(await w.find('Save', {role: 'button'}));",
+    "  await w.setText(await w.find('Email', {role: 'textbox'}), 'ann@example.com');   // replaces the whole field",
+    "  await w.keys('Enter');                                     // one key or chord, never text",
+    "  await w.expect({text: 'Saved'});                           // only what the NEXT step needs; throws if it never shows",
+    "  return {total: await w.value(await w.find('Total'))};      // what you are checking: return it and judge the result",
+    ...(extras.some((v) => v.kind === "new_tab") ? [
+      "  await w.newTab({url: 'https://example.com/b'});            // answers with a NOTE naming the new tab's id — not a handle",
+      "  const w2 = await computer.surface('<id from that note>');  // w stays on its own tab",
+    ] : []),
+    "",
     "Everything is async — the verbs AND computer.surfaces() / computer.surface(…): await each. A verb that",
     "fails THROWS with the reason, which stops the run; the journal in the result says what ran. Refs (e12)",
     "come from observe()/find() and stay valid until the surface changes; never invent one, and never carry one in from",
