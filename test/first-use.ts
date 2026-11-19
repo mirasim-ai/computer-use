@@ -100,6 +100,21 @@ async function main() {
       /find's `within` is null — the find\(\) passed as within matched nothing .* Check that control's role and name/.test(inside), inside);
     const why = head(await run("return await w.find('全部清除', {within: await w.find('No such dialog anywhere', {why: true})});"));
     check("…and a why-miss passed as within quotes its own note", /find's `within` is a find\(\) that matched nothing: no match/.test(why), why);
+    // ── Host globals say what this runtime has instead ───────────────────────────────────
+    const globals: Array<[string, string, RegExp]> = [
+      ["setTimeout", "await new Promise((r) => setTimeout(r, 100));", /setTimeout is not defined — there are no timers in this runtime — to pause, await w\.wait\(\{ms: 500\}\)/],
+      ["setInterval", "setInterval(() => {}, 100);", /setInterval is not defined — there are no timers/],
+      ["fetch", "return await fetch('https://example.com');", /fetch is not defined — this runtime has no network — .*w\.runJs\(\{code\}\).*your own tools outside computer_repl/],
+      ["require", "const fs = require('fs');", /require is not defined — Node's require, import, process and modules are not available/],
+      ["process", "return process.env.HOME;", /process is not defined — Node's require/],
+      ["document", "return document.title;", /document is not defined — the page's globals live in the page.*runJs/],
+      ["import()", "const m = await import('fs');", /STOPPED .*: import\(\) is not available in this runtime: no module loads here/],
+      ["console.log", "console.log('hi'); return 1;", /STOPPED .*: console\.log goes nowhere in this runtime — computer\.log\(…\) writes a line into this call's journal, or return the value/],
+    ];
+    for (const [name, code, want] of globals) {
+      const said = head(await run(code));
+      check(`${name} says what to use instead`, want.test(said) && !/If it is a surface handle/.test(said), said);
+    }
   } finally {
     await driver.close();
   }

@@ -146,3 +146,38 @@ export function onComputer(name: string, members: string[], handleVerbs: string[
   return `computer has only ${listed}; ${real[0]} is a verb on a surface handle, bound first: `
     + `const w = await computer.surface(); await w.${verbShape(real[0]!, schemas.get(real[0]!))}`;
 }
+
+/**
+ * What a script reaching for a host global gets told instead of "not defined". The runtime is a
+ * bare V8 context (repl.ts): the names below are the ones models reach for, each with what this
+ * runtime has for the job.
+ */
+const GLOBALS: Record<string, string> = {};
+const global = (why: string, names: string[]) => { for (const n of names) GLOBALS[n] = why; };
+global("there are no timers in this runtime — to pause, await w.wait({ms: 500}) on a bound handle; to wait for something, "
+  + "w.wait({text}) or w.wait({control})", ["setTimeout", "setInterval", "clearTimeout", "clearInterval", "setImmediate", "queueMicrotask"]);
+global("this runtime has no network — read what a page holds with await w.runJs({code}) on a browser or Electron handle, "
+  + "or fetch with your own tools outside computer_repl", ["fetch", "XMLHttpRequest", "WebSocket", "EventSource"]);
+global("Node's require, import, process and modules are not available in this runtime — it reaches surfaces only through "
+  + "computer (and has URL and URLSearchParams)", ["require", "process", "module", "exports", "Buffer", "__dirname", "__filename", "global"]);
+global("the page's globals live in the page, not in this runtime — read them with await w.runJs({code: \"document.title\"}) on "
+  + "a browser or Electron handle, or use the verbs (find, text, observe)", ["document", "window", "navigator", "location", "localStorage", "sessionStorage"]);
+
+/** The tail for `<name> is not defined` when `name` is a host global, or null. */
+export function sandboxGlobal(name: string): string | null {
+  return GLOBALS[name] ?? null;
+}
+
+/** What `import()` gets: V8's own words name a callback nobody asked about. */
+export const NO_IMPORT = "import() is not available in this runtime: no module loads here — it reaches surfaces only "
+  + "through computer (and has URL and URLSearchParams)";
+
+/** console.* in the runtime: nothing reads it, so each method says what does. */
+export function sandboxConsole(): Record<string, () => never> {
+  const refuse = (method: string) => () => {
+    throw new Error(`console.${method} goes nowhere in this runtime — computer.log(…) writes a line into this call's journal, `
+      + "or return the value");
+  };
+  return Object.fromEntries(["log", "info", "warn", "error", "debug", "dir", "table", "trace", "assert", "time", "timeEnd",
+    "count", "group", "groupEnd"].map((m) => [m, refuse(m)]));
+}

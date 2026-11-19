@@ -24,7 +24,7 @@ import { ABANDON_DRAIN_MS, CANCEL_GRACE_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS,
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
 import { pickSurface } from "./repl-pick.ts";
-import { onComputer, onHandle } from "./repl-explain.ts";
+import { NO_IMPORT, onComputer, onHandle, sandboxConsole, sandboxGlobal } from "./repl-explain.ts";
 import { fnName } from "./api-contract.ts";
 import { apiReference, platformReference, replDescription, RESET_DESCRIPTION } from "./repl-docs.ts";
 import { ComputerUseOwnership, IDLE_RELEASE_MS, OwnershipBusyError, type OwnershipProvider } from "../ownership.ts";
@@ -491,8 +491,11 @@ export function createReplTools(
   const explain = (msg: string, fresh: boolean): string => {
     const invented = notAFunction(msg);
     if (invented) return invented;
+    if (/^TypeError: A dynamic import callback was not specified\.?$/.test(msg)) return NO_IMPORT;
     const m = /^(?:ReferenceError: )?(\w+) is not defined$/.exec(msg);
     if (!m) return msg;
+    const host = sandboxGlobal(m[1]!);
+    if (host) return `${msg} — ${host}`;
     if (verbNames.has(m[1]!)) {
       return `${msg} — verbs live on a surface handle, not on the top level: `
         + `const w = await computer.surface('<id or title>'); await w.${m[1]}(…). `
@@ -511,7 +514,9 @@ export function createReplTools(
   // no top-level verbs (every verb is reached through a surface handle). URL and URLSearchParams
   // are not V8's, and scripts reach for them to check a page's address (`new URL(u).search`):
   // they only parse strings, so they are handed in.
-  const freshSandbox = () => createContext({ computer, console: undefined, URL, URLSearchParams });
+  // `console` is V8's own in a fresh context, and writes where nobody reads: each method refuses
+  // instead, naming computer.log.
+  const freshSandbox = () => createContext({ computer, console: sandboxConsole(), URL, URLSearchParams });
   /** Top-level names in the runtime that hold a surface handle, as `name → id «title»`. A handle
    *  is recognised by identity (`owner`), never by shape: a script's own `{ id, title }` is not one. */
   const boundHandles = (ctx: object): string[] =>
