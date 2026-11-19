@@ -134,8 +134,7 @@ changes nothing on screen: no tab, window or app is closed.
 
 Reset when the **runtime** is wrong, then rebind (`computer.surfaces()`) and re-observe:
 
-- calls keep failing the same way before any verb runs (the journal shows nothing dispatched),
-  for instance a verb a previous call left un-awaited is still "in progress";
+- calls keep failing the same way before any verb runs (the journal shows nothing dispatched);
 - you overwrote something the runtime needs (assigned to `computer`, redefined a helper badly)
   and can no longer trust its top-level state;
 - the browser or the extension reconnected and rebinding alone did not bring the handles back.
