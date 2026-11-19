@@ -823,8 +823,10 @@ export function createReplTools(
       // An acting run is one ROUND to the driver (writes + read-backs), so a frozen verdict after
       // a verified write does not accuse it; the last verb names the observation.
       if (acted) landed.driver.noteWriteRound(round);
-      // A run whose only verb was refused did not look either: no look wording under the refusal.
-      else if (refused) landed.driver.noteContentRead();
+      // A run whose only verb was refused did not look either, nor did one that stopped before
+      // dispatching anything (a TypeError, a bad option): no look wording under the refusal, and
+      // it does not count toward "observations in a row without acting".
+      else if (refused || failure) landed.driver.noteContentRead();
       const after = acted ? { afterAction: acted } : {};
       const permissionRefusal = slices.find(sl => sl.driver.permissionRefusal)?.driver.permissionRefusal;
       if (requestedHelp && journal.length === 0) return ledgerOnly(docs);

@@ -131,6 +131,12 @@ async function main() {
       withUrl.split("\n").find((l) => l.includes("ignored")) ?? head(withUrl));
     const hosted = await call({ code: "return 2;", purpose: "check", interaction: "background", observation: "none" });
     check("…while the arguments it does take are never reported", /Returned: 2/.test(hosted) && !/ignored the argument/.test(hosted), head(hosted));
+    // ── A stopped run is not a look: no "nothing failed", no "observations in a row" ───────
+    const stopped: string[] = [];
+    for (let i = 0; i < 4; i++) stopped.push(await run("await w.goto('x');"));
+    check("a run stopped before dispatching anything is not told it was a look, nor counted as one",
+      stopped.every((t) => /Run STOPPED/.test(t) && !/that was a look|nothing failed|observations in a row/.test(t)),
+      stopped.map((t) => t.split("\n").find((l) => /NOTE/.test(l)) ?? "(no note)").join(" | "));
   } finally {
     await driver.close();
   }
