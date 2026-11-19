@@ -29,13 +29,13 @@ const GROUPS = {
     'blank-args', 'viewport-line', 'journal-drain', 'repl-guards', 'paired-timeouts',
     'macos-ui', 'macos-windows', 'macos-budgets', 'macos-targets', 'macos-elements', 'macos-marks',
     'macos-window-match', 'macos-grants', 'macos-diagnostics', 'macos-mouse', 'macos-heard', 'macos-app-notes', 'macos-forms', 'bridge-acquire', 'bridge-stalled-tab', 'bridge-event-order', 'bridge-status', 'macos-cleanup', 'macos-helper-limits',
-    'ownership', 'setup-skill', 'windows-approval', 'windows-opt-in', 'shot-files', 'download-staging', 'bridge-idle-exit', 'extension-updates', 'cancelled-call', 'text-cut',
+    'ownership', 'setup-skill', 'windows-approval', 'windows-opt-in', 'shot-files', 'download-staging', 'bridge-idle-exit', 'extension-updates', 'cancelled-call', 'text-cut', 'first-use',
   ],
   browser: [
     'smoke', 'scroll-behaviors', 'forms-fill', 'select-text', 'paste', 'repl', 'settle-controlled',
     'ref-lifecycle', 'nesting', 'read-page-behaviors', 'readonly-refs', 'screenshot-scopes', 'tab-targeting',
     'named-tabs', 'attach-recovery', 'attached-profile', 'connection-recovery', 'browser-state', 'mcp-log',
-    'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why', 'page-opened-tabs', 'quick-misses', 'tab-note-ids', 'managed-stalled-tab', 'stuck-call', 'slow-click', 'iframe-editor', 'page-tabs-leftover', 'overlay-guard', 'service-worker-site', 'tab-identity', 'managed-first-page',
+    'excerpt-cuts', 'diagnostics', 'media-features', 'last-tab', 'find-why', 'page-opened-tabs', 'quick-misses', 'tab-note-ids', 'managed-stalled-tab', 'stuck-call', 'slow-click', 'iframe-editor', 'page-tabs-leftover', 'overlay-guard', 'service-worker-site', 'tab-identity', 'managed-first-page', 'first-use-browser',
   ],
 };
 // Through the real extension, in a Chromium that still loads one from the command line

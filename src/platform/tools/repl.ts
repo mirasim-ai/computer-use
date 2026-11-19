@@ -24,6 +24,8 @@ import { ABANDON_DRAIN_MS, CANCEL_GRACE_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS,
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
 import { pickSurface } from "./repl-pick.ts";
+import { onComputer, onHandle } from "./repl-explain.ts";
+import { fnName } from "./api-contract.ts";
 import { apiReference, platformReference, replDescription, RESET_DESCRIPTION } from "./repl-docs.ts";
 import { ComputerUseOwnership, IDLE_RELEASE_MS, OwnershipBusyError, type OwnershipProvider } from "../ownership.ts";
 import type { MountedTarget, PlatformSlice, Slice, SurfaceHandle } from "./repl-state.ts";
@@ -453,7 +455,36 @@ export function createReplTools(
    * so a genuine typo still reads as one.
    */
   const verbNames = new Set(Object.keys(raw));
+  /** The verbs a handle of `slice` carries (handleFor), and the schemas of its platform verbs. */
+  const verbsOf = (slice: Slice): string[] => [...Object.keys(slice.api)
+    .filter((k) => typeof slice.api[k] === "function" && !["log", "focus", "targets"].includes(k)), "focus", "release"];
+  const schemasOf = (slice: Slice) => new Map(slice.driver.extraVerbs().map((v) => [fnName(v.kind), v.schema]));
+  /**
+   * `w.goto is not a function`: a verb name the script brought from another library. Reworded
+   * only when the receiver is a surface handle or `computer` itself, read off the runtime's
+   * globals: a script's own object missing a method is the script's business.
+   */
+  const notAFunction = (msg: string): string | null => {
+    const m = /^TypeError: ([A-Za-z_$][\w$]*)\.([\w$]+) is not a function$/.exec(msg);
+    if (!m || !sandbox || !Object.prototype.hasOwnProperty.call(sandbox, m[1]!)) return null;
+    const [, receiver, name] = m as unknown as [string, string, string];
+    const held = (sandbox as Record<string, unknown>)[receiver];
+    if (held === computer) {
+      return `${msg} — ${onComputer(name, Object.keys(computer).filter((k) => typeof (computer as Record<string, unknown>)[k] === "function"),
+        verbsOf(landed), schemasOf(landed))}`;
+    }
+    const own = held && typeof held === "object" ? owner.get(held as SurfaceHandle) : undefined;
+    if (!own) return null;
+    const h = held as SurfaceHandle;
+    // A read the platform does not have is still a member (it refuses when called): not offered.
+    const missing = new Set([...(own.slice.driver.readPage ? [] : ["page"]), ...(own.slice.driver.readValue ? [] : ["value"])]);
+    const members = Object.keys(h).filter((k) => typeof h[k] === "function" && !missing.has(k));
+    const props = Object.keys(h).filter((k) => typeof h[k] !== "function");
+    return `${msg} — ${onHandle(receiver, name, members, props, schemasOf(own.slice))}`;
+  };
   const explain = (msg: string, fresh: boolean): string => {
+    const invented = notAFunction(msg);
+    if (invented) return invented;
     const m = /^(?:ReferenceError: )?(\w+) is not defined$/.exec(msg);
     if (!m) return msg;
     if (verbNames.has(m[1]!)) {
