@@ -222,7 +222,7 @@ export async function removed(loc: Locator): Promise<boolean> {
 const HANDLED_MIN_MS = 2_000;
 
 /**
- * A Playwright timeout that came AFTER the click was dispatched, said in this tool's terms.
+ * A Playwright timeout or lost target AFTER click dispatch began, said in this tool's terms.
  *
  * Playwright's own message is its call log, which the model read verbatim ("Timeout 2000ms
  * exceeded. Call log: …") and took for a failed click. The attempt that timed out had 2 s, which
@@ -244,23 +244,44 @@ const HANDLED_MIN_MS = 2_000;
  *    started, and a page merely busy after a click used to be called "still loading" too.
  *  · The page answers nothing in the whole budget: it may have landed, so it is not retried, and
  *    the refusal says how long was really waited.
+ *  · The page closes during dispatch: a button may have closed its own tab before Playwright
+ *    heard back. "performing click action" precedes the input, so it alone proves no delivery.
+ *    Only "click action done" confirms dispatch; otherwise stop as uncertain, never retry or
+ *    claim that nothing was clicked. The receipt died with the page and cannot settle it.
  *
  * Null for a timeout before dispatch, which the caller handles (cover check, second attempt).
  */
 async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<ActResult | null> {
   const err = e as { name?: string; message?: string } | null;
+  const msg = String(err?.message ?? "");
+  const closed = /Target page, context or browser has been closed/.test(msg);
+  if (err?.name !== "TimeoutError" && !closed) return null;
+  if (!/performing (?:click|dblclick) action/.test(msg)) return null;
+  const closedDuringClick = (): ActResult | null => {
+    if (!page.isClosed()) return null;
+    if (/(?:click|dblclick) action done/.test(msg)) {
+      return { ok: true, note: "clicked — the page closed before the click call returned" };
+    }
+    throw new Error("the page closed during click dispatch — the click may have landed, but its completion is uncertain; "
+      + "inspect the remaining tabs or the action's result before continuing; do not repeat the click");
+  };
+  const gone = closedDuringClick();
+  if (gone) return gone;
+  // A lost connection without a closed Page is not a timeout and proves no delivery either.
   if (err?.name !== "TimeoutError") return null;
-  const msg = String(err.message ?? "");
-  if (!/performing \w+ action/.test(msg)) return null;
   const navigation = (): ActResult => ({ ok: true, note: "clicked — it started a navigation that was still loading when the click returned; "
     + "wait({loaded}) or wait({text}) for the next page before reading it" });
   if (watch.navigating()) return navigation();
   const left = Math.max(HANDLED_MIN_MS, CLICK_BUDGET_MS - (Date.now() - watch.started));
   const answered = await answersWithin(page, left);
+  const goneAfterWait = closedDuringClick();
+  if (goneAfterWait) return goneAfterWait;
   if (watch.navigating()) return navigation();
   const took = Math.round((Date.now() - watch.started) / 100) / 10;
   if (answered) {
     const landing = await landed(watch.receipt);
+    const goneAfterReceipt = closedDuringClick();
+    if (goneAfterReceipt) return goneAfterReceipt;
     if (landing?.on === "nothing") {
       throw new Error(`the click was sent, but the page never received it: no press reached ${watch.what} or anything else on this page${took >= 1 ? ` in the ${took}s since` : ""}, `
         + "so nothing here was clicked — the input may have gone to something in front of the page; observe before clicking again");
