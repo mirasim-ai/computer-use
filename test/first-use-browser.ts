@@ -68,6 +68,12 @@ async function main() {
     check("computer.openUrl says to bind a handle first",
       /openUrl is a verb on a surface handle, bound first: const w = await computer\.surface\(\); await w\.openUrl\(\{url: "https:\/\/…"\}\)/.test(top), top);
 
+    // ── keys refuses text before pressing anything; a tab inserts at the caret by paste ─────
+    const typed = await run(`await w.openUrl({url: '${at("/app.html")}'}); await w.click(await w.find('Quantity')); await w.keys('hello world');`);
+    check("keys('hello world') is refused before dispatch, pointing at setText and paste",
+      /STOPPED .*"hello world" is text, not a key or chord — nothing was pressed\. To fill a field: setText\(t, "hello world"\) replaces its value; to insert at the caret: paste\(\{text: "hello world"\}\)/.test(typed)
+        && !/Unknown key|uncertain/.test(typed), line(typed, /STOPPED/));
+
     // ── control_gone on a loading line that is not a listed control ────────────────────────
     const bar = await run(`await w.openUrl({url: '${at("/loading.html")}'}); const t0 = Date.now(); `
       + "const ok = await w.wait({control_gone: 'Loading tasks'}); return {ok, ms: Date.now() - t0, still: (await w.text()).includes('Loading tasks')};");

@@ -9,6 +9,7 @@ import { createComputerUseTools } from "../src/platform/tools/index.ts";
 import { MacosDriver } from "../src/platform/macos/driver.ts";
 import { ONE_APP, stubTransport } from "./macos-fixtures.ts";
 import { statusLineShows } from "../src/platform/driver-wait.ts";
+import { chordIsText } from "../src/platform/tools/api.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -83,6 +84,10 @@ async function main() {
     check("keys with a count over 20 is refused, saying the maximum and to call again",
       /keys presses a chord at most 20 times per keys\(\) call, and was asked for 50 — nothing was pressed\. Call it again for the rest: keys\("Backspace", 20\)/.test(many), many);
     check("…before anything was pressed", !stub.calls.slice(before).some((c) => /key/.test(c.op)), stub.calls.slice(before).map((c) => c.op).join(","));
+    // ── keys refuses text before pressing anything ────────────────────────────────────────
+    const typed = head(await run("await w.keys('hello world');"));
+    check("keys('hello world') is refused as text, pointing at setText and, on macOS, type",
+      /"hello world" is text, not a key or chord — nothing was pressed\. To fill a field: setText\(t, "hello world"\) replaces its value; to insert at the caret: type\(\{text: "hello world"\}\)/.test(typed), typed);
   } finally {
     await driver.close();
   }
@@ -115,6 +120,14 @@ async function main() {
       && statusLineShows("FETCHING TASKS", "Fetching tasks"));
   check("…a sentence that carries the name is not, nor is a longer label",
     !statusLineShows("Press Stop to cancel", "Stop") && !statusLineShows("Loading tasks for Bob", "Loading tasks") && !statusLineShows("", "…"));
+
+  const keysOk = ["Enter", "enter", "ArrowDown", "Control+a", "Meta+Shift+z", "F5", "f12", "Space", " ", "Control+ ", "cmd+shift+s",
+    "a", "A", "é", "+", "Control++", "PageDown", "Escape", "Shift+Tab", "alt+f4", "PrintScreen", "NumpadEnter", "KeyA", "\u2318\u21e7N"];
+  const keysText = ["hello world", "hello", "abc", "Control+hello", "HELLO", "type this", "Enter please"];
+  const wrongOk = keysOk.filter((c) => chordIsText(c));
+  const wrongText = keysText.filter((c) => !chordIsText(c));
+  check("every key name and chord the platforms take still goes through", !wrongOk.length, JSON.stringify(wrongOk));
+  check("…and text is told apart from them", !wrongText.length, JSON.stringify(wrongText));
 
   console.log(failures ? `\n${failures} check(s) failed` : "\nall first-use checks passed");
   process.exit(failures ? 1 : 0);

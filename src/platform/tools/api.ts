@@ -42,6 +42,42 @@ const FIND_SETTLE_BUDGET_MS = 600;
 const MAX_KEY_REPEAT = 20;
 const FIND_SETTLE_INTERVAL_MS = 150;
 
+/** Key names every platform's keys() takes (lowercased): Playwright's, the macOS helper's and
+ *  the Windows helper's, with the modifiers. A token none of them knows is not a key. */
+const KEY_NAMES = new Set([
+  "ctrl", "control", "cmd", "command", "meta", "alt", "opt", "option", "shift", "controlormeta", "altgraph", "super", "hyper",
+  "fn", "fnlock", "win", "windows", "mod", "enter", "return", "tab", "escape", "esc", "space", "backspace", "delete", "del",
+  "insert", "ins", "up", "down", "left", "right", "home", "end", "pageup", "pagedown", "capslock", "numlock", "scrolllock",
+  "pause", "printscreen", "contextmenu", "apps", "help", "clear", "cancel", "accept", "again", "props", "undo", "select",
+  "copy", "open", "paste", "find", "cut", "power", "eject", "sleep", "wakeup", "standby", "audiovolumeup", "audiovolumedown",
+  "audiovolumemute", "mediatracknext", "mediatrackprevious", "mediastop", "mediaplaypause", "convert", "nonconvert",
+  "kanamode", "minus", "equal", "backquote", "bracketleft", "bracketright", "backslash", "semicolon", "quote", "comma",
+  "period", "slash", "intlbackslash", "intlro", "intlyen", "multiply", "add", "subtract", "divide", "decimal",
+]);
+const KEY_PATTERNS = /^(?:f\d{1,2}|key[a-z]|digit\d|numpad\w+|arrow(?:up|down|left|right)|(?:shift|control|alt|meta|os)(?:left|right))$/i;
+
+/**
+ * Is this keys() chord TEXT rather than a key? `keys('hello world')` reached the driver and came
+ * back as Playwright's "Unknown key", marked uncertain. A token is text when it holds whitespace,
+ * or is several characters that no platform names as a key and that are not written the way key
+ * names are (`PrintScreen`): those go through, and the driver answers for them. Chords written
+ * with ⌘⇧⌥⌃ are the macOS menu's and pass as they are.
+ */
+export function chordIsText(chord: string): boolean {
+  if (/[\u2318\u21e7\u2325\u2303]/.test(chord)) return false;
+  const parts = chord.split("+");
+  // "Control++" / "+" : the key is a literal plus.
+  if (parts.length > 1 && parts[parts.length - 1] === "") { parts.pop(); parts[parts.length - 1] = "+"; }
+  return parts.some((raw) => {
+    const t = raw.trim();
+    if (!t) return false;                       // " " is the space bar
+    if (/\s/.test(t)) return true;
+    if ([...t].length === 1) return false;
+    if (KEY_NAMES.has(t.toLowerCase()) || KEY_PATTERNS.test(t)) return false;
+    return !/^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*$/.test(t);
+  });
+}
+
 /** Does this dispatched verb only READ? Shared by the repl and `test/harness.ts` so they never
  *  drift apart. */
 export function isReadVerb(kind: string, args: Record<string, unknown>, verbs: readonly VerbSpec[]): boolean {
@@ -355,6 +391,15 @@ export function createComputerUseApi(
       // is the older second argument and stays where it is.
       const o = (typeof count === "object" && count !== null ? count : opts) as { focus?: unknown } | undefined;
       const n = typeof count === "number" ? count : undefined;
+      const said = String(chord ?? "");
+      if (chordIsText(said)) {
+        // The verb that inserts at the caret: macOS types without its clipboard, the browser pastes.
+        const insert = specs.has("type") ? `type({text: ${JSON.stringify(said)}})` : specs.has("paste") ? `paste({text: ${JSON.stringify(said)}})` : "";
+        throw new Error(`keys presses keys, and ${JSON.stringify(said)} is text, not a key or chord — nothing was pressed. `
+          + `To fill a field: setText(t, ${JSON.stringify(said)}) replaces its value`
+          + (insert ? `; to insert at the caret: ${insert}` : "")
+          + ". keys takes a key name or chord: \"Enter\", \"ArrowDown\", \"Control+a\", \"Meta+Shift+z\"");
+      }
       if (n !== undefined && n > MAX_KEY_REPEAT) {
         throw new Error(`keys presses a chord at most ${MAX_KEY_REPEAT} times per keys() call, and was asked for ${n} — nothing was pressed. `
           + `Call it again for the rest: keys(${JSON.stringify(String(chord ?? ""))}, ${MAX_KEY_REPEAT}) as often as needed, then the remainder`);
