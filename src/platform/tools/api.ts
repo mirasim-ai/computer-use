@@ -37,6 +37,9 @@ export { fnName, noteOf, type ApiHooks, type JournalLine, type RunLedger, type W
 /** How long `find` keeps looking after a miss that followed an action, and how often: a few
  *  frames plus a render for a popup to paint, not a network round trip (that is `wait()`). */
 const FIND_SETTLE_BUDGET_MS = 600;
+/** The most presses one keys() sends — the drivers' own cap (chromium/page-acts.ts,
+ *  macos/driver.ts), refused here before anything is pressed instead of cut short in silence. */
+const MAX_KEY_REPEAT = 20;
 const FIND_SETTLE_INTERVAL_MS = 150;
 
 /** Does this dispatched verb only READ? Shared by the repl and `test/harness.ts` so they never
@@ -352,6 +355,10 @@ export function createComputerUseApi(
       // is the older second argument and stays where it is.
       const o = (typeof count === "object" && count !== null ? count : opts) as { focus?: unknown } | undefined;
       const n = typeof count === "number" ? count : undefined;
+      if (n !== undefined && n > MAX_KEY_REPEAT) {
+        throw new Error(`keys presses a chord at most ${MAX_KEY_REPEAT} times per keys() call, and was asked for ${n} — nothing was pressed. `
+          + `Call it again for the rest: keys(${JSON.stringify(String(chord ?? ""))}, ${MAX_KEY_REPEAT}) as often as needed, then the remainder`);
+      }
       if (o?.focus !== undefined) await requireFocus(o.focus);
       return acted("keys", { chord: String(chord ?? ""), ...(n ? { count: n } : {}) }, String(chord ?? ""));
     },

@@ -77,6 +77,12 @@ async function main() {
     check("…a timeout is pointed at ms", /wait does not take timeout — the budget is ms\./.test(timeout), timeout);
     const selector = head(await run("return await w.wait({selector: '#done'});"));
     check("…a selector at control and text", /wait does not take selector — name the control \(wait\(\{control: "Save"\}\)\)/.test(selector), selector);
+    // ── keys never cuts a count short in silence ──────────────────────────────────────────
+    const before = stub.calls.length;
+    const many = head(await run("await w.keys('Backspace', 50);"));
+    check("keys with a count over 20 is refused, saying the maximum and to call again",
+      /keys presses a chord at most 20 times per keys\(\) call, and was asked for 50 — nothing was pressed\. Call it again for the rest: keys\("Backspace", 20\)/.test(many), many);
+    check("…before anything was pressed", !stub.calls.slice(before).some((c) => /key/.test(c.op)), stub.calls.slice(before).map((c) => c.op).join(","));
   } finally {
     await driver.close();
   }
