@@ -1,0 +1,39 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mirasim-computer-use",
+  "version": "0.1.1-rc.13",
+  "description": "Drive browsers, macOS apps and Electron apps through their accessibility trees: one call runs a chain of steps and reports each one.",
+  "author": {
+    "name": "MIRASIM, INC.",
+    "url": "https://mirasim.ai"
+  },
+  "homepage": "https://github.com/mirasim-ai/computer-use",
+  "repository": "https://github.com/mirasim-ai/computer-use",
+  "license": "Apache-2.0",
+  "keywords": [
+    "computer-use",
+    "browser-automation",
+    "macos",
+    "electron",
+    "accessibility",
+    "mcp"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Mirasim Computer Use",
+        "shortDescription": "Drive browsers, macOS apps and Electron apps",
+        "longDescription": "An MCP server that drives a Chrome of its own (or your signed-in Chrome through the Mirasim extension), native macOS apps and Electron apps through their accessibility trees. One computer_repl call runs a short script of steps and reports what each one did; a click on a control another layer covers fails and names the layer.",
+        "developerName": "MIRASIM, INC.",
+        "category": "Developer Tools",
+        "websiteURL": "https://github.com/mirasim-ai/computer-use",
+        "defaultPrompt": [
+          "Open the app I'm working on in the mirasim-cu browser and check that the change works.",
+          "Use the mirasim-cu browser to fill in this form and tell me what each step did."
+        ],
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      }
+    }
+  }
+}

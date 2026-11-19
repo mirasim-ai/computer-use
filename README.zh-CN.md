@@ -30,6 +30,13 @@ claude mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp   # Claude Code
 codex mcp add mirasim-cu -- npx -y @mirasim/computer-use mcp    # Codex
 ```
 
+也可以作为插件安装，智能体技能会一起装好（[说明](docs/setup.md#plugin)，英文）：
+
+```sh
+claude plugin install mirasim-computer-use --marketplace mirasim-ai/computer-use
+codex plugin marketplace add mirasim-ai/computer-use && codex plugin add mirasim-computer-use@mirasim
+```
+
 装好后，让你的智能体在 mirasim-cu 浏览器里检查点什么就行。在 `~/.codex/config.toml` 里批准这两个工具之前，Codex 每次调用
 MCP 前都会先问你；这个配置，以及操作你已登录的 Chrome、macOS 和 Electron 应用、智能体技能和命令行的说明，都在
 [docs/setup.md](docs/setup.md)（英文）里。
