@@ -52,8 +52,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
   protected preOpened: { page: Page; url: string; stamp: string | null } | null = null;
 
   private endpoints(): string[] {
-    if (this.explicit) return [this.cdpUrl];
-    return [...new Set([this.cdpUrl, this.fallbackCdpUrl])];
+    const urls = this.explicit ? [this.cdpUrl] : [this.cdpUrl, this.fallbackCdpUrl];
+    return [...new Set(urls.filter((url): url is string => !!url))];
   }
 
   /**
@@ -216,7 +216,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     if (this.cfg.extension && !this.cfg.cdpUrl) {
       const bridge = await acquireBridge(this.cfg.home);
       this.cdpUrl = bridge.cdpUrl;
-      if (!(await waitForExtension(this.cdpUrl, bridge.fresh ? 0 : 15_000, this.cfg.home))) throw new SurfaceUnreadableError(await this.extensionGoneMessage());
+      if (!(await waitForExtension(bridge.cdpUrl, bridge.fresh ? 0 : 15_000, this.cfg.home))) throw new SurfaceUnreadableError(await this.extensionGoneMessage());
     }
     const attempted = this.endpoints();
     let lastError: unknown;
@@ -272,7 +272,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     }
     if (!this.browser) {
       const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
-      throw new Error(msgEndpointUnavailable(this.cdpUrl, detail));
+      throw new Error(msgEndpointUnavailable(this.cdpUrl ?? "(none)", detail));
     }
     this.context = this.browser.contexts()[0] ?? (await this.browser.newContext());
     // A reconnect that lands on a different browser behind the bridge says so too.

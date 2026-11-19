@@ -28,6 +28,12 @@ export interface BrowserConfig {
   /** Chrome user-data dir. The USER'S own when {@link attached}; otherwise ours to manage. */
   readonly profileDir: string;
   /**
+   * {@link profileDir} was NAMED (`COMPUTER_USE_PROFILE_DIR` or an option), not left to the default:
+   * whoever named it picked the browser this session drives, so nothing else is guessed at — the
+   * conventional :9222 above all (driver-core.ts).
+   */
+  readonly profileNamed: boolean;
+  /**
    * The profile is the USER'S OWN browser (takeover): never kill by profile dir, never park the
    * window, and an unusable endpoint is an error, not something to clear away. Set by the host,
    * never inferred — a wrong guess destroys a window someone was working in.
@@ -92,6 +98,7 @@ export function browserConfigFromEnv(
   const cdpUrl = opts.cdpUrl ?? (env.COMPUTER_USE_CDP_URL?.trim() || undefined);
   return Object.freeze({
     profileDir: opts.profileDir ?? defaultProfileDir(env),
+    profileNamed: opts.profileDir !== undefined || !!env.COMPUTER_USE_PROFILE_DIR,
     attached: opts.attached ?? env.COMPUTER_USE_ATTACHED === "1",
     chromePath: opts.chromePath ?? (env.COMPUTER_USE_CHROME?.trim() || undefined),
     tab: parseTabClaim(rawTab),
