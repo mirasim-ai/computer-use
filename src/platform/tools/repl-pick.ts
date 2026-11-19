@@ -37,6 +37,12 @@ export function pickSurface(ts: MountedTarget[], want: unknown, explainMiss: (qu
   const q = String(want).trim();
   const byId = ts.filter((t) => t.id === q);
   if (byId.length === 1) return byId[0]!;
+  // With several platforms mounted ids carry a `<platform>/` prefix; the platform's own id
+  // (`t2`, as a note or an app's own listing spells it) names the same surface when only one
+  // platform has it. Two platforms with a `t2` each is a refusal below, listing both.
+  const byInner = byId.length ? [] : ts.filter((t) => t.inner === q && t.id !== q);
+  if (byInner.length === 1) return byInner[0]!;
+  if (byInner.length > 1) throw new Error(`${byInner.length} surfaces have the id ${JSON.stringify(q)} — name one with its platform:\n${lines(byInner)}`);
   const lower = q.toLowerCase();
   const exact = ts.filter((t) => t.title.toLowerCase() === lower);
   const hits = exact.length ? exact : ts.filter((t) => t.title.toLowerCase().includes(lower));

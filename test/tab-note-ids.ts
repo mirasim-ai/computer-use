@@ -85,6 +85,12 @@ async function main() {
     check("…and the line it says to write binds that tab",
       returned<{ id: string; url: string }>(boundMade)?.url === at("/doc.html?from=new-tab"), line(boundMade, /Returned|STOPPED/));
 
+    // ── The tab's own id, without the platform, binds it too: it is the only one of that name ─
+    const bare = toBindMade.replace(/^browser\//, "");
+    const boundBare = await bind(bare);
+    check("…and so does its id without the platform, when no other platform has that id",
+      bare !== toBindMade && returned<{ id: string; url: string }>(boundBare)?.id === toBindMade, line(boundBare, /Returned|STOPPED/));
+
     // ── The tab the target moved to ─────────────────────────────────────────────────────────
     const closed = await run(`const t = await computer.surface(${JSON.stringify(made)}); return await t.closeTab();`);
     const moved = /closed tab (\S+); the target moved to (\S+) —/.exec(closed);

@@ -432,6 +432,13 @@ async function main() {
       pickSurface(windows, "com.apple.TextEdit", none).id === "1:2");
     const twoPrimary = refusal(() => pickSurface(windows.map((w) => ({ ...w, primary: true })), "TextEdit", none));
     check("...and is refused when it cannot say which", /2 surfaces match "TextEdit" — name one exactly/.test(twoPrimary), twoPrimary);
+    // Several platforms mounted: ids carry the platform, and the platform's own id still names one.
+    const mixed = [row("browser/t2", "Docs", { inner: "t2" }), row("electron/w1", "App", { inner: "w1" }), row("macos/t2", "Notes", { inner: "t2" })];
+    check("an unprefixed id names the one surface that has it", pickSurface(mixed, "w1", none).id === "electron/w1");
+    const twoInner = refusal(() => pickSurface(mixed, "t2", none));
+    check("...and is refused, listing both, when two platforms have it",
+      /2 surfaces have the id "t2" — name one with its platform/.test(twoInner) && /browser\/t2/.test(twoInner) && /macos\/t2/.test(twoInner), twoInner);
+    check("...while a prefixed id is taken as it is", pickSurface(mixed, "macos/t2", none).id === "macos/t2");
     const missed = refusal(() => pickSurface(tabs, "Gamma", (q) => `${q} is not allowed here`));
     check("a name nothing carries lists what is open, then the platform's own reason",
       /no surface matches "Gamma" — the open ones are:/.test(missed) && missed.endsWith("\nGamma is not allowed here")

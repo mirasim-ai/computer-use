@@ -429,7 +429,7 @@ export function createReplTools(
   const resolve = async (want: unknown): Promise<MountedTarget> => {
     const ts = await allTargets();
     const q = want === undefined ? "" : String(want).trim();
-    if (q && !ts.some((t) => t.id === q || t.title.toLowerCase().includes(q.toLowerCase()))) {
+    if (q && !ts.some((t) => t.id === q || t.inner === q || t.title.toLowerCase().includes(q.toLowerCase()))) {
       for (const slice of scoped ? [scoped] : slices) {
         const t = await slice.driver.unlistedTarget(q);
         if (t) return { ...t, id: prefixed ? `${slice.id}/${t.id}` : t.id, slice, inner: t.id };
