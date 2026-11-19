@@ -29,6 +29,7 @@ import { MacosDriverTargets } from "./driver-targets.ts";
 import type { DiagnosticsAbout } from "../driver-diagnostics.ts";
 import { MACOS_VERBS } from "./extra-verbs.ts";
 import { ElementActs, type AxCall } from "./act-element.ts";
+import { axActionName } from "./elements.ts";
 import type { ActResult, HeaderChanges, OwnershipResource, PreviewTarget, Snapshot, TargetInfo, UserConsent, VerbSpec } from "../types.ts";
 import { AxHelperProcess, type AxHelperOptions, type AxTransport } from "./ax-client.ts";
 import { menuChord, menuVerb, normalizeChord, pasteVerb, type MenuHost } from "./menu-commands.ts";
@@ -71,6 +72,10 @@ export interface MacosDriverOptions {
   appsNamed?: AppNameResolver;
   helper?: AxHelperOptions;
 }
+
+/** How long a refused AXShowMenu is given to open its menu anyway, and the gap between reads. */
+const SHOW_MENU_SETTLE_MS = 1000;
+const SHOW_MENU_STEP_MS = 150;
 
 export class MacosDriver extends MacosDriverTargets {
   private pointerHeld = false;
@@ -562,8 +567,15 @@ export class MacosDriver extends MacosDriverTargets {
         this.lastKeyAt = Date.now();
         return { ok: true };
       }
-      case "ax_action":
-        return this.acts.action(a.ref, a.name, String(a.action ?? ""));
+      case "ax_action": {
+        const action = String(a.action ?? "");
+        // The menu items listed BEFORE, so one that a refused AXShowMenu opened anyway is told
+        // apart from a menu that was in the window all along (a toolbar's menu button).
+        const before = new Set(this.lastListed.filter((e) => e.role === "menuitem").map((e) => e.ref));
+        const result = await this.acts.action(a.ref, a.name, action);
+        if (result.ok || !result.mayHaveActed || axActionName(action) !== "AXShowMenu") return result;
+        return (await this.menuOpenedAnyway(before, result.note ?? "")) ?? result;
+      }
       case "paste":
         // A menu command (menu-commands.ts).
         return pasteVerb(this.menu, pid, a);
@@ -580,6 +592,31 @@ export class MacosDriver extends MacosDriverTargets {
         return { ok: true, note: `${this.app!.name} is now frontmost — the user's keyboard goes to it until they switch back` };
       default:
         return { ok: false, note: `unknown action kind ${kind}` };
+    }
+  }
+
+  /**
+   * AXShowMenu answered with an AXError, and the menu opened anyway: Notes answers -25204 on its
+   * note list every time and has the context menu up about 0.1 s later. Reporting that as a
+   * failure stopped the call and sent the model to `activate`, onto the user's screen, for a menu
+   * that was already there. So the window is read again for up to {@link SHOW_MENU_SETTLE_MS}: menu
+   * items that were not listed before are the action having worked. Null when none appear (the
+   * refusal stands) or the window cannot be read.
+   */
+  private async menuOpenedAnyway(before: Set<string>, refusal: string): Promise<ActResult | null> {
+    const started = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, SHOW_MENU_STEP_MS));
+      try { await this.walk(); } catch { return null; }
+      const items = this.lastListed.filter((e) => e.role === "menuitem" && !e.offscreen && !before.has(e.ref) && e.name);
+      if (items.length) {
+        const shown = items.slice(0, 8).map((e) => `${e.ref} "${e.name}"`).join(", ");
+        // "the app answered AXError -25204 to AXShowMenu on X — …": the part before the dash.
+        const said = refusal.split(" — ")[0] || "the app answered an AXError to AXShowMenu";
+        return { ok: true, note: `${said}, but its menu opened anyway ${Date.now() - started} ms later: ${shown}`
+          + `${items.length > 8 ? `, +${items.length - 8} more` : ""} — click an item by ref${ElementActs.MENU_TAIL}` };
+      }
+      if (Date.now() - started >= SHOW_MENU_SETTLE_MS) return null;
     }
   }
 

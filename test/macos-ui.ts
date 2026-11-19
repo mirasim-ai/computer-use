@@ -118,6 +118,16 @@ async function main() {
     refused.split("\n").at(-1));
   check("…and it no longer claims the app will not perform it",
     !/will not perform it here/.test(refusedAct.note));
+  // Notes answers -25204 to AXShowMenu on its note list every time, and the menu is up ~0.1 s
+  // later. Menu items that were not listed before the call are the action having worked: said as
+  // done, with the items to click, not as a failure that sends the model to `activate`.
+  stub.menuOnRefusal = true;
+  const menuUp = await h.act("ax_action", { ref: popupRef, action: "menu" });
+  check("a refused AXShowMenu whose menu opened anyway is reported done, with the items it opened",
+    menuUp.ok && /AXError -25204/.test(menuUp.note) && /menu opened anyway/.test(menuUp.note) && /"item 0"/.test(menuUp.note)
+    && !/activate the app and drive it with keys/.test(menuUp.note), menuUp.note.split("\n")[0].slice(0, 200));
+  stub.menuOnRefusal = false;
+  stub.tinyMenu = false;
   stub.refuseAction = null;
   // (The harness reads an observation after every verb, so "a refusal decided before the call
   // carries none" has no expression here.)

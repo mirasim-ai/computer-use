@@ -86,6 +86,8 @@ export interface Stub {
   /** The app answers AXError to this action although the element ADVERTISES it (Chrome's address
    *  bar: -25204 to AXShowMenu, sometimes opening the menu anyway). Not the honest "never had it". */
   refuseAction: string | null;
+  /** With refuseAction AXShowMenu: the refused call opens the menu anyway (Notes' note list). */
+  menuOnRefusal: boolean;
   /** Append {@link HELP_AND_ID} — the two shapes a developer id and a tooltip come in. */
   helpAndId: boolean;
   /** Which window the walk reports it read (0 = whatever {@link TREE} says). The driver keys its
@@ -166,7 +168,7 @@ export function stubTransport(): Stub {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
   let scrollBudgetPages = Infinity;
   let restoreAnswer = 1;
-  const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, saysOnPress: null as Record<string, number> | null, said: {} as Record<string, number>, talking: false, unprompted: null as number | null, spoken: 0, noWatch: false, pressReveals: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
+  const state = { trusted: true, generation: 0, extraWindow: false as false | "numbered" | "unnumbered", cutValue: false, valueUnavailable: false, sourceList: false, secondary: false, crowded: false, chatty: false, chattyChurn: 0, tinyMenu: false, frontmost: false, menuLag: 0, focusOn: "none", resultRow: false, overflow: 0, textOverflow: 0, collapsed: false, labelledReadout: false, thinAfterNudge: false, sidebar: false, sidebarSelected: false, launchReady: true, offScreen: false, locked: false, offScreenElements: false, framedOffScreen: false, shotOffScreen: false, screenGranted: true, oldHelper: false, refuseAction: null as string | null, presses: 0, treeWindowId: 0, pressInert: false, spaceActs: false, saysOnPress: null as Record<string, number> | null, said: {} as Record<string, number>, talking: false, unprompted: null as number | null, spoken: 0, noWatch: false, pressReveals: false, helpAndId: false, pressErrorsButActs: false, hitTestErrors: false, humanIdle: 3600, noHumanIdle: false, focusRefused: false, menuOnRefusal: false, setValueRefused: false, writeDiscarded: false, written: new Map<string, string>(), mouseInert: false, covered: false, noMouse: false, cappedBy: "" as "" | "nodes" | "time", pressOpensSheet: false, sendButton: false, formRow: false, panelUp: false, remotePanel: false, focusOwner: 0, sameNames: false, elementFocused: "", scrollArea: false, scrollAt: 0, scrollMax: 3, scrolledAway: false, lazyRows: 0, findBar: false, launchWindowless: false, launchPanelOnly: false, windowsGone: false, soleApp: "" };
   // The helper's two views of what is running, kept apart exactly as the real one has them:
   // `running` is the truth and only `lookup` sees it; `apps` answers from the snapshot taken when
   // the helper started and never learns about a later launch or quit.
@@ -329,6 +331,8 @@ export function stubTransport(): Stub {
             const known = [...TREE.elements, ...SOURCE_LIST, ...SECONDARY, ...SIDEBAR].find((e) => e.key === base);
             const wanted = (params.action as string | undefined) ?? "AXPress";
             if (state.refuseAction && wanted === state.refuseAction) {
+              // Notes' note list: -25204 to AXShowMenu, with its context menu up a moment later.
+              if (state.menuOnRefusal) state.tinyMenu = true;
               throw new AxRequestError("ax_error", `${wanted} on ${params.key}`, -25204);
             }
             // Word's start-gallery buttons, measured: AXPress answers -25205 AND opens
@@ -533,6 +537,7 @@ export function stubTransport(): Stub {
     get screenGranted() { return state.screenGranted; }, set screenGranted(v: boolean) { state.screenGranted = v; },
     get oldHelper() { return state.oldHelper; }, set oldHelper(v: boolean) { state.oldHelper = v; },
     get refuseAction() { return state.refuseAction; }, set refuseAction(v: string | null) { state.refuseAction = v; },
+    get menuOnRefusal() { return state.menuOnRefusal; }, set menuOnRefusal(v: boolean) { state.menuOnRefusal = v; },
     get helpAndId() { return state.helpAndId; }, set helpAndId(v: boolean) { state.helpAndId = v; },
     get treeWindowId() { return state.treeWindowId; }, set treeWindowId(v: number) { state.treeWindowId = v; },
     get pressInert() { return state.pressInert; }, set pressInert(v: boolean) { state.pressInert = v; },

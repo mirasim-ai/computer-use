@@ -99,7 +99,7 @@ export class ElementActs {
    * reads the session's event stream, while `keys` posts to ONE pid. So Escape never reaches it
    * until the app is brought forward; then the same Escape closes it.
    */
-  private static readonly MENU_TAIL = ". Escape closes it; if Escape does nothing the menu is the "
+  static readonly MENU_TAIL = ". Escape closes it; if Escape does nothing the menu is the "
     + "system's and only hears the keyboard while the app is frontmost — activate, then Escape";
 
   /**
