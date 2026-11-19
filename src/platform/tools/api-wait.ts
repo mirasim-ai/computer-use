@@ -48,6 +48,29 @@ export function nearText(text: string, needle: string): string {
   return near.length ? `closest in the readable text: ${near.map((x) => `«${x.l.length > 80 ? `${cutText(x.l, 80)}…` : x.l}»`).join(", ")}` : "";
 }
 
+/** Every option wait reads. Anything else used to be dropped, and the call ran as wait({}). */
+const WAIT_KEYS = ["ms", "text", "control", "text_gone", "control_gone", "url", "url_gone", "loaded"];
+
+/** What an option wait does not take means here, for the ones models bring from elsewhere. */
+const WAIT_HINTS: Record<string, string> = {
+  timeout: "the budget is ms", timeoutMs: "the budget is ms", time: "the budget is ms", delay: "the budget is ms",
+  duration: "the budget is ms", seconds: "the budget is ms, in milliseconds",
+  selector: "name the control (wait({control: \"Save\"})) or the words (wait({text: \"Saved\"}))",
+  state: "wait({loaded: true}) waits for the document; wait({control_gone: \"…\"}) for a control to go",
+  waitUntil: "wait({loaded: true}) waits for the document",
+  hidden: "wait({control_gone: \"…\"}) or wait({text_gone: \"…\"}) waits for something to go",
+  visible: "wait({control: \"…\"}) or wait({text: \"…\"}) waits for something to appear",
+};
+
+/** The refusal for options wait does not read, or null when there are none. */
+export function unknownWaitOptions(opts: Record<string, unknown>): string | null {
+  const unknown = Object.keys(opts).filter((k) => !WAIT_KEYS.includes(k));
+  if (!unknown.length) return null;
+  const hints = [...new Set(unknown.map((k) => WAIT_HINTS[k]).filter(Boolean))];
+  return `wait does not take ${unknown.join(", ")}${hints.length ? ` — ${hints.join("; ")}` : ""}. It takes ${WAIT_KEYS.join(", ")}: `
+    + "wait({}) waits for the content to settle, wait({ms}) sleeps, and each condition takes ms as its budget";
+}
+
 /** The verb, over the driver's own wait primitives and the run's ledger. */
 export function waitVerb(driver: ComputerUseDriver, ledger: () => RunLedger, closest?: ClosestControls) {
   return async (raw: unknown = {}) => {
@@ -55,6 +78,8 @@ export function waitVerb(driver: ComputerUseDriver, ledger: () => RunLedger, clo
     const opts = options<Record<string, unknown>>("wait", raw,
       "wait({}) waits for the content to stop changing; wait({ms:2000}) sleeps; wait({text}) / ({control}) / "
       + "({text_gone}) / ({control_gone}) / ({url}) / ({url_gone}) / ({loaded:true}) wait for a condition");
+    const unknown = unknownWaitOptions(opts);
+    if (unknown) throw new Error(unknown);
     ledger().charge("wait");
     driver.noteAction("wait", opts);
     const needle = typeof opts.text === "string" ? opts.text : typeof opts.text_gone === "string" ? opts.text_gone : null;

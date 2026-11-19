@@ -68,6 +68,14 @@ async function main() {
         && /if \(!await w\.wait\(\{text_gone: "…"\}\)\) throw new Error/.test(gone), gone);
     const odd = head(await run("await w.expect({text: 'x', timeout: 3000});"));
     check("…and any other unknown option is named too", /expect does not take timeout — /.test(odd) && !/wait\(\{/.test(odd), odd);
+    // ── wait refuses what it does not read, instead of running as wait({}) ────────────────
+    const foo = head(await run("return await w.wait({foo: 1});"));
+    check("wait({foo}) is refused, naming foo and listing what wait takes",
+      /wait does not take foo\. It takes ms, text, control, text_gone, control_gone, url, url_gone, loaded/.test(foo), foo);
+    const timeout = head(await run("return await w.wait({text: 'Saved', timeout: 3000});"));
+    check("…a timeout is pointed at ms", /wait does not take timeout — the budget is ms\./.test(timeout), timeout);
+    const selector = head(await run("return await w.wait({selector: '#done'});"));
+    check("…a selector at control and text", /wait does not take selector — name the control \(wait\(\{control: "Save"\}\)\)/.test(selector), selector);
   } finally {
     await driver.close();
   }
