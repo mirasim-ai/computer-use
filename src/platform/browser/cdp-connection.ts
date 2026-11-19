@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { sharedHome } from "../home.ts";
 import { keepUserMedia } from "../chromium/user-media.ts";
+import { ensureRefSelector } from "../chromium/page-refs.ts";
 
 export function browserArtifactsDir(): string {
   return join(sharedHome(), "downloads", ".staging");
@@ -41,5 +42,11 @@ export async function connectBrowserCdp(url: string, timeout?: number): Promise<
   await clearStaleStaging();
   const browser = await chromium.connectOverCDP(url, { artifactsDir, ...(timeout === undefined ? {} : { timeout }) });
   keepUserMedia(browser);
+  // Here, before anyone holding the connection reads a frame: a page's injected script takes the
+  // engines registered when it is built and never learns of a later one. Registered only by the
+  // endpoint ladder, the managed browser a session launched or adopted got the engine at its first
+  // ref action, after the observation had built the first page's script, so every ref action on
+  // that page missed (`no select for ref e5` on a select, a checkbox, a radio) until a reload.
+  await ensureRefSelector(browser);
   return browser;
 }
