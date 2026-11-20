@@ -581,7 +581,9 @@ async function main() {
       rawCdp!,
       `(() => {
         if (!globalThis.__origSend) globalThis.__origSend = chrome.debugger.sendCommand;
-        chrome.debugger.sendCommand = () => new Promise(() => {});
+        chrome.debugger.sendCommand = (...args) => args[1] === "Page.captureScreenshot"
+          ? new Promise(() => {})
+          : globalThis.__origSend.apply(chrome.debugger, args);
         return "patched";
       })()`,
     );
