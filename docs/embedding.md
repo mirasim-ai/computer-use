@@ -112,6 +112,14 @@ question it had open to the user is taken back. The calls after it still wait fo
 ended, so it never runs beside them. A host driving the tools as a library passes the same thing
 as `execute(args, { signal })`.
 
+A host that queues input on its own connection can request immediate interruption. When
+`initialize` advertises version 1 of `mirasim-computer-use/interruptOnCancel` under
+`capabilities.experimental`, set that key to `true` in the call's `params._meta`, then send
+`notifications/cancelled` with the child request ID. An outstanding surface verb is interrupted
+by dropping the connection, so the host can withdraw pending input. A plain wait keeps its
+normal grace period. The server keeps the journal in either case. The library option is
+`execute(args, { signal, interruptOnCancel: true })`.
+
 What a cancelled call did is not lost with its answer. The next call whose answer is read says,
 once and after its own journal, that a call before it was cancelled and lists that call's
 journal: the steps it made, and that nothing after them ran. `computer.lastRun()` returns the

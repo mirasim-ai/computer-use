@@ -74,6 +74,8 @@ export interface ToolCallOptions {
    * left running beside them.
    */
   signal?: AbortSignal;
+  /** The host queues input on this connection. Drop an outstanding verb on cancellation. */
+  interruptOnCancel?: boolean;
 }
 
 /** Erase the schema generic so specs can live in one array. */
