@@ -587,9 +587,12 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     // The page stopped waiting and opened the tab itself: a second one here would be a duplicate.
     if (!(await answer(true))) return;
     // In the opener's own cookie jar: an isolated surface's tabs live in its context.
+    // Loading the requested document after a committed about:blank gives the child two
+    // history entries. Chrome then refuses window.close() in this opener-less tab.
+    const at = opensAt(url) ? url : undefined;
     const tab = this.tab?.isolated && this.ctxId && this.browser
-      ? await newBackgroundPageIn(this.browser, this.ctxId)
-      : await newBackgroundPage(this.context);
+      ? await newBackgroundPageIn(this.browser, this.ctxId, at)
+      : await newBackgroundPage(this.context, at);
     if (this.tab?.isolated && this.ctxId) this.pageCtxIds.set(tab, this.ctxId);
     this.claim(tab);
     this.pageOpenedTabs.set(id, { from, tab });
@@ -597,7 +600,12 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     this.makeActive(tab, null);
     let landed: string;
     try {
-      await tab.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+      if (at) {
+        await tab.waitForURL((u) => u.href !== "about:blank", { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+        if (tab.url().startsWith("chrome-error://")) throw new Error("Chrome could not load the requested page");
+      } else {
+        await tab.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+      }
       landed = landedNote("opened", url, tab.url());
     } catch (e) {
       landed = `asked to open ${url}: ${navVerdict(e).note ?? "its navigation did not finish"}`;

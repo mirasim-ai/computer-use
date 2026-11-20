@@ -77,7 +77,7 @@ function serve(): Promise<{ port: number; close: () => void }> {
         res.end(page("Blank", "<p>empty frame</p>"));
         return;
       default:
-        res.end(page(`Orders ${url.searchParams.get("from") ?? ""}`.trim(), `<h1>Orders page</h1><p>${req.method} ${url.search}</p>`));
+        res.end(page(`Orders ${url.searchParams.get("from") ?? ""}`.trim(), `<h1>Orders page</h1><p>${req.method} ${url.search}</p><button onclick="window.close()">Close this page</button>`));
     }
   });
   return new Promise((resolve) => srv.listen(0, "127.0.0.1", () => {
@@ -157,6 +157,13 @@ async function main() {
     check("…and hands the page a window it reads as open", afterTopOpen?.handle === true, line(topOpen, /Returned|STOPPED/));
     const closedIt = await run(`await w.click(await w.find('Close opened', { role: 'button' })); await w.wait({ ms: 300 }); return ${STATE};`);
     check("…which the page can close again", JSON.stringify(returned<State>(closedIt)?.tabs) === JSON.stringify(["Partner"]), line(closedIt, /Returned|STOPPED/));
+
+    await run(`await w.click(await w.find('Top open', { role: 'button' }));`);
+    const childClose = await run(`const child = await computer.surface((await computer.surfaces()).find(s => s.title === 'Orders top-open').id);`
+      + ` await child.click(await child.find('Close this page', { role: 'button' }));`);
+    const afterChildClose = returned<State>(await run(`return ${STATE};`));
+    check("the child opened by a click can close itself, leaving the opener usable",
+      JSON.stringify(afterChildClose?.tabs) === JSON.stringify(["Partner"]) && intact(afterChildClose), line(childClose, /click|STOPPED/));
 
     // ── A GET form with a tab target ──────────────────────────────────────────
     await reset();
