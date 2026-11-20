@@ -180,13 +180,13 @@ export async function claimIsolatedTab(browser: Browser, key: string): Promise<{
  * a tab one of its pages asks for (page-tabs.ts), which must share the opener's cookies and
  * storage. Raw CDP on the browser, because the context was minted outside Playwright's wrappers.
  */
-export async function newBackgroundPageIn(browser: Browser, browserContextId: string): Promise<Page> {
+export async function newBackgroundPageIn(browser: Browser, browserContextId: string, url = "about:blank"): Promise<Page> {
   const openPages = () => browser.contexts().flatMap((c) => c.pages()).filter((p) => !p.isClosed());
   const before = new Set(openPages());
   const session = await browser.newBrowserCDPSession();
   let targetId: string;
   try {
-    ({ targetId } = await session.send("Target.createTarget", { url: "about:blank", background: true, browserContextId }));
+    ({ targetId } = await session.send("Target.createTarget", { url, background: true, browserContextId }));
   } finally {
     await session.detach().catch(() => {});
   }
