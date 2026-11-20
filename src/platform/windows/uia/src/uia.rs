@@ -70,6 +70,11 @@ impl Engine {
         Ok(Self { a, walks: VecDeque::new(), walk_no: 0 })
     }
 
+    /// The automation object itself, for an op that reads a few elements without a walk (`jsdialog`).
+    pub(crate) fn automation(&self) -> &IUIAutomation {
+        &self.a
+    }
+
     fn request(&self) -> Result<IUIAutomationCacheRequest, Fail> {
         unsafe {
             let r = self.a.CreateCacheRequest()?;
