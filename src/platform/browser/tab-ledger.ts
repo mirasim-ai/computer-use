@@ -11,6 +11,7 @@
  */
 
 import type { Page } from "playwright-core";
+import type { OwnedTabsStore } from "./owned-tabs.ts";
 import { pageTargetInfo } from "./tabs.ts";
 
 /** How long a listing waits to learn which Chrome target each of its pages is: the budget of
@@ -45,9 +46,28 @@ export class TabLedger {
   private readonly targets = new WeakMap<Page, string>();
   private readonly reads = new WeakMap<Page, Promise<string>>();
 
+  /** Where the ids above outlive this process (owned-tabs.ts), once {@link keepIn} named it. */
+  private store: OwnedTabsStore | null = null;
+
   /** `active` answers which page the session is on right now: an identity read comes back later
    *  than it was asked for, and must not record a page the session has since left. */
   constructor(private readonly active: () => Page | undefined) {}
+
+  /** Keep the session's tabs in `store` from now on, and take back the ones an earlier process of
+   *  the same session kept there: they are this session's as a reconnect's are ({@link recognise}). */
+  keepIn(store: OwnedTabsStore): void {
+    const kept = store.load();
+    for (const id of kept.owned) this.ownedTargetIds.add(id);
+    this.activeTargetId ??= kept.active;
+    for (const [target, id] of kept.ids) if (!this.idsByTarget.has(target)) this.idsByTarget.set(target, id);
+    this.nextId = Math.max(this.nextId, kept.next);
+    this.store = store;
+    this.persist();
+  }
+
+  private persist(): void {
+    this.store?.save({ owned: [...this.ownedTargetIds], active: this.activeTargetId, ids: [...this.idsByTarget], next: this.nextId });
+  }
 
   /** A page's Chrome targetId; "" when it cannot be read, which is asked again next time. */
   private targetOf(p: Page): Promise<string> {
@@ -60,7 +80,7 @@ export class TabLedger {
         this.targets.set(p, targetId);
         // An id handed out before the target was known is the tab's id from here on.
         const id = this.ids.get(p);
-        if (id) this.idsByTarget.set(targetId, id);
+        if (id) { this.idsByTarget.set(targetId, id); this.persist(); }
         return targetId;
       }, () => "").finally(() => this.reads.delete(p));
       this.reads.set(p, read);
@@ -108,8 +128,11 @@ export class TabLedger {
   remember(p: Page): void {
     void this.targetOf(p).then((targetId) => {
       if (!targetId) return;
+      const fresh = !this.ownedTargetIds.has(targetId);
       this.ownedTargetIds.add(targetId);
-      if (this.active() === p) this.activeTargetId = targetId;
+      const moved = this.active() === p && this.activeTargetId !== targetId;
+      if (moved) this.activeTargetId = targetId;
+      if (fresh || moved) this.persist();
     });
   }
 
@@ -118,10 +141,16 @@ export class TabLedger {
    *  whose target is known: a tab that is closed a moment later must still be the one it was on. */
   noteActive(p: Page): void {
     const known = this.targets.get(p);
-    if (known) { this.activeTargetId = known; return; }
+    if (known) { this.setActiveTarget(known); return; }
     void this.targetOf(p).then((targetId) => {
-      if (targetId && this.active() === p) this.activeTargetId = targetId;
+      if (targetId && this.active() === p) this.setActiveTarget(targetId);
     });
+  }
+
+  private setActiveTarget(targetId: string): void {
+    if (this.activeTargetId === targetId) return;
+    this.activeTargetId = targetId;
+    this.persist();
   }
 
   /**
@@ -185,7 +214,7 @@ export class TabLedger {
     if (held) return held;
     this.ids.set(p, id);
     const target = this.targets.get(p);
-    if (target) this.idsByTarget.set(target, id);
+    if (target && this.idsByTarget.get(target) !== id) { this.idsByTarget.set(target, id); this.persist(); }
     return id;
   }
 }

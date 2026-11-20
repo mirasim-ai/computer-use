@@ -64,6 +64,12 @@ export interface BrowserConfig {
   readonly extension: boolean;
   /** This session's state home (`COMPUTER_USE_HOME`), where its bridge is recorded. */
   readonly home: string;
+  /**
+   * `COMPUTER_USE_SESSION`: the host's name for the session this process works for, the same in
+   * every child it starts for that session. The tabs the session opened are kept under it, so a
+   * respawned child knows them as its own (owned-tabs.ts). Unset ⇒ only a tab claim's key keeps them.
+   */
+  readonly session?: string;
 }
 
 /** Parse `COMPUTER_USE_TAB` into a claim. Anything that is not a well-formed `name:`/`ctx:` key is
@@ -87,6 +93,7 @@ export interface BrowserConfigOptions {
   cdpUrl?: string;
   cdpStrict?: boolean;
   extension?: boolean;
+  session?: string;
 }
 
 /** Resolve the config: explicit options win, then the environment, then defaults. */
@@ -110,6 +117,7 @@ export function browserConfigFromEnv(
     cdpStrict: opts.cdpStrict ?? (opts.cdpUrl !== undefined || env.COMPUTER_USE_CDP_STRICT === "1"),
     extension: opts.extension ?? env.COMPUTER_USE_BROWSER?.trim() === "extension",
     home: computerUseHome(env),
+    session: opts.session ?? (env.COMPUTER_USE_SESSION?.trim() || undefined),
   });
 }
 

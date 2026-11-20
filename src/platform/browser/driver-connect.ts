@@ -15,6 +15,7 @@ import type { Browser, Frame, Page } from "playwright-core";
 import { connectBrowserCdp } from "./cdp-connection.ts";
 import { unansweringTabs } from "./stalled-tabs.ts";
 import { acquireManagedBrowser, adoptManagedBrowser, openBlankTab, publishTabIdentity } from "./acquire.ts";
+import { ownedTabsStore } from "./owned-tabs.ts";
 import { acquireBridge, bridgeJustStarted, extensionHeldElsewhere, waitForExtension } from "./bridge/acquire-bridge.ts";
 import { claimIsolatedTab, claimNamedTab, claimSessionTab, newBackgroundPage, newBackgroundPageIn, opensAt, pageForTarget, pageTargetInfo, stampTab } from "./tabs.ts";
 import { bridgeBrowserSession } from "./bridge-tabs.ts";
@@ -277,6 +278,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     this.context = this.browser.contexts()[0] ?? (await this.browser.newContext());
     // A reconnect that lands on a different browser behind the bridge says so too.
     this.noteBridgeSession(await bridgeBrowserSession(this.browser));
+    this.keepOwnedTabs();
     if (this.attached) {
       // The profile is the user's: taking one of their tabs, even a blank one, puts the agent in
       // a window they are looking at. Open our own; `ownPages` keeps every other window out of
@@ -311,12 +313,32 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
         // On the managed browser a named claim with no tab yet holds none until it opens one.
         const claimed = await claimSessionTab(this.context, this.tab?.key ?? null, this.cfg, { lazyNamed: !!this.managedProfileDir });
         this.setActive(claimed ?? undefined);
+        // A claim holds more than its stamped tab: the others it opened before a respawn are its own
+        // again (owned-tabs.ts), and the session stays on the stamped one.
+        if (this.tab) await this.reclaimOwn();
       }
     }
     if (this.active) this.claim(this.active);
     this.wireContext();
     await this.installPageTabs(this.active);
     await this.publishClaim();
+  }
+
+  /**
+   * The tabs this session opened in an earlier process of it — a host reaps an idle child and
+   * starts another for the same session — taken back once, on the first connection, as a
+   * reconnect takes back its own (owned-tabs.ts). Not attached (its window is the boundary) nor
+   * isolated (its context is). Keyed by the browser: the bridge (the user's Chrome, whatever its
+   * address), the managed profile, or the endpoint a host named.
+   */
+  private keepOwnedTabs(): void {
+    if (this.ownedTabsKept || !this.browser || this.attached || this.tab?.isolated) return;
+    this.ownedTabsKept = true;
+    const endpoint = this.browser.version() === "mirasim-bridge" ? "extension"
+      : this.managedProfileDir ? `managed:${this.managedProfileDir}`
+      : `cdp:${(this.cdpUrl ?? "").replace(/[?#].*$/, "")}`;
+    const store = ownedTabsStore(this.cfg, endpoint);
+    if (store) this.tabs.keepIn(store);
   }
 
   /**
