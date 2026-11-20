@@ -29,7 +29,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 
 import { ChromiumPageDriver } from "../chromium/page-driver.ts";
 import { previewPage } from "../chromium/preview.ts";
-import { DRAG_VERB, fileInputFor, performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
+import { DIALOG_VERB, DRAG_VERB, fileInputFor, performUploadToRef, refuseMissingFiles } from "../chromium/actions.ts";
 import { PASTE_VERB, SELECT_OPTION_VERB } from "../chromium/actions-value.ts";
 import { SELECT_TEXT_VERB } from "../chromium/select-text.ts";
 import { performRunJs } from "../chromium/run-js.ts";
@@ -38,6 +38,8 @@ import { keepUserMedia } from "../chromium/user-media.ts";
 import { boundedTitle } from "../chromium/bounded-title.ts";
 import { SurfaceGoneError, type ActResult, type Snapshot, type TargetIdentity, type TargetInfo, type VerbSpec } from "../types.ts";
 import { closeWedgedAuxTargets, isAuxUrl, listTargets } from "./preflight.ts";
+import { ElectronDialogs } from "./js-dialogs.ts";
+import { UiaHelperProcess } from "../windows/uia-client.ts";
 
 /**
  * Where the app publishes its renderer debugging port. Not a launch hint, and deliberately not
@@ -48,6 +50,16 @@ import { closeWedgedAuxTargets, isAuxUrl, listTargets } from "./preflight.ts";
  * page drive it); we connect from Node, which sends no `Origin`, so nothing here needs it.
  */
 const DEFAULT_ELECTRON_CDP_URL = "http://127.0.0.1:9333";
+
+/** Whether the debugging port is on this machine, so the app's windows are on this desktop. */
+function isLoopback(cdpUrl: string): boolean {
+  try {
+    const host = new URL(cdpUrl).hostname.replace(/^\[|\]$/g, "");
+    return host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
+  } catch {
+    return false;
+  }
+}
 
 /** Page targets that are not the app: the DevTools window is a `page` target too, and
  *  listing it invites the model to operate the inspector instead of the product. */
@@ -93,11 +105,24 @@ export class ElectronDriver extends ChromiumPageDriver {
   private windowIds = new WeakMap<Page, string>();
   private nextWindowId = 1;
   private readonly cdpUrl: string;
+  /** The app's main process id, asked once per connection (js-dialogs.ts closes its boxes by it). */
+  private appPidAsk: Promise<number | null> | null = null;
+  private readonly dialogs: ElectronDialogs;
 
   constructor(opts: { cdpUrl?: string; env?: NodeJS.ProcessEnv } = {}) {
     super();
     const env = opts.env ?? process.env;
     this.cdpUrl = opts.cdpUrl?.trim() || env.COMPUTER_USE_ELECTRON_CDP_URL?.trim() || DEFAULT_ELECTRON_CDP_URL;
+    this.dialogs = new ElectronDialogs({
+      appPid: () => this.appPid(),
+      local: () => isLoopback(this.cdpUrl),
+      // The Windows driver's helper, for its `jsdialog` op alone (windows/uia/src/jsdialog.rs).
+      helper: () => new UiaHelperProcess({
+        env,
+        onLog: (line) => this.diagnosticsSink?.push("helper", line),
+        onStart: async (pid) => { await this.onExecutorStart?.(pid); },
+      }),
+    });
   }
 
   // ── Declared variance ───────────────────────────────────────────────────────
@@ -124,12 +149,13 @@ export class ElectronDriver extends ChromiumPageDriver {
    * command bridge as ordinary JS. Drag is shared with {@link ChromiumPageDriver}; an app shell
    * is where the gesture lives (reordering tiles, dragging a splitter).
    *
-   * NOT added: `dialog` and the browser's ARMED `upload`. Both answer a NATIVE window the main
-   * process owns (a JS dialog is a native modal; a chooser is usually `dialog.showOpenDialog`),
-   * which no Playwright page event reaches. Upload here is ref-only (`UPLOAD_TO_REF_VERB`).
+   * `dialog` answers a page's JS dialog, which CDP reports and answers as in a browser tab; the
+   * native box Electron shows for it is closed after (js-dialogs.ts). NOT added: the browser's
+   * ARMED `upload`. An app's chooser is usually `dialog.showOpenDialog`, a native window the main
+   * process owns that no page event reaches. Upload here is ref-only (`UPLOAD_TO_REF_VERB`).
    */
   override extraVerbs(): VerbSpec[] {
-    return [DRAG_VERB, PASTE_VERB, SELECT_OPTION_VERB, SELECT_TEXT_VERB, UPLOAD_TO_REF_VERB, RUN_JS_VERB];
+    return [DRAG_VERB, PASTE_VERB, SELECT_OPTION_VERB, SELECT_TEXT_VERB, UPLOAD_TO_REF_VERB, RUN_JS_VERB, DIALOG_VERB];
   }
 
   /** An Electron window is a Chromium document: the same mechanisms end a ref's life, with
@@ -197,6 +223,10 @@ export class ElectronDriver extends ChromiumPageDriver {
     }
     this.browser = browser;
     this.context = context;
+    this.appPidAsk = null;
+    // Every dialog of the app, answered and said (js-dialogs.ts): with no listener Playwright
+    // dismisses each one silently and the app's own box stays up.
+    context.on("dialog", (d) => this.dialogs.onDialog(d));
     const open = this.surfaces();
     if (!open.length) {
       throw new Error(
@@ -270,6 +300,19 @@ export class ElectronDriver extends ChromiumPageDriver {
 
   async perform(kind: string, a: Record<string, unknown>): Promise<ActResult> {
     await this.ensure();
+    if (kind === "dialog") {
+      return { ok: true, note: this.dialogs.arm({ accept: a.answer === "accept", ...(typeof a.text === "string" ? { text: a.text } : {}) }) };
+    }
+    this.dialogs.actionStarts(kind);
+    const res = await this.performVerb(kind, a);
+    // A dialog the action raised is answered while it runs; its box comes up after. The result
+    // waits for both, so it says what happened to them.
+    await this.dialogs.settled();
+    const note = this.dialogs.takeNote();
+    return note ? { ...res, note: res.note ? `${note}. ${res.note}` : note } : res;
+  }
+
+  private async performVerb(kind: string, a: Record<string, unknown>): Promise<ActResult> {
     if (kind === "upload") {
       const paths: string[] = Array.isArray(a.paths) ? a.paths : [];
       const bad = refuseMissingFiles(paths);
@@ -291,10 +334,37 @@ export class ElectronDriver extends ChromiumPageDriver {
     return (await this.dispatchPage(kind, a)) ?? { ok: false, note: `unknown action kind ${kind}` };
   }
 
+  /** A dialog that came up outside an action (a timer, a wait) rides the next observation. */
+  protected override takePendingNote(): string | null {
+    return this.dialogs.takeNote();
+  }
+
+  override endCall(): void {
+    this.dialogs.callEnds();
+  }
+
+  /** From the app itself (the browser process the port belongs to), never from a port owner
+   *  lookup: one question per connection, null when the app will not say. */
+  private appPid(): Promise<number | null> {
+    const browser = this.browser;
+    if (!browser) return Promise.resolve(null);
+    this.appPidAsk ??= (async () => {
+      const session = await browser.newBrowserCDPSession();
+      try {
+        const info = await session.send("SystemInfo.getProcessInfo") as { processInfo?: { type?: string; id?: number }[] };
+        return info.processInfo?.find((p) => p.type === "browser")?.id ?? null;
+      } finally {
+        await session.detach().catch(() => {});
+      }
+    })().catch(() => null);
+    return this.appPidAsk;
+  }
+
   /** The connection first, as in the browser: it is what a verb that never came back waits on. */
   override async abandon(): Promise<void> {
     const browser = this.browser;
     if (browser) await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, DISCONNECT_MS))]);
+    await this.dialogs.close();
     await super.abandon();
   }
 
@@ -302,9 +372,11 @@ export class ElectronDriver extends ChromiumPageDriver {
     // DISCONNECT ONLY: `browser.close()` on a connectOverCDP connection drops the connection and
     // leaves the app running. Never quit the user's application because a task ended.
     await this.browser?.close().catch(() => {});
+    await this.dialogs.close();
     this.browser = null;
     this.context = null;
     this.active = null;
+    this.appPidAsk = null;
     this.resetObservationState();
     this.resetPageState();
     await this.disconnected();

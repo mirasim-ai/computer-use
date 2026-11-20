@@ -8,8 +8,12 @@
  * is unauthenticated, so it hands the app to any local process while open.
  *
  * Asserts the driver's contract, not the app's content: targets are WINDOWS, observations carry
- * refs, a universal verb dispatches, DevTools is filtered out — and `close()` leaves the app
- * running.
+ * refs, a universal verb dispatches, DevTools is filtered out, a JS dialog is answered and said —
+ * and `close()` leaves the app running.
+ *
+ * The dialogs are raised from the console (`run_js`), so the app's own UI is not touched. On
+ * Windows the app's box for each is closed too; elsewhere the note says it may remain, and it
+ * does until you close it.
  */
 
 import { createDriver } from "../src/platform/registry.ts";
@@ -58,6 +62,25 @@ check("run_js evaluates an expression", /result: 2\b/.test(firstText(js)), first
 const thrown = await h.act("run_js", { code: "totally_undefined_fn()" });
 check("a page exception is a result, not a failed action",
   thrown.ok && /threw:/.test(firstText(thrown)), firstText(thrown).split("\n")[0]);
+
+// JS dialogs: answered, said, and an armed answer used by the next action only.
+const confirmJs = (tag: string) => ({ code: `String(confirm("computer-use electron-live: ${tag}"))` });
+const firstLine = (r: ToolResult) => firstText(r).split("\n")[0] ?? "";
+const dismissed = firstText(await h.act("run_js", confirmJs("dismissed")));
+check("a confirm nobody armed for is dismissed and said", /result: "false"/.test(dismissed)
+  && /a JS dialog appeared: «computer-use electron-live: dismissed» — it was auto-dismissed/.test(dismissed), dismissed.split("\n")[0]);
+const armed = await h.act("dialog", { answer: "accept" });
+check("dialog arms an answer", armed.ok, firstLine(armed));
+const accepted = firstText(await h.act("run_js", confirmJs("accepted")));
+check("the next action's confirm gets it", /result: "true"/.test(accepted) && /accepted as you asked/.test(accepted), accepted.split("\n")[0]);
+if (process.platform === "win32") {
+  check("the app's own box for it is closed too", /the app's own box for it was closed too/.test(accepted), accepted.split("\n")[0]);
+}
+await h.act("dialog", { answer: "accept" });
+await h.act("run_js", { code: "1 + 1" });
+const unused = firstText(await h.act("run_js", confirmJs("after an unused answer")));
+check("an answer the next action did not use is dropped, not kept for a later dialog",
+  /result: "false"/.test(unused) && /was not used and was dropped/.test(unused), unused.split("\n")[0]);
 
 await driver.close();
 // The app must have survived it. A fresh driver can only attach if the process is still there.
