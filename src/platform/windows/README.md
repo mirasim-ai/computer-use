@@ -9,7 +9,10 @@ of Windows apps, and a session that names the platform is refused:
 the "windows" platform (native Windows apps) is not part of this release
 ```
 
-The browser and Electron platforms on Windows do not go through this driver or its helper.
+The browser and Electron platforms on Windows do not go through this driver. The Electron platform
+uses its helper for one op only, `jsdialog`: closing the native box an Electron app keeps on screen
+for a JS dialog the driver already answered over CDP (`../electron/js-dialogs.ts`). So the helper
+is shipped and resolved as below whether or not a host opts in to Windows apps.
 
 ## Opting in
 

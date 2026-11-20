@@ -497,7 +497,12 @@ Every driver connects lazily, so mounting one the run never touches costs nothin
   (comma-separated bundle ids) may be driven — or any app when it is unset, since whoever
   started the server is then the operator.
 - **Electron** drives any app started with `--remote-debugging-port=<port>`;
-  `COMPUTER_USE_ELECTRON_CDP_URL` points at it (default `http://127.0.0.1:9333`).
+  `COMPUTER_USE_ELECTRON_CDP_URL` points at it (default `http://127.0.0.1:9333`). A page's JS
+  dialog is answered over that port, as in a browser tab, but Electron keeps its own native box for
+  it on screen, out of the port's reach. On Windows the driver closes that box with the UI
+  Automation helper the `@mirasim/computer-use-win32-<arch>` package carries
+  (`COMPUTER_USE_WINDOWS_UIA_BIN` names another); without it, and on other systems, the result
+  says the box may still be there.
 
 A host that keeps its own approval list turns the stored one off with
 `COMPUTER_USE_MACOS_APPROVALS=""`.

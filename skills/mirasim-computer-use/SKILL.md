@@ -83,6 +83,9 @@ their pointer, keyboard and clipboard.
   ask the user to start their dev build with `--remote-debugging-port=<port>` and to tell you the
   port (Mirasim: pass it per call as `cdp`; standalone: `COMPUTER_USE_ELECTRON_CDP_URL`). Do not
   relaunch their app yourself or probe for ports.
+- A JS dialog in the app (`alert`, `confirm`) is answered as in a browser tab, and the action's
+  note quotes it. `dialog({answer})` covers only the dialog the NEXT action raises. When the note
+  says the app's own box may still be on screen, tell the user: it blocks the app's window.
 - **An installed app opens no such port**, the installed Mirasim desktop app included, and no
   retry changes that. Use the route the app ships (Mirasim's is `mirasim ui-cli`); on macOS an
   installed app other than Mirasim can be operated as a macOS app instead.
