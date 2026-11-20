@@ -37,6 +37,7 @@ host passes the same values as `ProfileOptions` instead; the table is the mappin
 | `COMPUTER_USE_BROWSER` | `extension`: the user's own browser through the Mirasim extension; with no `COMPUTER_USE_CDP_URL` the session finds or starts the bridge itself (`<home>/bridge.json`). A host that supervises its own bridge passes its endpoint in `COMPUTER_USE_CDP_URL` instead |
 | `COMPUTER_USE_CDP_URL` / `COMPUTER_USE_CHROME` / `COMPUTER_USE_PROFILE_DIR` / `COMPUTER_USE_WINDOW` | browser settings (Managed-browser settings below) |
 | `COMPUTER_USE_TAB` | one durable tab in a SHARED browser instead of a browser of its own, so several sessions are several tabs of one Chrome: `name:<key>` (shares cookies with the other named tabs), `ctx:<key>` (its own isolated context: cookies and storage), or `reuse` (an exclusive browser continues its most recent tab). The tab is stamped by `window.name`, so a respawned child re-adopts it. On the managed browser a `name:` tab is opened by the session's first `openUrl` / `newTab`, on its page; until then the session holds none |
+| `COMPUTER_USE_SESSION` | the host's name for the session this process works for, the same in every child it starts for that session. The tabs the session opened (and the ids it knows them by) are kept under it beside the run directory, so a respawned child knows them as its own and can close them; without it only a `COMPUTER_USE_TAB` claim's key keeps them, and without either a respawned child sees them as the user's |
 | `COMPUTER_USE_RUN_SLUG` | the run-directory name under `<home>/run/` (endpoint, journal, shots); default the profile dir's basename. Set it when several sessions share one profile dir, so each keeps its own |
 | `COMPUTER_USE_REPL_DOCS_DELIVERED=1` | the caller already has `computer_repl`'s API reference (it came with the first result of an earlier child of the same session), so the first result carries a one-line pointer instead. For a host that respawns children |
 | `COMPUTER_USE_MACOS_CAPTURE_SOCKET` / `_TOKEN` / `_LEASE` | a host-owned native capture service shared by its runtimes; see [Shared native capture](#shared-native-capture-macos) |
@@ -160,7 +161,9 @@ the host's own task id, echoed on the preview targets that call touched.
 
 **Respawning.** A host that reaps idle children and starts new ones for the same session can set
 `COMPUTER_USE_REPL_DOCS_DELIVERED=1` on the new one (see the table above), and `COMPUTER_USE_TAB`
-makes the new child re-adopt the same browser tab.
+makes the new child re-adopt the same browser tab. The other tabs the session opened are its own
+again in the new child when it carries the same `COMPUTER_USE_SESSION` (or the same
+`COMPUTER_USE_TAB` claim) and reaches the same browser.
 
 ## Live preview: the `mirasim-computer-use/preview` extension
 

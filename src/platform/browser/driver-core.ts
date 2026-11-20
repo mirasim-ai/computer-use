@@ -132,6 +132,8 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
    *  (see {@link NO_TAB_OPEN_NOTE}). Cleared by the verbs that open one, and by binding a tab
    *  (`focusTarget`). */
   protected closedItsLastTab = false;
+  /** The session's tabs from an earlier process have been looked for (driver-connect.ts keepOwnedTabs). */
+  protected ownedTabsKept = false;
   /** The extension bridge's nonce for the browser session behind it, last seen; null until known
    *  (and always off the bridge). See {@link BrowserDriverConnect.noteBridgeSession}. */
   protected bridgeSession: string | null = null;
