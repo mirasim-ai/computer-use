@@ -16,11 +16,39 @@ import Foundation
 
 extension AXEngine {
   /// `press {key, action}`: the action by name, `AXPress` by default.
-  func press(key: String, action: String) throws {
+  func press(key: String, action: String) throws -> [String: Any] {
     let el = try element(forKey: key)
+    let folder = action == "AXOpen" ? finderFolder(el) : nil
     let status = AXUIElementPerformAction(el, action as CFString)
-    if status != .success { throw axFailure(status, "\(action) on \(key)") }
+    if status != .success {
+      // Finder answers -25205 even as it navigates. Only the original window changing to
+      // this folder's actual display name is evidence; another window changing proves nothing.
+      if let folder {
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.8
+        repeat {
+          if attr(folder.window, kAXTitleAttribute as String) as? String == folder.name {
+            return ["openedTitle": folder.name, "ax": status.rawValue]
+          }
+          usleep(25_000)
+        } while ProcessInfo.processInfo.systemUptime < deadline
+      }
+      throw axFailure(status, "\(action) on \(key)")
+    }
     markPointer(at: el)
+    return [:]
+  }
+
+  private func finderFolder(_ el: AXUIElement) -> (window: AXUIElement, name: String)? {
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(el, &pid) == .success,
+          NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder",
+          let url = attr(el, kAXURLAttribute as String) as? URL, url.isFileURL, url.hasDirectoryPath,
+          let name = attr(el, kAXValueAttribute as String) as? String, !name.isEmpty,
+          let owner = attr(el, kAXWindowAttribute as String), CFGetTypeID(owner) == AXUIElementGetTypeID()
+    else { return nil }
+    let window = owner as! AXUIElement
+    guard let before = attr(window, kAXTitleAttribute as String) as? String, !before.isEmpty, before != name else { return nil }
+    return (window, name)
   }
 
   /// Put the drawn pointer on the element an ACCESSIBILITY act just touched — and post nothing.
