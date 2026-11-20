@@ -10,6 +10,8 @@
 //!
 //! Desktop actions use the user's foreground/input. The separate `background` operation only
 //! admits a bounded set of UIA patterns, disables AutoSetFocus and never falls back to real input.
+//!
+//! The Electron driver spawns it too, for one op only: `jsdialog` (jsdialog.rs).
 
 mod apps;
 mod background;
@@ -21,6 +23,7 @@ mod background_guard;
 mod hmenu;
 mod human;
 mod input;
+mod jsdialog;
 mod manifest;
 mod shot;
 mod typing;
@@ -55,7 +58,7 @@ pub type Reply = Result<Value, Fail>;
 
 const OPS: &[&str] = &[
     "capabilities", "windows", "foreground", "tree", "activate", "press", "setvalue", "value", "focus",
-    "click", "move", "scroll", "key", "type", "shot", "shotscoped", "humanidle", "background", "pattern", "apps", "appinfo", "launch", "drag", "selectrange", "paste", "hmenu", "hmenucmd", "setdate",
+    "click", "move", "scroll", "key", "type", "shot", "shotscoped", "humanidle", "background", "pattern", "apps", "appinfo", "launch", "drag", "selectrange", "paste", "hmenu", "hmenucmd", "setdate", "jsdialog",
 ];
 
 fn main() {
@@ -136,6 +139,8 @@ fn dispatch(engine: Option<&mut uia::Engine>, r: &Value) -> Reply {
             r["want"].as_str().unwrap_or(""), r["prefix"].as_str().unwrap_or("")),
         "paste" => engine.paste(param_hwnd(r)?, text(r, "text")?, r["html"].as_str(), r["key"].as_str(), r["verifyMs"].as_u64().unwrap_or(2500).min(5000)),
         "background" => engine.background(param_hwnd(r)?, text(r, "key")?, r),
+        "jsdialog" => jsdialog::close(engine.automation(), pid(r)?, text(r, "message")?, r["button"].as_str().unwrap_or("ok"),
+            r["waitMs"].as_u64().unwrap_or(3000).min(10_000)),
         "type" => engine.type_text(param_hwnd(r)?, text(r, "text")?, r["verifyMs"].as_u64().unwrap_or(2500).min(5000)),
         _ => Err(fail("unknown_op", format!("unknown op '{op}'"))),
     }
@@ -147,6 +152,10 @@ fn param_hwnd(r: &Value) -> Result<isize, Fail> {
 
 fn int(r: &Value, k: &str) -> Result<i32, Fail> {
     r[k].as_f64().map(|v| v.round() as i32).ok_or_else(|| fail("bad_request", format!("missing number '{k}'")))
+}
+
+fn pid(r: &Value) -> Result<u32, Fail> {
+    r["pid"].as_u64().filter(|p| *p > 0 && *p <= u32::MAX as u64).map(|p| p as u32).ok_or_else(|| fail("bad_request", "missing numeric 'pid'"))
 }
 
 fn text<'a>(r: &'a Value, k: &str) -> Result<&'a str, Fail> {
