@@ -39,9 +39,10 @@ extension AXEngine {
       throw HelperError(error.code, "0 of \(requested) key presses were posted. \(error.message)",
                         ax: error.ax, postedCount: 0, requestedCount: requested)
     }
-    return try backgroundInput(pid: pid, windowId: windowId, requested: requested, unit: "key presses") { protection, posted, lastInputAt in
+    return try backgroundInput(pid: pid, windowId: windowId, requested: requested, unit: "key presses",
+                               finderReturn: requested == 1 && ["enter", "return"].contains(chord.lowercased())) { check, posted, lastInputAt in
       for _ in 0..<requested {
-        try protection.check()
+        try check()
         guard cgWindowRows(pid: pid).contains(where: { $0.id == windowId }) else {
           throw HelperError("no_window", "the bound window closed; no further keys were posted")
         }
@@ -55,13 +56,13 @@ extension AXEngine {
 
   func backgroundType(pid: pid_t, windowId: Int, text: String) throws -> [String: Any] {
     var snapshot: [String: Any] = [:]
-    var result = try backgroundInput(pid: pid, windowId: windowId, requested: text.count, unit: "characters") { protection, posted, lastInputAt in
+    var result = try backgroundInput(pid: pid, windowId: windowId, requested: text.count, unit: "characters") { check, posted, lastInputAt in
       // Capture the field before cleanup restores the user's other main window. Reading the
       // app's focus afterwards could verify a different document that happens to end alike.
       snapshot = self.typeSnapshot(pid: pid)
       let deadline = ProcessInfo.processInfo.systemUptime + 10
       for character in text {
-        try protection.check()
+        try check()
         guard ProcessInfo.processInfo.systemUptime < deadline else {
           throw HelperError("background_key_interrupted", "background typing reached its 10 second budget; read back the field before continuing")
         }
@@ -85,8 +86,8 @@ extension AXEngine {
     }
   }
 
-  private func backgroundInput(pid: pid_t, windowId: Int, requested: Int, unit: String,
-                               deliver: (BackgroundKeyGuard, inout Int, inout Int64?) throws -> Void) throws -> [String: Any] {
+  private func backgroundInput(pid: pid_t, windowId: Int, requested: Int, unit: String, finderReturn: Bool = false,
+                               deliver: (() throws -> Void, inout Int, inout Int64?) throws -> Void) throws -> [String: Any] {
     var posted = 0
     var lastInputAt: Int64?
     do {
@@ -109,8 +110,21 @@ extension AXEngine {
       let originalMain = attr(appElement(pid), kAXMainWindowAttribute as String).flatMap { value -> AXUIElement? in
         CFGetTypeID(value) == AXUIElementGetTypeID() ? (value as! AXUIElement) : nil
       }
+      let finderTarget = try finderRenameTarget(pid: pid, id: windowId, window: picked.element, opening: finderReturn)
       let protection = BackgroundKeyGuard.shared
       try protection.start(pid: pid, front: front)
+      if let finderTarget {
+        defer { protection.repairForegroundFocus(); protection.stop() }
+        try deliver({
+          try protection.check()
+          try self.checkFinderRenameTarget(finderTarget, pid: pid, window: picked.element)
+        }, &posted, &lastInputAt)
+        usleep(80_000)
+        try protection.check()
+        try finishFinderRenameInput(finderTarget, pid: pid, id: windowId, window: picked.element, protection: protection)
+        return ["posted": true, "postedCount": posted, "requestedCount": requested, "unit": unit,
+                "lastInputAt": lastInputAt as Any? ?? NSNull()]
+      }
       backgroundCleanupLock.lock()
       backgroundCleanup = {
         // A user who brought the target forward owns its real activation now; do not undo that.
@@ -168,7 +182,7 @@ extension AXEngine {
             CFGetTypeID(focused) == AXUIElementGetTypeID(), CFEqual(focused, picked.element) else {
         throw HelperError("background_key_unsupported", "the app did not give the pinned window keyboard focus; no shortcut was sent")
       }
-      try deliver(protection, &posted, &lastInputAt)
+      try deliver(protection.check, &posted, &lastInputAt)
       usleep(80_000)
       try protection.check()
       restoreBackgroundKeys()

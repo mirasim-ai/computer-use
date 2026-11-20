@@ -116,6 +116,10 @@ struct Node {
 }
 
 final class AXEngine {
+  /// Finder owns its inline filename editor as a separate AX window. Remember the parent
+  /// window only for an editor opened by this helper and still identified by element identity.
+  var finderEditor: (pid: pid_t, window: Int, field: AXUIElement)?
+
   /// One app element per pid, reused: the messaging timeout is set once on it.
   private var appElements: [pid_t: AXUIElement] = [:]
   /// pids where the AXManualAccessibility nudge TOOK, to switch back on exit. No "already tried"
