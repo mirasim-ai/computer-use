@@ -57,6 +57,8 @@ struct Node {
   var title = ""
   var desc = ""
   var value = ""
+  /// Calendar uses AXList with a date value for each day column in the week view.
+  var datedList = false
   var frame = CGRect.zero
   var enabled = true
   var focused = false
@@ -83,7 +85,7 @@ struct Node {
 
   /// Worth listing: a known role, or anything pressable; never a zero-area node unless it is text.
   var included: Bool {
-    guard INCLUDED_ROLES.contains(role) || actions.contains("AXPress") else { return false }
+    guard INCLUDED_ROLES.contains(role) || datedList || actions.contains("AXPress") else { return false }
     if role == "AXImage" && desc.isEmpty { return false }
     if frame.width <= 0 || frame.height <= 0 { return role == "AXStaticText" && !value.isEmpty }
     return true
@@ -171,7 +173,13 @@ final class AXEngine {
       n.role = string(list[0])
       n.subrole = string(list[1])
       n.title = string(list[2])
-      let rawValue = string(list[3])
+      let rawValue: String
+      if n.role == "AXList", let date = list[3] as? Date {
+        n.datedList = true
+        rawValue = date.ISO8601Format(.iso8601(timeZone: .current))
+      } else {
+        rawValue = string(list[3])
+      }
       n.value = String(rawValue.prefix(VALUE_PREVIEW))
       n.valueCut = rawValue.count > VALUE_PREVIEW
       n.desc = string(list[4])
