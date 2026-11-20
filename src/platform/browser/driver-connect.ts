@@ -26,7 +26,7 @@ import { ActionJournal } from "./journal.ts";
 import { captureEvidenceShot } from "../chromium/shot.ts";
 import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
-import { cutText } from "../text-cut.ts";
+import { answerJsDialog } from "../chromium/js-dialogs.ts";
 
 /** How long a disconnect waits for the pages to give the page-tabs script up, and a verb for a
  *  page to take it. */
@@ -421,10 +421,8 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
    * REAL (see adoptWhenReal): a tab that stays at about:blank (an extension's scratch page) would
    * otherwise strand every later action on an empty page. Attached: only tabs in OUR window.
    *
-   * JS dialogs: with no listener Playwright dismisses them SILENTLY. Handle them and say so:
-   * alert → accept; confirm/prompt are decisions the model never saw → dismiss; beforeunload →
-   * accept, or its navigation hangs. The `dialog` verb overrides that for exactly one dialog.
-   * Attached mode answers only dialogs on OUR pages.
+   * JS dialogs: answered and worded by chromium/js-dialogs.ts; the `dialog` verb's answer is
+   * kept until a dialog uses it. Attached mode answers only dialogs on OUR pages.
    */
   private wireContext(): void {
     // What is open when the connection is made has been seen; what is announced later is new
@@ -441,27 +439,10 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       void (async () => {
         const dialogPage = dialog.page();
         if (this.attached && (!dialogPage || !(await this.ownsPage(dialogPage).catch(() => false)))) return;
-        const kind = dialog.type();
         const armed = this.armedDialog;
         this.armedDialog = null; // one dialog, one answer — never a standing policy
-        const accept = armed ? armed.accept : (kind === "alert" || kind === "beforeunload");
-        // Whether the answer LANDED, not whether it was attempted: another CDP client (the
-        // user's DevTools) may answer first, and the note is the model's only evidence.
-        let landed = true;
-        try { await (accept ? dialog.accept(armed?.text) : dialog.dismiss()); } catch { landed = false; }
-        if (kind === "beforeunload") return; // plumbing, not a page fact worth a note
-        const said = `a JS dialog appeared: «${cutText(dialog.message(), 120)}»`;
-        const note = !landed
-          ? `${said} — it was already answered before your ${accept ? "accept" : "dismiss"} `
-            + "could land (another client shares this browser), so the page took an answer you did "
-            + "not choose. Check what the page did before acting on it"
-          // The armed case says who decided; the default note's "did not happen" would lie here.
-          : armed
-            ? `${said} — ${accept ? "accepted" : "dismissed"} as you asked`
-              + (armed.text !== undefined ? ` with text «${cutText(armed.text, 60)}»` : "")
-            : `${said} — it was auto-${accept ? "accepted" : "dismissed"}; `
-              + "if the flow needs a confirm, it did not happen";
-        this.appendNote(note);
+        const { note } = await answerJsDialog(dialog, armed);
+        if (note) this.appendNote(note);
       })();
     });
   }
