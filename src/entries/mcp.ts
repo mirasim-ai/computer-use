@@ -61,13 +61,14 @@ function instructions(profile: Profile): string {
 /** The host takes clearances back with this notification: `{ ids: string[] }` (macOS bundle ids). */
 const REVOKE_METHOD = "notifications/mirasim-computer-use/revoke";
 
+const INTERRUPT_ON_CANCEL = "mirasim-computer-use/interruptOnCancel";
+
 /**
  * The live-preview extension (docs/embedding.md → "Live preview"). A client turns it on by
  * declaring `capabilities.experimental["mirasim-computer-use/preview"]` at initialize; one that
  * does not gets no preview work at all.
  */
 const PREVIEW_EXTENSION = "mirasim-computer-use/preview";
-const INTERRUPT_ON_CANCEL = "mirasim-computer-use/interruptOnCancel";
 const PREVIEW_WATCH = `${PREVIEW_EXTENSION}/watch`;
 /** A frame waits for no one: while this much output is still queued for the client, a new frame
  *  is dropped, so a tool result is never stuck behind video. */
