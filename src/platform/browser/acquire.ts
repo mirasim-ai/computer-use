@@ -331,6 +331,13 @@ async function launchManaged(profileDir: string, cfg: BrowserConfig, firstUrl?: 
     // (and its Dock icon) running until it is force-quit. --silent-launch skips the startup
     // window without that keep-alive, so the user's quit ends the browser.
     "--silent-launch",
+    // ITS profile, named: a managed browser that did not exit cleanly (killed, crashed, the computer
+    // shut down) leaves `profile.last_active_profiles` in Local State, and Chrome then shows the
+    // first window it opens — ours, opened inactive below — as a returning session's, ACTIVATED:
+    // on Windows it took the foreground (and the user's typing) at every relaunch after a kill,
+    // 0 of 6 with the profile named (M6). ATTACHED: the user's own browser opens the profile they
+    // last used, as it would without us.
+    ...(cfg.attached ? [] : ["--profile-directory=Default"]),
   ];
   // Detached with no pipes: an inherited stdio pipe would keep Node's event loop alive, and the
   // browser must be able to outlive the process that started it.
