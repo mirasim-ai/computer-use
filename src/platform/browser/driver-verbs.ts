@@ -397,7 +397,9 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
             return { ok: false, note: "close_tab takes id OR all, not both — all closes every tab this session owns" };
           }
           for (const p of own) await p.close().catch(() => {});
-          this.closedItsLastTab = true;
+          // Only when there was one to close: a session holding none had not "closed its last one",
+          // and every later verb said so — close_tab({id}) on a tab still open included (N15).
+          if (own.length) this.closedItsLastTab = true;
           return { ok: true, note: `closed ${own.length} tab${own.length === 1 ? "" : "s"} — every one this session `
             + "opened or claimed; the user's own tabs were not touched. open_url or new_tab starts a fresh one" };
         }
