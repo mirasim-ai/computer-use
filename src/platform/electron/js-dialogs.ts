@@ -5,11 +5,7 @@
  * says a dialog appeared and how it was answered. Without a listener Playwright dismisses every
  * confirm silently and the result says only `click`.
  *
- * AN ARMED ANSWER LIVES FOR ONE ACTION. `dialog({answer})` covers the dialog the NEXT action
- * raises — during that action, or after it until the next one starts — and never one after: an
- * answer that action did not use is dropped when another action starts or the call ends, and the
- * result says so. Left standing, it would answer whatever unrelated dialog came next (an accept
- * the model armed for one delete, used by a later one it never read).
+ * AN ARMED ANSWER LIVES FOR ONE ACTION, as in a browser tab (chromium/js-dialogs.ts DialogArming).
  *
  * THE APP'S BOX. Electron shows the dialog itself, as a native message box from its main process
  * that it takes down only when the page navigates or closes. An answer over CDP reaches the page
@@ -23,7 +19,7 @@
 
 import type { Dialog } from "playwright-core";
 
-import { answerJsDialog, type ArmedDialog } from "../chromium/js-dialogs.ts";
+import { answerJsDialog, DialogArming, type ArmedDialog } from "../chromium/js-dialogs.ts";
 import { UiaRequestError, type UiaTransport } from "../windows/uia-client.ts";
 
 /** How long the app's box may take to come up after the answer. Measured on a slow Windows
@@ -35,11 +31,6 @@ const SETTLE_MS = BOX_WAIT_MS + 3_000;
 
 const MAY_REMAIN = "the app may still show its own box for this dialog: it no longer changes anything, "
   + "but it blocks the app's window until someone closes it — tell the user";
-
-interface Armed extends ArmedDialog {
-  /** Whether the action it was armed for has started. */
-  inAction: boolean;
-}
 
 export interface ElectronDialogsOptions {
   /** The app's main (browser) process id, or null when it cannot be told. */
@@ -53,7 +44,7 @@ export interface ElectronDialogsOptions {
 
 /** The dialog side of one Electron driver: the armed answer, the answers, the boxes. */
 export class ElectronDialogs {
-  private armed: Armed | null = null;
+  private readonly arming = new DialogArming("in the app");
   private note: string | null = null;
   /** Dialogs being answered and their boxes closed; an action's result waits for them. */
   private readonly jobs = new Set<Promise<void>>();
@@ -69,40 +60,26 @@ export class ElectronDialogs {
 
   /** The `dialog` verb. Arming only: nothing changes yet, so the receipt says what WILL happen. */
   arm(answer: ArmedDialog): string {
-    this.armed = { ...answer, inAction: false };
-    const verb = answer.accept ? "accepted" : "dismissed";
-    return `a JS dialog raised by your NEXT action will be ${verb} — nothing in the app has changed yet; `
-      + "if that action raises none, the answer is dropped when another action starts or this call ends";
+    return this.arming.arm(answer);
   }
 
   /** An action is starting: an answer armed for an EARLIER action that went unused is dropped. */
   actionStarts(kind: string): void {
-    if (!this.armed) return;
-    if (!this.armed.inAction) {
-      this.armed.inAction = true;
-      return;
-    }
-    this.dropArmed(`before this ${kind}: the action it was armed for raised no JS dialog`);
+    const dropped = this.arming.actionStarts(kind);
+    if (dropped) this.append(dropped);
   }
 
   /** The tool call is over: an armed answer never carries into the next one. */
   callEnds(): void {
-    if (this.armed) this.dropArmed("when the call that armed it ended: no JS dialog came up during it");
-  }
-
-  private dropArmed(when: string): void {
-    const verb = this.armed!.accept ? "accept" : "dismiss";
-    this.armed = null;
-    this.append(`the dialog answer you armed (${verb}) was not used and was dropped ${when} — `
-      + "a later dialog gets the default answer (alert accepted, confirm dismissed); arm it again right before the action that raises the dialog");
+    const dropped = this.arming.callEnds();
+    if (dropped) this.append(dropped);
   }
 
   /** Every dialog of the app while attached: answered at once, its box closed after. */
   onDialog(dialog: Dialog): void {
     // Only the action it was armed for gets it: a dialog that comes up before that action starts
     // (a timer, the user's own click) is not the one the model decided on.
-    const armed = this.armed?.inAction ? this.armed : null;
-    if (armed) this.armed = null; // one dialog, one answer — never a standing policy
+    const armed = this.arming.take();
     const job = (async () => {
       const answer = await answerJsDialog(dialog, armed);
       // beforeunload shows no box (Electron emits `will-prevent-unload` instead), nor does a
@@ -169,7 +146,7 @@ export class ElectronDialogs {
 
   /** The connection is gone: no answer survives it, and the helper is stopped. */
   async close(): Promise<void> {
-    this.armed = null;
+    this.arming.clear();
     const uia = this.uia;
     this.uia = null;
     await uia?.close().catch(() => {});
