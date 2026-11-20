@@ -55,6 +55,8 @@ export class BrowserDriver extends BrowserDriverVerbs {
   private holdUnsupported = false;
   /** The user's access settings, as the last listing on the bridge carried them. */
   private access: ExtensionAccess | null = null;
+  /** Verbs in progress: above 0 a `perform` is the driver's own, run inside the model's verb. */
+  private performing = 0;
 
   override async activeTarget(): Promise<string | null> {
     return this.dormantSelection?.id ?? super.activeTarget();
@@ -210,7 +212,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
         ms: Type.Optional(Type.Integer({ minimum: RUN_JS_MIN_MS, maximum: RUN_JS_MAX_MS, description: RUN_JS_MS_DESC })),
       }, { description: "Ask the PAGE something no observation carries — read its data in bulk, its stored state, or an API it exposes. This is a stranger's site holding the user's logged-in session: read and compute here, act through the interaction verbs." }) },
       DRAG_VERB, // press-drag-release; schema lives beside its implementation in actions.ts
-      DIALOG_VERB, // arms the answer for the next JS dialog; put the action in the same call's `then`
+      DIALOG_VERB, // arms the answer for the dialog the NEXT action raises (DialogArming)
       UPLOAD_VERB, // fills a file input, or arms the next file chooser
       DOWNLOAD_VERB,
       SELECT_OPTION_VERB,
@@ -360,14 +362,28 @@ export class BrowserDriver extends BrowserDriverVerbs {
 
   /** Every verb can move the session to another tab (new_tab, close_tab, a popup adopted). */
   override async perform(kind: string, a: Record<string, any>): Promise<ActResult> {
+    // An action is starting, for the `dialog` verb's answer (DialogArming): the model's verb, not
+    // one this driver runs for itself inside it (restoring a tab resizes it with `viewport`).
+    if (!this.performing && kind !== "dialog") {
+      const dropped = this.dialogArming.actionStarts(kind);
+      if (dropped) this.appendNote(dropped);
+    }
+    this.performing++;
     try {
       const res = await super.perform(kind, a);
       return !res.ok && await this.userPaused() ? { ...res, note: PAUSED_BY_USER } : res;
     } catch (e) {
       throw await this.userPaused() ? new Error(PAUSED_BY_USER) : e;
     } finally {
+      this.performing--;
       await this.syncHeld();
     }
+  }
+
+  /** An answer the `dialog` verb armed never carries into the next call; the next result says so. */
+  override endCall(): void {
+    const dropped = this.dialogArming.callEnds();
+    if (dropped) this.appendNote(dropped);
   }
 
   /**
@@ -440,6 +456,7 @@ export class BrowserDriver extends BrowserDriverVerbs {
   async close(): Promise<void> {
     // Disconnecting releases every tab this client held, borrowed ones included (bridge removeClient).
     this.dormantSelection = null;
+    this.dialogArming.clear();
     this.borrowed.clear();
     this.reported = null;
     await this.downloads.close();

@@ -421,8 +421,9 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
    * REAL (see adoptWhenReal): a tab that stays at about:blank (an extension's scratch page) would
    * otherwise strand every later action on an empty page. Attached: only tabs in OUR window.
    *
-   * JS dialogs: answered and worded by chromium/js-dialogs.ts; the `dialog` verb's answer is
-   * kept until a dialog uses it. Attached mode answers only dialogs on OUR pages.
+   * JS dialogs: answered and worded by chromium/js-dialogs.ts; the `dialog` verb's answer goes to
+   * the dialog the next action raises, never a later one (DialogArming). Attached mode answers
+   * only dialogs on OUR pages.
    */
   private wireContext(): void {
     // What is open when the connection is made has been seen; what is announced later is new
@@ -439,9 +440,7 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
       void (async () => {
         const dialogPage = dialog.page();
         if (this.attached && (!dialogPage || !(await this.ownsPage(dialogPage).catch(() => false)))) return;
-        const armed = this.armedDialog;
-        this.armedDialog = null; // one dialog, one answer — never a standing policy
-        const { note } = await answerJsDialog(dialog, armed);
+        const { note } = await answerJsDialog(dialog, this.dialogArming.take());
         if (note) this.appendNote(note);
       })();
     });
