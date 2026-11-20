@@ -186,7 +186,7 @@ func handle(_ req: Req) throws -> [String: Any] {
   case "raisewindow": return try engine.raiseWindow(pid: try req.pid(), windowId: req.optInt("window"))
   case "at":
     return ["element": try engine.at(pid: try req.pid(), x: try req.dbl("x"), y: try req.dbl("y"))]
-  case "press": try engine.press(key: try req.str("key"), action: (req.raw["action"] as? String) ?? "AXPress")
+  case "press": return try engine.press(key: try req.str("key"), action: (req.raw["action"] as? String) ?? "AXPress")
   // What the app itself says changed (ax-watch.swift): a mark before an action, the wait after it.
   case "watch":
     let pid = try req.pid()

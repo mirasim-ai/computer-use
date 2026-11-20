@@ -125,7 +125,10 @@ export class ElementActs {
         + "Run one of those, or click it" };
     }
     try {
-      await this.call("press", { key: k.key, action: want });
+      const receipt = await this.call<{ openedTitle?: string; ax?: number }>("press", { key: k.key, action: want });
+      if (receipt?.openedTitle) {
+        return { ok: true, note: `Finder answered AXError ${receipt.ax} to ${want} on ${what}, but the same window changed its title to "${receipt.openedTitle}"` };
+      }
     } catch (e) {
       if (e instanceof AxRequestError && e.code === "stale_key") return this.staleRef(ref);
       if (e instanceof AxRequestError && e.code === "ax_error") {
