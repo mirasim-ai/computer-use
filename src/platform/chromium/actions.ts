@@ -357,18 +357,18 @@ async function coveredBy(loc: Locator, ref?: string, name?: string): Promise<str
 }
 
 /**
- * The dialog verb: how the NEXT JS dialog gets answered.
+ * The dialog verb: how the JS dialog the NEXT action raises gets answered.
  *
- * A dialog blocks the page until answered, so the driver answers on the spot (driver-core.ts)
+ * A dialog blocks the page until answered, so the driver answers on the spot (js-dialogs.ts)
  * and there is never one on screen to find. The decision must be armed BEFORE the action that
- * raises it: this verb, then the click in the same call's `then`.
+ * raises it: this verb, then that action. It covers that action's dialog only (DialogArming).
  */
 export const DIALOG_VERB: VerbSpec = {
   kind: "dialog",
   schema: Type.Object({
     kind: Type.Literal("dialog"),
     answer: Type.Union([Type.Literal("accept"), Type.Literal("dismiss")], {
-      description: "\"accept\" or \"dismiss\" for the next JS dialog. Default without this verb: alert accepted, confirm/prompt dismissed.",
+      description: "\"accept\" or \"dismiss\" for the JS dialog the NEXT action raises; dropped if that action raises none. Default without this verb: alert accepted, confirm/prompt dismissed.",
     }),
     text: Type.Optional(Type.String({ description: "Text to type into a prompt() before accepting" })),
   }),

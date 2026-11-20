@@ -292,9 +292,7 @@ export abstract class BrowserDriverVerbs extends BrowserDriverConnect {
       }
       case "dialog": {
         // Arming only: nothing changes yet, so the note says what WILL happen.
-        this.armedDialog = { accept: a.answer === "accept", ...(typeof a.text === "string" ? { text: a.text } : {}) };
-        return { ok: true, note: `the next JS dialog will be ${a.answer}ed — `
-          + "nothing on the page has changed yet; the answer is used when the action that raises the dialog runs" };
+        return { ok: true, note: this.dialogArming.arm({ accept: a.answer === "accept", ...(typeof a.text === "string" ? { text: a.text } : {}) }) };
       }
       case "open_url": {
         // A tab opened ON this url is already loading it: wait for that load, not a second one.

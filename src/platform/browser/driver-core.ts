@@ -17,6 +17,7 @@ import { NO_TAB_OPEN_NOTE } from "./messages.ts";
 import { ActionJournal } from "./journal.ts";
 import { BrowserDownloads } from "./downloads.ts";
 import { TabLedger } from "./tab-ledger.ts";
+import { DialogArming } from "../chromium/js-dialogs.ts";
 
 const DEFAULT_CDP_URL = "http://127.0.0.1:9222";
 
@@ -72,9 +73,9 @@ export abstract class BrowserDriverCore extends ChromiumPageDriver {
   /** A fact the NEXT result must carry (e.g. "the browser had been closed, a new one is up").
    *  Held on the driver rather than thrown, so both actions and observations can deliver it. */
   protected pendingNote: string | null = null;
-  /** One-shot dialog answer armed by the `dialog` verb, consumed by the next dialog. No standing
-   * policy: "accept everything" would silently accept some later, unrelated action's dialog. */
-  protected armedDialog: { accept: boolean; text?: string } | null = null;
+  /** The answer the `dialog` verb armed, for the dialog the NEXT action raises and never a later
+   *  one (DialogArming): no standing policy that accepts some later, unrelated action's dialog. */
+  protected readonly dialogArming = new DialogArming("on the page");
   /** The listener armed by `upload` without a ref, kept so a second arming replaces the first
    * instead of stacking two answers on one chooser. */
   protected armedChooser: ((fc: { setFiles(p: string[]): Promise<void> }) => void) | null = null;
