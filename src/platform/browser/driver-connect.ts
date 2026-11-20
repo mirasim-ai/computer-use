@@ -24,7 +24,7 @@ import { PAGE_TAB_ANSWER, PAGE_TABS_BINDING, PAGE_TABS_HOLD, PAGE_TABS_JS, PAGE_
 import { landedNote, NAV_TIMEOUT_MS, navVerdict } from "./navigate.ts";
 import { ActionJournal } from "./journal.ts";
 import { captureEvidenceShot } from "../chromium/shot.ts";
-import { pageOpenedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
+import { pageOpenedNote, pageTabFailedNote, REIDENTIFIED_WHY } from "./driver-core.ts";
 import { BrowserDriverTabs } from "./driver-tabs.ts";
 import { answerJsDialog } from "../chromium/js-dialogs.ts";
 
@@ -590,9 +590,17 @@ export abstract class BrowserDriverConnect extends BrowserDriverTabs {
     // Loading the requested document after a committed about:blank gives the child two
     // history entries. Chrome then refuses window.close() in this opener-less tab.
     const at = opensAt(url) ? url : undefined;
-    const tab = this.tab?.isolated && this.ctxId && this.browser
-      ? await newBackgroundPageIn(this.browser, this.ctxId, at)
-      : await newBackgroundPage(this.context, at);
+    let tab: Page;
+    try {
+      tab = this.tab?.isolated && this.ctxId && this.browser
+        ? await newBackgroundPageIn(this.browser, this.ctxId, at)
+        : await newBackgroundPage(this.context, at);
+    } catch (e) {
+      // The page was told the tab is ours to open, so it opened none: say so, or the click reads as done.
+      const why = (e instanceof Error ? e.message : String(e)).replace(/^mirasim-cu: /, "").split(/\n| — /)[0]!;
+      this.appendNote(pageTabFailedNote(url, why));
+      return;
+    }
     if (this.tab?.isolated && this.ctxId) this.pageCtxIds.set(tab, this.ctxId);
     this.claim(tab);
     this.pageOpenedTabs.set(id, { from, tab });
