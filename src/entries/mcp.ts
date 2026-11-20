@@ -67,6 +67,7 @@ const REVOKE_METHOD = "notifications/mirasim-computer-use/revoke";
  * does not gets no preview work at all.
  */
 const PREVIEW_EXTENSION = "mirasim-computer-use/preview";
+const INTERRUPT_ON_CANCEL = "mirasim-computer-use/interruptOnCancel";
 const PREVIEW_WATCH = `${PREVIEW_EXTENSION}/watch`;
 /** A frame waits for no one: while this much output is still queued for the client, a new frame
  *  is dropped, so a tool result is never stuck behind video. */
@@ -162,7 +163,7 @@ export async function serveMcp(): Promise<void> {
 
   const server: Server = new Server(
     { name: "mirasim-cu", version: ownVersion() },
-    { capabilities: { tools: {}, experimental: { [PREVIEW_EXTENSION]: { version: 1 } } },
+    { capabilities: { tools: {}, experimental: { [PREVIEW_EXTENSION]: { version: 1 }, [INTERRUPT_ON_CANCEL]: { version: 1 } } },
       instructions: instructions(profile) },
   );
   channel.attach(server);
@@ -256,7 +257,7 @@ export async function serveMcp(): Promise<void> {
     const cancelled = () => channel.cancelOpen("the call was cancelled before anyone answered");
     extra.signal.addEventListener("abort", cancelled, { once: true });
     try {
-      const r = await tool.execute(args, { signal: extra.signal });
+      const r = await tool.execute(args, { signal: extra.signal, interruptOnCancel: req.params._meta?.[INTERRUPT_ON_CANCEL] === true });
       log({ type: "call", tool: tool.name, args, isError: typeof r.details.error === "string", ms: Date.now() - started, details: r.details,
         ...(extra.signal.aborted ? { cancelled: true } : {}) });
       return {

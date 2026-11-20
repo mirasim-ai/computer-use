@@ -709,6 +709,13 @@ export function createReplTools(
       let cancelTimer: NodeJS.Timeout | undefined;
       const onCancel = () => {
         cancelled = true;
+        const verb = gate.running();
+        // An embedded host may still have this input queued. Disconnect while it can still
+        // withdraw it, keeping the journal here. A plain wait has no input to withdraw.
+        if (call?.interruptOnCancel && verb && verb !== "wait") {
+          outside.end?.(`${CANCELLED_HEAD} during ${verb}; its result is unknown. Observe before repeating it`);
+          return;
+        }
         cancelTimer = setTimeout(() => outside.end?.(`${CANCELLED_HEAD}, and ${gate.running() ?? "the code"} had not come back `
           + `${Math.round(cancelGraceMs / 100) / 10}s later, so the call was ended`
           + (gate.running() ? " and the connection to the surface dropped. What that verb did is unknown: bind the surface again and observe before repeating anything" : "")),

@@ -82,6 +82,30 @@ async function main() {
     await s.driver.close();
   }
 
+  // A host with an input queue must be able to withdraw its verb on disconnect and still
+  // ask the live REPL what happened. Wait until the verb has reached the driver before aborting.
+  {
+    const s = session();
+    await s.run(BIND);
+    const abort = new AbortController();
+    const list = s.driver.listTargets.bind(s.driver);
+    let release!: () => void;
+    s.driver.listTargets = async () => {
+      await new Promise<void>((resolve) => { release = resolve; abort.abort(); });
+      return [];
+    };
+    const abandon = s.driver.abandon.bind(s.driver);
+    let dropped = false;
+    s.driver.abandon = async () => { dropped = true; release(); await abandon(); };
+    const result = await s.tools.computer_repl!.execute({ code: "computer.log('before the pending request'); await computer.surfaces();", observation: "none" } as never,
+      { signal: abort.signal, interruptOnCancel: true }) as Result;
+    s.driver.listTargets = list;
+    const next = await s.run("return computer.lastRun();");
+    check("interrupting an outstanding host request drops its connection and preserves its journal",
+      dropped && /during surfaces/.test(allText(result)) && /"cancelled":true/.test(next.text) && /before the pending request/.test(next.text), head(allText(result)));
+    await s.driver.close();
+  }
+
   // ── Still out after the grace ────────────────────────────────────────────────────────────
   {
     const s = session();
