@@ -25,6 +25,7 @@ export type SendToExtension = (method: string, params: unknown[]) => Promise<unk
 
 import { BridgeClient, ExtensionUnanswered, STAND_IN_PREFIX, tabIsUnloaded, type BridgeTab, type TabAttachment , type CdpMessage } from "./client.ts";
 import { RuntimeDomain, isRuntimeContextEvent } from "./runtime-contexts.ts";
+import { TabScreencasts } from "./screencasts.ts";
 
 /** The user's access settings as the extension reports them (extension/access.js). */
 export interface ExtensionAccess {
@@ -94,6 +95,8 @@ export abstract class BridgeModelCore {
   private nextClientId = 0;
 
   protected readonly sendToExtension: SendToExtension;
+  /** Each tab's one screencast, shared by its clients, and the frames a capture needs (screencasts.ts). */
+  protected readonly screencasts: TabScreencasts;
 
   constructor(
     send: SendToExtension,
@@ -107,6 +110,10 @@ export abstract class BridgeModelCore {
         throw e;
       }
     };
+    this.screencasts = new TabScreencasts(
+      (tabId, method, params) => this.sendToExtension("chrome.debugger.sendCommand", [{ tabId }, method, ...(params === undefined ? [] : [params])]),
+      log,
+    );
   }
 
   /**
@@ -170,6 +177,7 @@ export abstract class BridgeModelCore {
    */
   removeClient(client: BridgeClient): void {
     this.clients.delete(client);
+    this.screencasts.forget(client);
     client.dispose();
     const tabIds = new Set([...client.sessionByTabId.keys(), ...client.virtualSessions.values()]);
     for (const tabId of tabIds) this.releaseUnusedTab(tabId);
@@ -290,6 +298,11 @@ export abstract class BridgeModelCore {
       }
       return;
     }
+    const readers = this.screencasts.readersOf(tabId, method, params);
+    if (readers) {
+      for (const { client, alias } of readers) client.send({ sessionId: alias, method, params });
+      return;
+    }
     for (const client of this.clients) {
       const alias = client.sessionByTabId.get(tabId);
       if (alias) {
@@ -394,6 +407,7 @@ export abstract class BridgeModelCore {
     client.heldTabs.delete(tabId);
     const attachment = this.attachments.get(tabId);
     const alias = client.dropTab(tabId);
+    if (alias) this.screencasts.forget(client, alias);
     if (alias && attachment) client.send({ method: "Target.detachedFromTarget", params: { sessionId: alias, targetId: attachment.targetInfo.targetId } });
     this.releaseUnusedTab(tabId);
   }
@@ -502,6 +516,7 @@ export abstract class BridgeModelCore {
   protected dropTab(tabId: number): void {
     const attachment = this.attachments.get(tabId);
     this.attachments.delete(tabId);
+    this.screencasts.dropTab(tabId);
     for (const [childId, owner] of this.childSessionOwner) if (owner === tabId) {
       this.childSessionOwner.delete(childId);
       for (const client of this.clients) client.forgetSession(childId);

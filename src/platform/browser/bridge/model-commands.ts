@@ -12,6 +12,7 @@
 
 import { BridgeClient, FAKE_WINDOW, tabIsUnloaded, type BridgeTab, type TabAttachment } from "./client.ts";
 import { BridgeModelCore } from "./model-core.ts";
+import { SCREENCAST_COMMANDS } from "./screencasts.ts";
 import { hostname } from "node:os";
 
 type RestoredTab = { targetId: string; reloaded: boolean; viewport?: { width: number; height: number } };
@@ -162,6 +163,7 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
         if (detachId && virtualOwner !== undefined) {
           client.virtualSessions.delete(detachId);
           client.forgetSession(detachId);
+          this.screencasts.forget(client, detachId);
           this.releaseUnusedTab(virtualOwner);
           return {};
         }
@@ -182,11 +184,16 @@ export abstract class BridgeModelCommands extends BridgeModelCore {
     }
     if (!sessionId) return await this.sendBrowserCommand(method, params);
     const route = this.resolveSession(client, sessionId);
-    return await this.sendToExtension("chrome.debugger.sendCommand", [
+    const forward = () => this.sendToExtension("chrome.debugger.sendCommand", [
       { tabId: route.tabId, ...(route.cdpSessionId ? { sessionId: route.cdpSessionId } : {}) },
       method,
       ...(params === undefined ? [] : [params]),
     ]);
+    // A page's screencast and its screenshots: one per tab, whichever client asks (screencasts.ts).
+    if (!route.cdpSessionId && SCREENCAST_COMMANDS.has(method)) {
+      return await this.screencasts.command(client, sessionId, route.tabId, method, params, forward);
+    }
+    return await forward();
   }
 
   /**
