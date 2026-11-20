@@ -44,6 +44,16 @@ export const pageOpenedNote = (id: string, landed: string) =>
   + `const t = await computer.surface('${id}') binds the new one, the handle you acted through stays on its own tab, `
   + "and refs from earlier observations belong to that tab";
 
+/**
+ * What a run is told when the page asked for a tab and the driver could not open it. The page was
+ * told the tab was being opened for it, so it did not open one itself: without this line the
+ * click's receipt read like any click that opens nothing, and the model went on as if the link
+ * had been followed (the embedded browser lost about one new-tab link in seven this way, N5).
+ */
+export const pageTabFailedNote = (url: string, why: string) =>
+  `the page asked for a new tab (${url}) and it was not opened: ${why} — the session stays on the tab it was on, `
+  + "and the link was not followed; open it with newTab({url}) if it is still needed";
+
 export abstract class BrowserDriverCore extends ChromiumPageDriver {
   protected readonly downloads = new BrowserDownloads();
   protected browser: Browser | null = null;
