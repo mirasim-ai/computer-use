@@ -21,10 +21,17 @@ extension AXEngine {
       }
       return target
     }
-    guard opening, NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder",
+    guard NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder",
           let main = attr(appElement(pid), kAXMainWindowAttribute as String), CFEqual(main, window),
-          let focus = focusedAXElement(pid: pid), let name = finderSelectedName(focus, in: window)
+          let focus = focusedAXElement(pid: pid)
     else { return nil }
+    // A context-menu rename opens the same transient field without sending an Enter.
+    // Bind it before the generic activation click can dismiss it, regardless of menu language.
+    if isFinderFilenameEditor(focus) {
+      finderEditor = (pid, id, focus)
+      return FinderRenameTarget(focus: focus, selectedName: nil)
+    }
+    guard opening, let name = finderSelectedName(focus, in: window) else { return nil }
     return FinderRenameTarget(focus: focus, selectedName: name)
   }
 
@@ -34,7 +41,7 @@ extension AXEngine {
     guard let main = attr(appElement(pid), kAXMainWindowAttribute as String), CFEqual(main, window),
           let focus = focusedAXElement(pid: pid), CFEqual(focus, target.focus),
           target.selectedName == nil || finderSelectedName(focus, in: window) == target.selectedName else {
-      throw HelperError("background_key_interrupted", "the Finder filename selection or editor changed; inspect the window before continuing")
+      throw HelperError("background_key_interrupted", "the Finder filename selection or editor lost focus; inspect the window before continuing")
     }
   }
 
@@ -51,7 +58,7 @@ extension AXEngine {
         throw HelperError("background_key_interrupted", "the selected Finder window changed while opening the filename editor")
       }
       if let field = focusedAXElement(pid: pid),
-         attr(field, "AXIdentifier") as? String == "ShrinkToFit Text Field",
+         isFinderFilenameEditor(field),
          attr(field, kAXValueAttribute as String) as? String == selection {
         finderEditor = (pid, id, field)
         return
@@ -59,6 +66,29 @@ extension AXEngine {
       usleep(10_000)
     } while ProcessInfo.processInfo.systemUptime < deadline
     throw HelperError("background_key_interrupted", "Finder did not expose a filename editor for the selected item; inspect the window before typing")
+  }
+
+  private func isFinderFilenameEditor(_ field: AXUIElement) -> Bool {
+    attr(field, kAXRoleAttribute as String) as? String == "AXTextField" &&
+      attr(field, "AXIdentifier") as? String == "ShrinkToFit Text Field"
+  }
+
+  /// Finder treats text at list focus as type-to-select, even after an editor has closed.
+  /// Require a live text receiver even if no editor survived long enough to register.
+  func finderTypingField(pid: pid_t) throws -> AXUIElement? {
+    guard NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder" else { return nil }
+    guard let focus = focusedAXElement(pid: pid),
+          let role = attr(focus, kAXRoleAttribute as String) as? String,
+          ["AXTextField", "AXTextArea", "AXComboBox"].contains(role) else {
+      throw HelperError("background_key_interrupted", "the Finder text editor lost focus; locate and focus the intended field before typing")
+    }
+    return focus
+  }
+
+  func checkFinderTypingField(_ field: AXUIElement?, pid: pid_t) throws {
+    if let field, focusedAXElement(pid: pid).map({ CFEqual($0, field) }) != true {
+      throw HelperError("background_key_interrupted", "the Finder text editor lost focus; locate and focus the intended field before typing")
+    }
   }
 
   private func focusedAXElement(pid: pid_t) -> AXUIElement? {

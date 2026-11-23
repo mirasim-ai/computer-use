@@ -56,7 +56,7 @@ extension AXEngine {
 
   func backgroundType(pid: pid_t, windowId: Int, text: String) throws -> [String: Any] {
     var snapshot: [String: Any] = [:]
-    var result = try backgroundInput(pid: pid, windowId: windowId, requested: text.count, unit: "characters") { check, posted, lastInputAt in
+    var result = try backgroundInput(pid: pid, windowId: windowId, requested: text.count, unit: "characters", typing: true) { check, posted, lastInputAt in
       // Capture the field before cleanup restores the user's other main window. Reading the
       // app's focus afterwards could verify a different document that happens to end alike.
       snapshot = self.typeSnapshot(pid: pid)
@@ -86,7 +86,7 @@ extension AXEngine {
     }
   }
 
-  private func backgroundInput(pid: pid_t, windowId: Int, requested: Int, unit: String, finderReturn: Bool = false,
+  private func backgroundInput(pid: pid_t, windowId: Int, requested: Int, unit: String, finderReturn: Bool = false, typing: Bool = false,
                                deliver: (() throws -> Void, inout Int, inout Int64?) throws -> Void) throws -> [String: Any] {
     var posted = 0
     var lastInputAt: Int64?
@@ -111,6 +111,9 @@ extension AXEngine {
         CFGetTypeID(value) == AXUIElementGetTypeID() ? (value as! AXUIElement) : nil
       }
       let finderTarget = try finderRenameTarget(pid: pid, id: windowId, window: picked.element, opening: finderReturn)
+      // Capture before activation: its window click can change the keyboard receiver.
+      // A registered rename target already checks both the field and its main window.
+      let field = typing && finderTarget == nil ? try finderTypingField(pid: pid) : nil
       let protection = BackgroundKeyGuard.shared
       try protection.start(pid: pid, front: front)
       if let finderTarget {
@@ -182,7 +185,10 @@ extension AXEngine {
             CFGetTypeID(focused) == AXUIElementGetTypeID(), CFEqual(focused, picked.element) else {
         throw HelperError("background_key_unsupported", "the app did not give the pinned window keyboard focus; no shortcut was sent")
       }
-      try deliver(protection.check, &posted, &lastInputAt)
+      try deliver({
+        try protection.check()
+        try self.checkFinderTypingField(field, pid: pid)
+      }, &posted, &lastInputAt)
       usleep(80_000)
       try protection.check()
       restoreBackgroundKeys()
