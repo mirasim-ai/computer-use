@@ -8,13 +8,13 @@
     "source": "github",
     "id": "1452460804"
   },
-  "version": "0.1.1-rc.14",
+  "version": "0.1.1-rc.15",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@mirasim/computer-use",
-      "version": "0.1.1-rc.14",
+      "version": "0.1.1-rc.15",
       "transport": {
         "type": "stdio"
       },
