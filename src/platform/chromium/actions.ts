@@ -5,7 +5,7 @@
  */
 
 import { existsSync } from "node:fs";
-import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
+import type { Download, ElementHandle, JSHandle, Locator, Page } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
 import { hearPress, type ClickReceipt } from "./click-receipt.ts";
@@ -103,7 +103,7 @@ export async function clickNamingCover(
 
 /** What is known of a click from outside the page: when it began, and whether a navigation
  *  started while it ran. */
-interface ClickWatch { started: number; navigating(): boolean; stop(): void }
+interface ClickWatch { started: number; navigating(): boolean; downloaded(url: string): boolean; stop(): void }
 /** The watch, with the page's own account of the press and the target's name for a refusal. */
 interface ClickSent extends ClickWatch {
   receipt: ClickReceipt | null; what: string;
@@ -116,12 +116,16 @@ function watchClick(page: Page): ClickWatch {
   let requested = false;
   const onRequest = (request: { isNavigationRequest(): boolean }) => { if (request.isNavigationRequest()) requested = true; };
   const onNavigated = () => { requested = true; };
+  const downloads = new Set<string>();
+  const onDownload = (download: Download) => { downloads.add(download.url()); };
+  page.on("download", onDownload);
   page.on("request", onRequest);
   page.on("framenavigated", onNavigated);
   return {
     started: Date.now(),
     navigating: () => requested || page.url() !== urlBefore,
-    stop: () => { page.off("request", onRequest); page.off("framenavigated", onNavigated); },
+    downloaded: url => downloads.has(url),
+    stop: () => { page.off("download", onDownload); page.off("request", onRequest); page.off("framenavigated", onNavigated); },
   };
 }
 
@@ -282,6 +286,12 @@ async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<
     const landing = await landed(watch.receipt);
     const goneAfterReceipt = closedDuringClick();
     if (goneAfterReceipt) return goneAfterReceipt;
+    if (landing?.on === "nothing" && landing.downloadUrl) {
+      if (watch.downloaded(landing.downloadUrl)) {
+        return { ok: true, note: "the target link started its download; check the download receipt for completion" };
+      }
+      throw new Error("the download link received a click, but the download is unconfirmed; inspect the download receipt before repeating it");
+    }
     if (landing?.on === "nothing") {
       throw new Error(`the click was sent, but the page never received it: no press reached ${watch.what} or anything else on this page${took >= 1 ? ` in the ${took}s since` : ""}, `
         + "so nothing here was clicked — the input may have gone to something in front of the page; observe before clicking again");

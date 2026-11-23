@@ -23,7 +23,7 @@ import type { JSHandle } from "playwright-core";
 import { pageFn } from "./collect.ts";
 
 /** Where the press fell: on the target (or inside it), on another element, or nowhere on this page. */
-export type Landing = { on: "target" } | { on: "elsewhere"; who: string } | { on: "nothing" };
+export type Landing = { on: "target" } | { on: "elsewhere"; who: string } | { on: "nothing"; downloadUrl?: string };
 
 export interface ClickReceipt {
   /** What the page has seen so far, or null when it cannot be asked (the frame is gone, the page is busy). */
@@ -41,7 +41,8 @@ const HEAR_FOR_MS = 20_000;
 
 const HEAR_PRESS_JS = String.raw`(el) => {
   const win = el.ownerDocument.defaultView, types = ['pointerdown', 'mousedown'];
-  const seen = { on: 'nothing', who: '' };
+  const seen = { on: 'nothing', who: '', downloadUrl: '' };
+  const link = el.closest('a[download][href]');
   // A closed shadow root retargets the press to its host and hides the path: the hosts above the
   // target stand in for it.
   const hosts = [];
@@ -53,7 +54,15 @@ const HEAR_PRESS_JS = String.raw`(el) => {
     return said ? tag + ' "' + said + '"' : tag;
   };
   let timer = 0;
-  const off = () => { for (const t of types) win.removeEventListener(t, hear, true); win.clearTimeout(timer); };
+  const off = () => { for (const t of types) win.removeEventListener(t, hear, true);
+    if (link) win.removeEventListener('click', activation, true);
+    win.clearTimeout(timer); };
+  // A background webview can activate a download link without a trusted press. Its click
+  // alone proves nothing: the driver checks the browser's download on this page as well.
+  const activation = (e) => {
+    if (e.button === 0 && e.composedPath().includes(el)) seen.downloadUrl = link.href;
+  };
+  if (link) win.addEventListener('click', activation, true);
   const hear = (e) => {
     if (!e.isTrusted) return;
     const path = e.composedPath ? e.composedPath() : [];
@@ -93,9 +102,9 @@ export async function hearPress(target: unknown): Promise<ClickReceipt | null> {
   if (!handle) { late = true; return null; }
   return {
     read: async () => {
-      const seen = await within(handle.evaluate(pageFn("(r) => ({ on: r.seen.on, who: r.seen.who })")) as Promise<{ on: string; who: string }>, READ_MS);
+      const seen = await within(handle.evaluate(pageFn("(r) => ({ ...r.seen })")) as Promise<{ on: string; who: string; downloadUrl: string }>, READ_MS);
       if (!seen) return null;
-      return seen.on === "target" ? { on: "target" } : seen.on === "elsewhere" ? { on: "elsewhere", who: seen.who } : { on: "nothing" };
+      return seen.on === "target" ? { on: "target" } : seen.on === "elsewhere" ? { on: "elsewhere", who: seen.who } : { on: "nothing", downloadUrl: seen.downloadUrl };
     },
     drop: () => release(handle),
   };
