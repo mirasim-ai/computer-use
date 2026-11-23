@@ -127,6 +127,21 @@ async function main() {
     check("an event the page's own script dispatched is not taken for the press",
       /^threw: the click was sent, but the page never received it/.test(forged) && await shown() === "go;", `${forged} / ${await shown()}`);
 
+    // The webview delivers background clicks in-page. Only the clicked link and its
+    // matching browser download together explain a press-less, timed-out click.
+    await page.evaluate(`document.body.insertAdjacentHTML('beforeend',
+      '<a id="dl" download="sample.txt" href="data:text/plain,sample">Sample</a><a id="unrelated" download="other.txt" href="data:text/plain,other">Other</a>')`);
+    const link = page.locator("#dl");
+    const start = (id: string) => page.evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);
+    const downloaded = await outcome(standIn(link, () => start("dl")), link, "e8", "Sample");
+    check("the target link and matching browser download confirm activation", downloaded.startsWith("ok: the target link started its download"), downloaded);
+    const different = await outcome(standIn(link, async () => {
+      await page.evaluate('document.querySelector("#dl").addEventListener("click", e => e.preventDefault(), { once: true })');
+      await start("dl");
+      await start("unrelated");
+    }), link, "e8", "Sample");
+    check("an unrelated download cannot confirm the link", different.startsWith("threw: the download link received a click, but the download is unconfirmed"), different);
+
     // ── Inside an iframe, inside a shadow root ─────────────────────────────────────────────
     await reset();
     const inside = page.frameLocator("#f").locator("#in");
