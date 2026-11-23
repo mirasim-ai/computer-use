@@ -283,14 +283,14 @@ async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<
   if (watch.navigating()) return navigation();
   const took = Math.round((Date.now() - watch.started) / 100) / 10;
   if (answered) {
-    const landing = await landed(watch.receipt);
+    const landing = await landed(watch);
     const goneAfterReceipt = closedDuringClick();
     if (goneAfterReceipt) return goneAfterReceipt;
-    if (landing?.on === "nothing" && landing.downloadUrl) {
-      if (watch.downloaded(landing.downloadUrl)) {
+    if (landing?.on === "nothing" && landing.downloadLink) {
+      if (landing.downloadUrl && watch.downloaded(landing.downloadUrl)) {
         return { ok: true, note: "the target link started its download; check the download receipt for completion" };
       }
-      throw new Error("the download link received a click, but the download is unconfirmed; inspect the download receipt before repeating it");
+      throw new Error("the click on the download link is unconfirmed; inspect the download receipt before repeating it");
     }
     if (landing?.on === "nothing") {
       throw new Error(`the click was sent, but the page never received it: no press reached ${watch.what} or anything else on this page${took >= 1 ? ` in the ${took}s since` : ""}, `
@@ -313,11 +313,22 @@ const PRESS_GRACE_MS = 500;
  * answering travel different roads, so a press sent before the question can still arrive just
  * after it: a receipt that has seen nothing is asked once more, {@link PRESS_GRACE_MS} later.
  */
-async function landed(receipt: ClickReceipt | null) {
-  const first = await receipt?.read() ?? null;
+async function landed(watch: ClickSent) {
+  const first = await watch.receipt?.read() ?? null;
   if (first?.on !== "nothing") return first;
-  await new Promise((resolve) => setTimeout(resolve, PRESS_GRACE_MS));
-  return await receipt?.read() ?? first;
+  // A queued background release can reach a download link after the general press grace.
+  // Keep its listener until the click budget expires, without sending another input.
+  const deadline = first.downloadLink ? watch.started + CLICK_BUDGET_MS : Date.now() + PRESS_GRACE_MS;
+  let last = first;
+  while (Date.now() < deadline) {
+    if (last.downloadUrl && watch.downloaded(last.downloadUrl)) break;
+    await new Promise(resolve => setTimeout(resolve, Math.min(PRESS_GRACE_MS, deadline - Date.now())));
+    const next = await watch.receipt?.read();
+    if (!next) break;
+    if (next.on !== "nothing") return next;
+    last = next;
+  }
+  return last;
 }
 
 /** Does the page's main document answer a trivial evaluate within `ms`? */
