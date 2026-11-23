@@ -41,7 +41,7 @@ extension AXEngine {
     guard let main = attr(appElement(pid), kAXMainWindowAttribute as String), CFEqual(main, window),
           let focus = focusedAXElement(pid: pid), CFEqual(focus, target.focus),
           target.selectedName == nil || finderSelectedName(focus, in: window) == target.selectedName else {
-      throw HelperError("background_key_interrupted", "the Finder filename selection or editor lost focus; inspect the window before continuing")
+      throw HelperError("focus_lost", "the Finder filename selection or editor lost focus; inspect the window before continuing")
     }
   }
 
@@ -80,14 +80,14 @@ extension AXEngine {
     guard let focus = focusedAXElement(pid: pid),
           let role = attr(focus, kAXRoleAttribute as String) as? String,
           ["AXTextField", "AXTextArea", "AXComboBox"].contains(role) else {
-      throw HelperError("background_key_interrupted", "the Finder text editor lost focus; locate and focus the intended field before typing")
+      throw HelperError("focus_lost", "the Finder text editor lost focus; locate and focus the intended field before typing")
     }
     return focus
   }
 
   func checkFinderTypingField(_ field: AXUIElement?, pid: pid_t) throws {
     if let field, focusedAXElement(pid: pid).map({ CFEqual($0, field) }) != true {
-      throw HelperError("background_key_interrupted", "the Finder text editor lost focus; locate and focus the intended field before typing")
+      throw HelperError("focus_lost", "the Finder text editor lost focus; locate and focus the intended field before typing")
     }
   }
 

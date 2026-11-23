@@ -132,15 +132,22 @@ export async function typeVerb(
     try {
       answer = await call<TypeReceipt>("type", { pid, text: part });
     } catch (e) {
-      if (parts.length === 1 || !(e instanceof AxRequestError)) throw e;
-      // The helper counted within its own part; the caller asked for the whole text.
-      const requested = (parts.length - 1) * TYPE_PART + inPartsOf(parts[parts.length - 1]!, 1).length;
-      const sofar = posted + (e.postedCount ?? 0);
-      const own = /^\d+ of \d+ characters were posted before interruption\. /;
-      throw new AxRequestError(e.code, own.test(e.message)
-        ? e.message.replace(own, `${sofar} of ${requested} characters were posted before interruption. `)
-        : `at least ${sofar} of ${requested} characters were posted before this. ${e.message}`,
-        e.ax, sofar, requested, e.capture);
+      if (!(e instanceof AxRequestError)) throw e;
+      let failure = e;
+      if (parts.length > 1) {
+        // The helper counted within its own part; the caller asked for the whole text.
+        const requested = (parts.length - 1) * TYPE_PART + inPartsOf(parts[parts.length - 1]!, 1).length;
+        const sofar = posted + (e.postedCount ?? 0);
+        const own = /^\d+ of \d+ characters were posted before interruption\. /;
+        failure = new AxRequestError(e.code, own.test(e.message)
+          ? e.message.replace(own, `${sofar} of ${requested} characters were posted before interruption. `)
+          : `at least ${sofar} of ${requested} characters were posted before this. ${e.message}`,
+          e.ax, sofar, requested, e.capture);
+      }
+      if (e.code === "focus_lost" && posted === 0 && e.postedCount === 0) {
+        return { ok: false, note: failure.message };
+      }
+      throw failure;
     }
     if (i === 0) receipt = answer;
     posted += answer?.postedCount ?? part.length;
