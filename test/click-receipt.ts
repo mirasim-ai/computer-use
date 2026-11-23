@@ -135,12 +135,14 @@ async function main() {
     const start = (id: string) => page.evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);
     const downloaded = await outcome(standIn(link, () => start("dl")), link, "e8", "Sample");
     check("the target link and matching browser download confirm activation", downloaded.startsWith("ok: the target link started its download"), downloaded);
+    const delayed = await outcome(standIn(link, () => page.evaluate('setTimeout(() => document.querySelector("#dl").click(), 900)')), link, "e8", "Sample");
+    check("a queued link activation outliving the press grace is observed without another click", delayed.startsWith("ok: the target link started its download"), delayed);
     const different = await outcome(standIn(link, async () => {
       await page.evaluate('document.querySelector("#dl").addEventListener("click", e => e.preventDefault(), { once: true })');
       await start("dl");
       await start("unrelated");
     }), link, "e8", "Sample");
-    check("an unrelated download cannot confirm the link", different.startsWith("threw: the download link received a click, but the download is unconfirmed"), different);
+    check("an unrelated download cannot confirm the link", different.startsWith("threw: the click on the download link is unconfirmed"), different);
 
     // ── Inside an iframe, inside a shadow root ─────────────────────────────────────────────
     await reset();

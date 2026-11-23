@@ -23,7 +23,7 @@ import type { JSHandle } from "playwright-core";
 import { pageFn } from "./collect.ts";
 
 /** Where the press fell: on the target (or inside it), on another element, or nowhere on this page. */
-export type Landing = { on: "target" } | { on: "elsewhere"; who: string } | { on: "nothing"; downloadUrl?: string };
+export type Landing = { on: "target" } | { on: "elsewhere"; who: string } | { on: "nothing"; downloadUrl?: string; downloadLink?: boolean };
 
 export interface ClickReceipt {
   /** What the page has seen so far, or null when it cannot be asked (the frame is gone, the page is busy). */
@@ -41,8 +41,8 @@ const HEAR_FOR_MS = 20_000;
 
 const HEAR_PRESS_JS = String.raw`(el) => {
   const win = el.ownerDocument.defaultView, types = ['pointerdown', 'mousedown'];
-  const seen = { on: 'nothing', who: '', downloadUrl: '' };
   const link = el.closest('a[download][href]');
+  const seen = { on: 'nothing', who: '', downloadUrl: '', downloadLink: !!link };
   // A closed shadow root retargets the press to its host and hides the path: the hosts above the
   // target stand in for it.
   const hosts = [];
@@ -102,9 +102,9 @@ export async function hearPress(target: unknown): Promise<ClickReceipt | null> {
   if (!handle) { late = true; return null; }
   return {
     read: async () => {
-      const seen = await within(handle.evaluate(pageFn("(r) => ({ ...r.seen })")) as Promise<{ on: string; who: string; downloadUrl: string }>, READ_MS);
+      const seen = await within(handle.evaluate(pageFn("(r) => ({ ...r.seen })")) as Promise<{ on: string; who: string; downloadUrl: string; downloadLink?: boolean }>, READ_MS);
       if (!seen) return null;
-      return seen.on === "target" ? { on: "target" } : seen.on === "elsewhere" ? { on: "elsewhere", who: seen.who } : { on: "nothing", downloadUrl: seen.downloadUrl };
+      return seen.on === "target" ? { on: "target" } : seen.on === "elsewhere" ? { on: "elsewhere", who: seen.who } : { on: "nothing", downloadUrl: seen.downloadUrl, downloadLink: seen.downloadLink };
     },
     drop: () => release(handle),
   };
