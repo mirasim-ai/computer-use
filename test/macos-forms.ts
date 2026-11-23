@@ -188,17 +188,23 @@ async function main() {
     const once = await typeVerb(whole, 1, "Pages", long, 0);
     check("background typing still sends the whole text as one request", sent.length === 1 && sent[0] === long && once.ok === true);
 
+    const refused = async () => { throw new AxRequestError("focus_lost",
+      "0 of 1000 characters were posted before interruption. the Finder text editor lost focus", undefined, 0, 1000); };
+    const lost = await typeVerb(refused, 1, "Finder", long, 0, true);
+    check("focus loss before the first character is a blocked write with the full request count",
+      !lost.ok && !lost.mayHaveActed && /0 of 2500 characters.*lost focus/.test(lost.note ?? ""));
+
     // The second part is interrupted 300 characters in: the helper counted within its part.
     sent.length = 0;
     const cut = (async (op: string, params: { text?: string }) => {
       sent.push(params.text ?? "");
-      if (sent.length === 2) throw new AxRequestError("ax_error", "300 of 1000 characters were posted before interruption. the app quit", undefined, 300, 1000);
+      if (sent.length === 2) throw new AxRequestError("focus_lost", "300 of 1000 characters were posted before interruption. the field lost focus", undefined, 300, 1000);
       return { postedCount: TYPE_PART };
     }) as never;
     const failed = await typeVerb(cut, 1, "Pages", long, 0, true).then(() => null, (e: unknown) => e);
     check("a part cut short reports how far the WHOLE text got, and nothing more is sent",
       failed instanceof AxRequestError && failed.postedCount === 1300 && failed.requestedCount === 2500 && sent.length === 2
-        && /^1300 of 2500 characters were posted before interruption\. the app quit$/.test(failed.message),
+        && /^1300 of 2500 characters were posted before interruption\. the field lost focus$/.test(failed.message),
       failed instanceof Error ? failed.message : String(failed));
     sent.length = 0;
     const stopped = (async (op: string, params: { text?: string }) => {

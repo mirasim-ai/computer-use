@@ -39,7 +39,9 @@ extension AXEngine {
     var result = typeSnapshot(pid: pid)
     var posted = 0
     do {
+      let field = try finderTypingField(pid: pid)
       for character in text {
+        try checkFinderTypingField(field, pid: pid)
         try typeText(pid: pid, text: String(character))
         posted += 1
       }

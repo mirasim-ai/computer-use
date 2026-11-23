@@ -117,7 +117,7 @@ struct Node {
 
 final class AXEngine {
   /// Finder owns its inline filename editor as a separate AX window. Remember the parent
-  /// window only for an editor opened by this helper and still identified by element identity.
+  /// window and the focused field together so a changed target interrupts pending input.
   var finderEditor: (pid: pid_t, window: Int, field: AXUIElement)?
 
   /// One app element per pid, reused: the messaging timeout is set once on it.
