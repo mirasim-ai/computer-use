@@ -90,6 +90,21 @@ async function main() {
     await go.evaluate(() => 1);
     const base = await pressListeners(page);
 
+    // A webview can change the checkbox without producing a trusted press.
+    // Drive the delayed checkbox event only once and verify the original input.
+    const checkPage = await page.context().newPage();
+    try {
+      await checkPage.setContent('<input type="checkbox" aria-label="Tick">');
+      const checkbox = checkPage.getByRole("checkbox");
+      let sends = 0;
+      const delayed = standIn(checkbox, async () => {
+        sends++;
+        await checkbox.evaluate((el: any) => { setTimeout(() => el.click(), 150); });
+      });
+      const confirmed = await clickNamingCover(delayed, checkbox, OPTS, "e1", "Tick", true);
+      check("embedded checkbox is confirmed by its changed state", confirmed?.ok === true && sends === 1 && await checkbox.isChecked());
+    } finally { await checkPage.close(); }
+
     // ── The usual click ────────────────────────────────────────────────────────────────────
     const usual = await outcome(go, go, "e1", "Go");
     check("a click that goes through as usual is answered as before", usual === "ok: " && await shown() === "go;", `${usual} / ${await shown()}`);

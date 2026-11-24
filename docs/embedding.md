@@ -525,3 +525,5 @@ Chrome, adopted on the first browser call and launched by the first one that ope
 dependency bootstrap shell out to the same verbs users type: `mirasim-cu setup browser`
 (verify a driveable Chrome), `setup macos` (check the Accessibility and Screen Recording grants)
 and `setup extension` (record the native-messaging host for the browser extension).
+
+A host that dispatches ordinary left clicks inside an embedded page sets `COMPUTER_USE_EMBEDDED_INPUT=1` on its browser child. The click receipt checks checkbox state on the original node and reports missing delivery evidence as uncertain.

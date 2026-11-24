@@ -1,3 +1,4 @@
+import { embeddedClickEvidence } from "./embedded-click.ts";
 /**
  * Compound act-verb implementations — set_text's fallback ladder, drag, and select_option.
  * Pure page-level logic: no driver state; the driver passes its locate() in, exactly like
@@ -88,14 +89,30 @@ const REMOVED_PROBE_MS = 500;
  */
 export async function clickNamingCover(
   target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
-  opts: { button: "left" | "right" | "middle"; clickCount: number }, ref?: string, name?: string,
+  opts: { button: "left" | "right" | "middle"; clickCount: number }, ref?: string, name?: string, embeddedInput = false,
 ): Promise<ActResult | null> {
+  const embedded = embeddedInput && opts.button === "left" && opts.clickCount === 1;
+  const evidence = embedded ? await embeddedClickEvidence(loc, COVER_CHECK_AFTER_MS) : null;
   const watch = watchClick(loc.page());
   // Armed before the click and read only if the click is sent and not heard back about (click-receipt.ts).
   const receipt = await hearPress(target);
   try {
-    return await clickWatched(target, loc, opts, { ...watch, receipt, what: `${ref ?? "the target"}${name ? ` "${name}"` : ""}` }, ref, name);
+    const sent = { ...watch, receipt, embedded, what: `${ref ?? "the target"}${name ? ` "${name}"` : ""}` };
+    let result: ActResult | null;
+    try {
+      result = await clickWatched(target, loc, opts, sent, ref, name);
+    } catch (err) {
+      // Only counter a lost post-dispatch receipt with the original checkbox's actual change.
+      if (!/the click was sent/.test(String(err))) throw err;
+      if (!evidence || !await evidence.confirm(watch.started + CLICK_BUDGET_MS)) throw err;
+      return { ok: true, note: evidence.checkbox ? "the original checkbox changed state" : "the expected history entry became active" };
+    }
+    if (evidence?.checkbox && result?.ok && !await evidence.confirm(watch.started + CLICK_BUDGET_MS)) {
+      throw new Error("Checkbox click dispatched; the original control did not confirm a state change. Inspect before retrying.");
+    }
+    return result;
   } finally {
+    evidence?.drop();
     receipt?.drop();
     watch.stop();
   }
@@ -106,7 +123,7 @@ export async function clickNamingCover(
 interface ClickWatch { started: number; navigating(): boolean; downloaded(url: string): boolean; stop(): void }
 /** The watch, with the page's own account of the press and the target's name for a refusal. */
 interface ClickSent extends ClickWatch {
-  receipt: ClickReceipt | null; what: string;
+  receipt: ClickReceipt | null; what: string; embedded?: boolean;
   /** A forced click at an editor proxy's point lands on the editor's own text, by design: any press on the page is its press. */
   anywhere?: boolean;
 }
@@ -134,7 +151,7 @@ async function clickWatched(
   opts: { button: "left" | "right" | "middle"; clickCount: number }, watch: ClickSent, ref?: string, name?: string,
 ): Promise<ActResult | null> {
   try {
-    await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
+    await target.click({ ...opts, ...(watch.embedded ? { noWaitAfter: true } : {}), timeout: COVER_CHECK_AFTER_MS });
     return { ok: true };
   } catch (e) {
     const after = await afterDispatch(e, loc.page(), watch);
@@ -161,7 +178,7 @@ async function clickWatched(
   for (let spent = COVER_CHECK_AFTER_MS; spent < CLICK_BUDGET_MS; spent += COVER_CHECK_AFTER_MS) {
     if (await removed(loc)) return null;
     try {
-      await target.click({ ...opts, timeout: COVER_CHECK_AFTER_MS });
+      await target.click({ ...opts, ...(watch.embedded ? { noWaitAfter: true } : {}), timeout: COVER_CHECK_AFTER_MS });
       return { ok: true };
     } catch (e) {
       const after = await afterDispatch(e, loc.page(), watch);
@@ -291,6 +308,9 @@ async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<
         return { ok: true, note: "the target link started its download; check the download receipt for completion" };
       }
       throw new Error("the click on the download link is unconfirmed; inspect the download receipt before repeating it");
+    }
+    if (watch.embedded && (!landing || landing.on === "nothing")) {
+      throw new Error("the click was sent through the embedded page, but its effect is uncertain; read the document state before repeating it");
     }
     if (landing?.on === "nothing") {
       throw new Error(`the click was sent, but the page never received it: no press reached ${watch.what} or anything else on this page${took >= 1 ? ` in the ${took}s since` : ""}, `
