@@ -292,6 +292,12 @@ func readLoop() {
         workQueue.async { fail(id, HelperError("bad_request", "each line must be a JSON object with \"id\" and \"op\"")) }
         continue
       }
+      // The input thread can confirm process liveness while Accessibility is busy.
+      // All AX operations, including the completion fence, stay on workQueue.
+      if op == "ping" {
+        emit(["id": id, "ok": true, "result": ["alive": true]])
+        continue
+      }
       let req = Req(id: id, op: op, raw: obj)
       // One autorelease pool PER REQUEST: a dispatch queue makes no guarantee about when its own
       // pool drains, and every op returns autoreleased CF/AX objects, so the footprint would climb

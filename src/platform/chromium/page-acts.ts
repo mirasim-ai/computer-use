@@ -116,7 +116,8 @@ export abstract class ChromiumPageActs extends ChromiumPageBase {
           const box = stand ? await stand.boundingBox() : null;
           if (box) this.lastPoint = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
           // A cover is named after 2 s, not after the whole 8 s wait (actions.ts).
-          const clicked = await clickNamingCover(target, loc, { button: a.button ?? "left", clickCount: a.count ?? 1 }, a.ref, a.name);
+          const clicked = await clickNamingCover(target, loc, { button: a.button ?? "left", clickCount: a.count ?? 1 }, a.ref, a.name,
+            this.platform === "browser" && process.env.COMPUTER_USE_EMBEDDED_INPUT === "1");
           return clicked ?? await removedMeanwhile();
         } finally {
           await visual.dispose();

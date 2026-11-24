@@ -135,7 +135,12 @@ extension AXEngine {
       }
     }
     if depth >= w.maxDepth { return }
-    let kids = children(el)
+    var kids = children(el)
+    // Read the window toolbar before a large table can consume the walk deadline.
+    if n.role == "AXWindow" {
+      let toolbar = kids.firstIndex { (attr($0, kAXRoleAttribute as String) as? String) == "AXToolbar" }
+      if let index = toolbar, index > 0 { kids.insert(kids.remove(at: index), at: 0) }
+    }
     // A level that establishes its own bulk wins; otherwise the ancestor's carries on: Excel wraps
     // every cell in a one-child cell, so the real cells sit a level below the signal.
     let bulk = bulkRole(kids)

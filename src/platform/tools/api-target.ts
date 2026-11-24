@@ -26,8 +26,16 @@ export function createTargeting(
 
   /** The same search, keeping what the READ knew for the journal line a miss writes, and the
    *  same knowledge as data (`why`) for `find(…, {why: true})`. */
-  const findWithMiss = async (name: string, scope: FindScope = {}): Promise<{ h: Handle | null; miss: string; why: FindMiss | null }> => {
-    const { elements, groups, partial, covered, headings } = await driver.readElements();
+  const findWithMiss = async (name: string, scope: FindScope = {}): Promise<{ h: Handle | null; miss: string; why: FindMiss | null; windowState?: string }> => {
+    let snapshot;
+    try {
+      snapshot = await driver.readElements();
+    } catch (e) {
+      if (driver.platform !== "macos" || driver.permissionRefusal || (e as { surfaceGone?: boolean }).surfaceGone) throw e;
+      const note = `could not read the native window: ${(e as Error).message}`;
+      return { h: null, miss: note, why: { ref: null, reason: "unreadable", note } };
+    }
+    const { elements, groups, partial, covered, headings } = snapshot;
     hooks.onRefs?.(elements.map((e) => e.ref));
     // `near` may name something that is not a control: find where that is in THIS read.
     if (scope.near) {
@@ -41,10 +49,13 @@ export function createTargeting(
     // The control IS here, under an overlay (an ad bar, a banner) — asked first: the text
     // fallback would call it "not a control" and send the model to text(), the opposite move.
     const found = coveredMiss(covered, name, scope, driver.scrollsInto)
-      ?? nearMiss(elements, name, scope, await nameIsInText(name), groups);
+      ?? nearMiss(elements, name, scope, driver.platform !== "macos" && await nameIsInText(name), groups);
     // A partial read cannot say "not here": the name may sit in the part it never reached.
     const miss = partial ? `${found.note} — but this read was PARTIAL (${partial}), so it may be in the part not read; find again, or narrow with within:` : found.note;
-    return { h, miss, why: { ref: null, ...found, note: miss, ...(partial ? { partial } : {}) } };
+    // Compare stable control identities, not changing values (e.g. CPU percentages).
+    const windowState = driver.platform === "macos" ? JSON.stringify([snapshot.title, snapshot.target,
+      elements.filter(e => e.role !== "text").map(e => [e.role, e.id, e.name, e.editable])]) : undefined;
+    return { h, miss, windowState, why: { ref: null, ...found, ...(driver.platform === "macos" && partial ? { reason: "unreadable" as const } : {}), note: miss, ...(partial ? { partial } : {}) } };
   };
 
   /**
@@ -141,8 +152,9 @@ export function createTargeting(
     hooks.onTarget?.(h.ref);
     // Group membership may change while the DOM node (and its ref) survives. Re-check the scope
     // before using a group-bound handle, not only after a ref disappears.
-    if (h.nearGroup) {
+    if (h.nearGroup || h.scope?.id || h.scope?.editable !== undefined) {
       const fresh = await findByName(h.name, h.scope);
+      if (!fresh && !h.nearGroup) throw new Error(`"${h.name}" no longer matches its identifier and editability filters; observe before acting`);
       if (!fresh || fresh.nearGroup !== h.nearGroup) throw new Error(`"${h.name}" is no longer in group "${h.nearGroup}" — observe() before acting`);
       h = fresh;
       hooks.onTarget?.(h.ref);

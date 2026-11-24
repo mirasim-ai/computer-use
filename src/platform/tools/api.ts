@@ -278,7 +278,9 @@ export function createComputerUseApi(
           + "returns. Its one option is screenshot: true.");
       }
       ledger().charge("observe");
-      const { url, title, elements, groups, headings, partial, coverage, target } = await driver.readElements();
+      const data = await driver.readElements();
+      hooks.onObservation?.(data);
+      const { url, title, elements, groups, headings, partial, coverage, target } = data;
       hooks.onRefs?.(elements.map((e) => e.ref));
       let shot = "";
       if (opts.screenshot) {
@@ -301,12 +303,26 @@ export function createComputerUseApi(
       // Not part of the scope: it changes what a miss ANSWERS, never what is searched, so a
       // handle's re-resolution must not carry it.
       const explain = !!(opts && typeof opts === "object" && (opts as { why?: unknown }).why);
-      let { h, miss, why } = await findWithMiss(String(name ?? ""), scope);
+      let { h, miss, why, windowState } = await findWithMiss(String(name ?? ""), scope);
       // A miss right after an action may read the tree from BEFORE the popup it opened painted
       // (`click` returns when the DOM event fired). Retry briefly, once per action. Not a wait
       // inside `click`: that would tax every click (see driver-settle.ts); this pays only on a
       // miss, which already costs a round trip.
-      if (!h && STATE_CHANGING_ACTIONS.has(sinceAction ?? "")) {
+      if (!h && driver.platform === "macos") {
+        let changed = false;
+        for (const delay of [80, 160]) {
+          if ((ledger().remainingMs?.() ?? Infinity) < delay + 2000) break;
+          await new Promise(r => setTimeout(r, delay));
+          const result = await findWithMiss(String(name ?? ""), scope);
+          changed ||= windowState !== result.windowState;
+          ({ h, miss, why, windowState } = result);
+          if (h) break;
+        }
+        if (!h && why && windowState !== undefined && changed && (why.reason === "absent" || why.reason === "unreadable")) {
+          miss = "the window changed during the lookup; " + miss;
+          why = { ...why, reason: "changing", note: miss };
+        }
+      } else if (!h && STATE_CHANGING_ACTIONS.has(sinceAction ?? "")) {
         sinceAction = null;
         for (let waited = 0; !h && waited < FIND_SETTLE_BUDGET_MS; waited += FIND_SETTLE_INTERVAL_MS) {
           await new Promise((r) => setTimeout(r, FIND_SETTLE_INTERVAL_MS));

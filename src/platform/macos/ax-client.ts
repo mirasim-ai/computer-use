@@ -69,7 +69,7 @@ const STDERR_TAIL_MAX = 2000;
 interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -88,6 +88,7 @@ export class AxHelperProcess implements AxTransport {
   private generation = 0;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
+  private tail: Promise<void> = Promise.resolve();
   private stderrTail = "";
   private gone: Error | null = null;
   private readonly env: NodeJS.ProcessEnv;
@@ -124,6 +125,25 @@ export class AxHelperProcess implements AxTransport {
       return result;
     }
     const generation = this.generation;
+    const queueMs = this.timeoutMs + LAUNCH_EXTRA_MS;
+    const queuedAt = Date.now();
+    const queueError = () => new AxRequestError("ax_error", `ax helper: '${op}' expired in the queue; nothing was sent`);
+    let expired = false;
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { expired = true; reject(queueError()); }, queueMs);
+    });
+    const job = this.tail.then(async () => {
+      clearTimeout(timer);
+      if (expired || Date.now() - queuedAt >= queueMs) throw queueError();
+      if (generation !== this.generation) throw new AxRequestError("helper_gone", "ax helper changed while the request was queued");
+      return this.dispatch(op, params, generation);
+    });
+    this.tail = job.then(() => {}, () => {});
+    return Promise.race([job, timeout]);
+  }
+
+  private async dispatch(op: string, params: Record<string, unknown>, generation: number): Promise<unknown> {
     await this.start();
     // A close during startup must cancel THIS request, even if another caller has since
     // opened a new helper. Never replay an action against that replacement process.
@@ -131,25 +151,47 @@ export class AxHelperProcess implements AxTransport {
     if (this.gone) throw this.gone;
     const child = this.child;
     if (!child) throw new AxRequestError("helper_gone", "ax helper is not running");
+    const limit = this.timeoutMs + (op === "launch" ? LAUNCH_EXTRA_MS : 0);
+    const timeout = new AxRequestError("ax_error", `ax helper: '${op}' did not answer within ${limit} ms; its outcome is uncertain`);
+    try {
+      return await this.send(child, op, params, limit, timeout);
+    } catch (e) {
+      if (e !== timeout || this.child !== child) throw e;
+      // Swift processes stdin in order. A heartbeat reply fences the old action:
+      // it cannot post more input after the caller is allowed to release ownership.
+      const grace = Math.min(this.timeoutMs, 2000);
+      const fence = this.send(child, "capabilities", {}, undefined, timeout).then(() => true, () => true);
+      while (this.child === child) {
+        let timer: NodeJS.Timeout | undefined;
+        const finished = await Promise.race([fence, new Promise<false>(resolve => {
+          timer = setTimeout(() => resolve(false), grace);
+        })]).finally(() => clearTimeout(timer));
+        if (finished) break;
+        try {
+          await this.send(child, "ping", {}, grace, new AxRequestError("ax_error", "ax helper heartbeat expired"));
+        } catch {
+          // Only the fence can be outstanding: this.dispatch owns the FIFO slot.
+          if (this.child === child && this.pending.size === 1) await this.close();
+          break;
+        }
+      }
+      throw e;
+    }
+  }
+
+  private send(child: ChildProcessWithoutNullStreams, op: string, params: Record<string, unknown>, limit: number | undefined, timeout: Error): Promise<unknown> {
     const id = this.nextId++;
     const line = `${JSON.stringify({ id, op, ...params })}\n`;
-    const limit = this.timeoutMs + (op === "launch" ? LAUNCH_EXTRA_MS : 0);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        // A timed-out helper can still post input. Stop it before the caller can release its
-        // ownership or dispatch a follow-up operation against another target.
-        void this.close().then(() => reject(new AxRequestError("ax_error", `ax helper: '${op}' did not answer within ${limit} ms; helper stopped`)));
-      }, limit);
+      const timer = limit === undefined ? undefined : setTimeout(() => { this.pending.delete(id); reject(timeout); }, limit);
       this.pending.set(id, { resolve, reject, timer });
-      try {
-        child.stdin.write(line);
-      } catch (e) {
+      try { child.stdin.write(line); }
+      catch (e) {
         clearTimeout(timer);
         this.pending.delete(id);
         reject(e);
       }
-    }).catch(async (e: unknown) => { await this.closing; throw e; });
+    });
   }
 
   close(): Promise<void> {

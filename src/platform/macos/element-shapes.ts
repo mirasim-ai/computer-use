@@ -28,6 +28,7 @@ export interface AxElement {
   /** `AXIdentifier`, sent ONLY for a node with no title and no description: developer text, the
    *  one thing telling two nameless controls apart. Newer. */
   ident?: string;
+  editable?: boolean;
   help?: string;
   /** Where this node sat in the app's own document order (the walk's visit counter), which
    *  {@link textOf} merges the two arrays back by. Newer; without it off-screen rows follow. */

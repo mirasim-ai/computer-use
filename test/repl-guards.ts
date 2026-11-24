@@ -38,6 +38,29 @@ async function main() {
   const stub = stubTransport();
   const driver = new MacosDriver({ transport: stub.transport, ...ONE_APP });
   const h = createHarness(driver);
+  // Simulate successive native snapshots without touching the desktop.
+  const originalRead = driver.readElements.bind(driver);
+  const native = await originalRead();
+  try {
+    const template = native.elements[0]!;
+    const sameName = [
+      { ...template, role: "textbox", name: "Title", id: "readonly", editable: false, ref: "e301" },
+      { ...template, role: "textbox", name: "Title", id: "editor", editable: true, ref: "e302" },
+    ];
+    driver.readElements = async () => ({ ...native, elements: sameName });
+    const editor = await h.api.find("Title", { role: "textbox", id: "editor", editable: true });
+    check("native lookup combines title, role, identifier and writability", editor?.ref === "e302");
+    const missing = await h.api.find("Missing", { why: true }) as { reason?: string };
+    check("stable complete native snapshots can confirm absence", missing?.reason === "absent");
+    let count = 0;
+    driver.readElements = async () => ({ ...native, title: String(++count), elements: [] });
+    const moving = await h.api.find("Missing", { why: true }) as { reason?: string };
+    check("a changed native window is distinct from an absent control", moving.reason === "changing" && count === 3);
+    driver.readElements = async () => { throw new Error("AX read failed"); };
+    const failed = await h.api.find("Missing", { why: true }) as { reason?: string };
+    check("an unreadable native window does not prove absence", failed.reason === "unreadable");
+  } finally { driver.readElements = originalRead; }
+
   await h.observe();
 
   // ── A verb's own schema is applied to what the SCRIPT passed ──────────────────────────

@@ -5,6 +5,7 @@
  */
 
 
+import type { SurfaceData } from "../driver-select.ts";
 import { type ToolResult } from "../types.ts";
 
 
@@ -84,4 +85,14 @@ export function trimObservation(r: ToolResult, render: Render): ToolResult {
   r.content = r.content.filter((c) => c.type !== "image");
   r.details.observation = render;
   return r;
+}
+
+/** A bounded snapshot for a timeout reply, never a source of actionable refs. */
+export function budgetObservation(data: SurfaceData) {
+  return {
+    title: data.title, url: data.url, partial: data.partial,
+    elements: data.elements.slice(0, 24).map(({ role, name, state }) => ({
+      role, name: name.slice(0, 120), state: state.slice(0, 160),
+    })),
+  };
 }
