@@ -171,6 +171,8 @@ jobs:
   # so a release that failed never reaches the store. A manual run is a dry run here: it packs and
   # reads the store, which checks the credentials; run web-store.yml itself to upload by hand.
   web-store:
+    # The 0.1.1 standalone release uses the existing 0.1.4 store listing.
+    if: github.ref != 'refs/tags/v0.1.1'
     needs: publish
     uses: ./.github/workflows/web-store.yml
     with:
