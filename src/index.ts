@@ -26,4 +26,5 @@ export type { BrowserConfig, BrowserConfigOptions } from "./platform/browser/con
 export { BrowserDriver } from "./platform/browser/driver.ts";
 export { BridgeServer, type BridgeServerOptions } from "./platform/browser/bridge/server.ts";
 export { MIRASIM_EXTENSION_ID, extensionDir, extensionIdFromKey } from "./platform/browser/bridge/extension-id.ts";
+export { MINIMUM_EXTENSION_VERSION } from "./platform/browser/bridge/extension-updates.ts";
 export { MacosDriver } from "./platform/macos/driver.ts";

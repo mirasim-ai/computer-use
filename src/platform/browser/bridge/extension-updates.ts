@@ -17,7 +17,20 @@ export function parseExtensionRuntime(value: unknown): ExtensionRuntimeInfo | nu
     protocol: v.protocol as number, capabilities: v.capabilities.filter((c): c is string => typeof c === "string") };
 }
 
-function compareVersions(a: string, b: string): number {
+/**
+ * The oldest extension this bridge accepts: below it, `update-required`, and the host holds browser
+ * tasks back. It is NOT extension/manifest.json's version. That one is what this package bundles and
+ * what a release submits to the Chrome Web Store (web-store.yml), and users only get it once the store
+ * has reviewed it, hours to days later; until 0.1.1-rc.15 the bridge asked for the manifest's version,
+ * so rc.14 and rc.15 asked every user for a 0.1.5 the store did not serve yet (T-4050).
+ *
+ * Raise it only when the bridge cannot work with an older extension, and only to a version the store
+ * already serves: the release workflow refuses to publish otherwise (`scripts/web-store.mjs
+ * --check-minimum`). It may not exceed the manifest's version (test/extension-updates.ts).
+ */
+export const MINIMUM_EXTENSION_VERSION = "0.1.4";
+
+export function compareVersions(a: string, b: string): number {
   const x = a.split('.').map(Number), y = b.split('.').map(Number);
   for (let i = 0; i < 4; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
   return 0;

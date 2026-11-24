@@ -25,7 +25,9 @@ through GitHub OIDC. The registry accepts it only because the npm package names 
 `mcpName`; keep `mcpName` and `server.json`'s `name` the same. The version written in
 `server.json` itself does not matter, the job overwrites it. A manual run skips this job.
 
-After npm has the release, the `web-store` job (`.github/workflows/web-store.yml`) packs
+Before anything is published, the `store-minimum` job checks that the Chrome Web Store already
+serves the oldest extension this release accepts (`MINIMUM_EXTENSION_VERSION`); see "Chrome Web
+Store" below. After npm has the release, the `web-store` job (`.github/workflows/web-store.yml`) packs
 `extension/` with `scripts/extension.mjs` and, when `extension/manifest.json` carries a version
 newer than the one the Chrome Web Store serves and the one in review, uploads it to the store item
 and submits it for review (`scripts/web-store.mjs`); an approved version goes live at once. A
@@ -48,18 +50,22 @@ nothing needs to change in it when the repository goes public.
 ## Chrome Web Store
 
 The extension reaches users only from the store (item `khflooofmndpmafhofjdcpjfgnlpikhg`): Chrome
-updates them from there, never from the copy in this package. The version in
-`extension/manifest.json` is also the oldest extension the bridge accepts
-(`src/platform/browser/bridge/extension-updates.ts`), so a release whose manifest is ahead of the
-store asks users for a version they cannot get until the store approves it. Two ways to ship a new
-extension:
+updates them from there, never from the copy in this package. Two versions are in play:
 
-- **Store first** (nobody waits): run `chrome web store` from the Actions tab with `version` set to
-  the next version and `dry_run` unticked. It packs the current `extension/` under that number
-  without touching the manifest. Once the store serves it, raise the manifest to it and release.
-- **With the release**: raise the manifest and release; the `web-store` job submits that version.
-  Until the store approves it, the bridge asks users of this release for it; the Mirasim app holds
-  its own record of the store version for this reason.
+- `extension/manifest.json`'s version is what this package bundles and what a release submits to
+  the store. Raise it to ship extension changes: the `web-store` job submits it, and users get it
+  once the store approves it, hours to days later.
+- `MINIMUM_EXTENSION_VERSION` (`src/platform/browser/bridge/extension-updates.ts`) is the oldest
+  extension the bridge accepts; older ones read `update-required` and their browser tasks are held
+  back. Raise it only when the bridge needs something older extensions lack, and only once the
+  store serves that version: the `store-minimum` job refuses to publish a release whose minimum the
+  store does not serve yet. It asks the store's public update check, the one Chrome polls, so it
+  needs no credentials; `skip_store_check` on a manual run publishes anyway.
+
+Until 0.1.1-rc.15 the bridge took the manifest's version as the minimum, so rc.14 and rc.15 asked
+every user for a 0.1.5 the store did not serve yet. To give the store a version without raising the
+manifest, run `chrome web store` from the Actions tab with `version` set and `dry_run` unticked: it
+packs the current `extension/` under that number.
 
 What the job does, in order: pack (the receipt names version, build fingerprint and ZIP SHA-256,
 and the ZIP is kept as the run's `web-store-package` artifact); read the item's status; skip when

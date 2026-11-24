@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { BridgeServer } from "../src/platform/browser/bridge/server.ts";
+import { MINIMUM_EXTENSION_VERSION } from "../src/platform/browser/bridge/extension-updates.ts";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -22,7 +23,7 @@ function check(label: string, ok: boolean, detail = "") {
   if (!ok) failures++;
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const status = async (cdpUrl: string) => (await (await fetch(`${cdpUrl}/status`)).json()) as { version?: unknown; clients?: unknown; busy?: unknown; extensionConnected?: unknown };
+const status = async (cdpUrl: string) => (await (await fetch(`${cdpUrl}/status`)).json()) as { version?: unknown; clients?: unknown; busy?: unknown; extensionConnected?: unknown; extension?: { expectedVersion?: unknown } };
 
 async function main() {
   // ── The server ───────────────────────────────────────────────────────────────────────────
@@ -34,6 +35,9 @@ async function main() {
     check("status names the bridge's version", first.version === "9.8.7-test", JSON.stringify(first.version));
     check("...and reports no client and nothing in flight on an idle bridge", first.clients === 0 && first.busy === false && first.extensionConnected === false,
       JSON.stringify({ clients: first.clients, busy: first.busy }));
+    // T-4050: the bundled manifest's version is what a release submits to the store, not what users must have.
+    check("status asks for the minimum extension version, not the bundled one", first.extension?.expectedVersion === MINIMUM_EXTENSION_VERSION,
+      JSON.stringify(first.extension));
 
     const fromPage = await fetch(`${server.cdpUrl()}/shutdown`, { method: "POST", headers: { Origin: "https://example.com" } });
     check("a shutdown request from a page is refused, and stops nothing", fromPage.status === 403 && asked === 0, `HTTP ${fromPage.status}`);

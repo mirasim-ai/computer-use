@@ -38,8 +38,8 @@ import { WebSocketServer } from "ws";
 import { socketChannel, type ExtensionChannel } from "./extension-channel.ts";
 import type { ExtensionConnection } from "./extension-connection.ts";
 import { BridgeModel } from "./model.ts";
-import { MIRASIM_EXTENSION_ID, extensionManifest } from "./extension-id.ts";
-import { ExtensionUpdates } from "./extension-updates.ts";
+import { MIRASIM_EXTENSION_ID } from "./extension-id.ts";
+import { ExtensionUpdates, MINIMUM_EXTENSION_VERSION } from "./extension-updates.ts";
 
 /** How long a CDP client's handshake may wait for the extension to come up. */
 const EXTENSION_WAIT_MS = 15_000;
@@ -135,7 +135,7 @@ export abstract class BridgeServerCore {
       if (!this.extension) throw new Error("Bridge extension not connected");
       return this.extension.send(method, params);
     }, this.log);
-    this.updates = new ExtensionUpdates(extensionManifest(),
+    this.updates = new ExtensionUpdates({ version: MINIMUM_EXTENSION_VERSION },
       () => !this.extension || this.model.clientCount() > 0 || this.activeOperations > 0 || this.extension.pendingCount > 0,
       async () => {
         if (!this.extension) throw new Error('The Mirasim extension disconnected before reloading.');

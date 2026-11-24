@@ -14,6 +14,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MINIMUM_EXTENSION_VERSION } from "../src/platform/browser/bridge/extension-updates.ts";
 
 type Action = "submit" | "skip" | "refuse";
 interface StoreState { published: string | null; submitted: { state: string; version: string | null } | null; takenDown: boolean }
@@ -25,6 +26,9 @@ interface WebStore {
   storeState(status: unknown): StoreState;
   release(options: { version: string; out: string; staged?: boolean; dryRun?: boolean; env: Record<string, string>;
     fetch: FakeFetch; log?: (line: string) => void; pollInterval?: number; pollLimit?: number }): Promise<Result>;
+  servedVersion(itemId: string, fetch: FakeFetch): Promise<string>;
+  minimumVersion(source?: string): string;
+  checkMinimum(options: { itemId: string; minimum?: string; fetch: FakeFetch }): Promise<{ minimum: string; served: string }>;
 }
 // A plain .mjs with no declarations: imported by URL, typed here.
 const webStore = (await import(new URL("../scripts/web-store.mjs", import.meta.url).href)) as WebStore;
@@ -184,6 +188,29 @@ const quiet = () => {};
   const error = await rejects(() => webStore.release({ version: "0.1.5", out: out(), env, fetch: google.fetch, log: quiet }));
   check("an expired refresh token says to issue a new one", error?.includes("revoked or expired") === true && google.to(":fetchStatus").length === 0, error ?? "");
   check("...without repeating the secrets", !!error && !error.includes(env.CWS_REFRESH_TOKEN) && !error.includes(env.CWS_CLIENT_SECRET));
+}
+
+// ── Before a release: the minimum the bridge asks for must be one the store serves (publish.yml) ──
+{
+  const asked: string[] = [];
+  const updateCheck = (code: number, body: string): FakeFetch => async (url) => { asked.push(url); return new Response(body, { status: code }); };
+  const serving = (version: string) => updateCheck(200, `<?xml version="1.0" encoding="UTF-8"?><gupdate xmlns="http://www.google.com/update2/response" protocol="2.0" server="prod">`
+    + `<app appid="${ITEM}" cohort="1::" status="ok"><updatecheck codebase="https://clients2.googleusercontent.com/crx/blobs/x.crx" hash_sha256="00" size="52292" status="ok" version="${version}"/></app></gupdate>`);
+  check("the store's update check names the version it serves", await webStore.servedVersion(ITEM, serving("0.1.4")) === "0.1.4");
+  check("...asked for this item, the way Chrome asks", asked[0]?.startsWith("https://clients2.google.com/service/update2/crx?response=updatecheck") === true
+    && asked[0].includes(`x=id%3D${ITEM}%26uc`), asked[0] ?? "");
+  const same = await webStore.checkMinimum({ itemId: ITEM, minimum: "0.1.4", fetch: serving("0.1.4") });
+  check("a minimum the store serves lets the release go", same.minimum === "0.1.4" && same.served === "0.1.4");
+  check("a minimum below what the store serves lets it go", (await webStore.checkMinimum({ itemId: ITEM, minimum: "0.1.3", fetch: serving("0.1.4") })).served === "0.1.4");
+  const ahead = await rejects(() => webStore.checkMinimum({ itemId: ITEM, minimum: "0.1.5", fetch: serving("0.1.4") }));
+  check("a minimum the store does not serve yet stops the release, naming both", ahead?.includes("0.1.5") === true && ahead.includes("serves 0.1.4"), ahead ?? "");
+  const unknown = await rejects(() => webStore.checkMinimum({ itemId: ITEM, minimum: "0.1.4", fetch: updateCheck(200,
+    `<gupdate protocol="2.0" server="prod"><app appid="${ITEM}" status="error-unknownApplication"/></gupdate>`) }));
+  check("an item the store does not know stops the release", unknown?.includes("error-unknownApplication") === true, unknown ?? "");
+  const down = await rejects(() => webStore.checkMinimum({ itemId: ITEM, minimum: "0.1.4", fetch: updateCheck(503, "unavailable") }));
+  check("a store that does not answer stops the release", down?.includes("HTTP 503") === true, down ?? "");
+  check("the minimum is read from its source as the bridge has it", webStore.minimumVersion() === MINIMUM_EXTENSION_VERSION, webStore.minimumVersion());
+  check("a source without the constant is an error, not a pass", (() => { try { webStore.minimumVersion("export const OTHER = 1;"); return false; } catch { return true; } })());
 }
 
 // ── The command line, as web-store.yml runs it: an empty --version means the manifest's ──
