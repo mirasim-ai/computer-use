@@ -1,0 +1,95 @@
+# Upload the browser extension to its Chrome Web Store item and submit it for review
+# (scripts/web-store.mjs, Chrome Web Store API v2).
+#
+# publish.yml calls this after npm has a release, with the version in extension/manifest.json:
+# nothing is uploaded unless that version is newer than the store's, so a release that carries no
+# new extension changes nothing there. Run it by hand from the Actions tab to give the store a
+# version before the manifest asks for it (`version`), or to check the credentials (a dry run reads
+# the store and uploads nothing).
+#
+# The credentials live in the `chrome-web-store` environment, so no other job can read them:
+# secrets CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN and variable CWS_PUBLISHER_ID
+# (docs/releasing.md, "Chrome Web Store"). Until they are set, a release skips this with a warning.
+name: chrome web store
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Extension version to upload; empty for extension/manifest.json's"
+        type: string
+        default: ""
+      staged:
+        description: "Hold the version once approved until it is published from the Developer Dashboard"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Pack and read the store, upload nothing"
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Extension version to upload; empty for extension/manifest.json's"
+        type: string
+        default: ""
+      staged:
+        description: "Hold the version once approved until it is published from the Developer Dashboard"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Pack and read the store, upload nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    environment: chrome-web-store
+    # Two uploads at once would race for the same item; the second waits.
+    concurrency:
+      group: chrome-web-store
+      cancel-in-progress: false
+    env:
+      # The store item. scripts/web-store.mjs refuses to upload when the manifest's key names another.
+      CWS_ITEM_ID: khflooofmndpmafhofjdcpjfgnlpikhg
+      CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # Not configured at all: say so and stop, so releases go on before the store is wired up.
+      # Partly configured: scripts/web-store.mjs fails and names what is missing.
+      - name: credentials are configured
+        id: credentials
+        run: |
+          if [ -z "$CWS_CLIENT_ID$CWS_CLIENT_SECRET$CWS_REFRESH_TOKEN$CWS_PUBLISHER_ID" ] && [ "${{ inputs.dry_run }}" != "true" ]; then
+            echo "::warning::Chrome Web Store credentials are not set in the chrome-web-store environment; nothing was uploaded (docs/releasing.md)"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: upload and submit for review
+        if: steps.credentials.outputs.configured == 'true'
+        env:
+          VERSION: ${{ inputs.version }}
+          STAGED: ${{ inputs.staged && '--staged' || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node scripts/web-store.mjs --version "$VERSION" --out web-store-package $STAGED $DRY_RUN
+      # The very ZIP the store was given, with its receipt (version, build, SHA-256); kept when the
+      # store refused it too, for an upload by hand from the Developer Dashboard.
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.credentials.outputs.configured == 'true'
+        with:
+          name: web-store-package
+          path: |
+            web-store-package/*.zip
+            web-store-package/package.json
+          if-no-files-found: ignore
