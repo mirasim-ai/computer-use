@@ -69,7 +69,7 @@ const STDERR_TAIL_MAX = 2000;
 interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -159,21 +159,31 @@ export class AxHelperProcess implements AxTransport {
       if (e !== timeout || this.child !== child) throw e;
       // Swift processes stdin in order. A heartbeat reply fences the old action:
       // it cannot post more input after the caller is allowed to release ownership.
-      try {
-        await this.send(child, "capabilities", {}, Math.min(this.timeoutMs, 2000),
-          new AxRequestError("ax_error", "ax helper heartbeat expired"));
-      } catch {
-        if (this.child === child && this.pending.size === 0) await this.close();
+      const grace = Math.min(this.timeoutMs, 2000);
+      const fence = this.send(child, "capabilities", {}, undefined, timeout).then(() => true, () => true);
+      while (this.child === child) {
+        let timer: NodeJS.Timeout | undefined;
+        const finished = await Promise.race([fence, new Promise<false>(resolve => {
+          timer = setTimeout(() => resolve(false), grace);
+        })]).finally(() => clearTimeout(timer));
+        if (finished) break;
+        try {
+          await this.send(child, "ping", {}, grace, new AxRequestError("ax_error", "ax helper heartbeat expired"));
+        } catch {
+          // Only the fence can be outstanding: this.dispatch owns the FIFO slot.
+          if (this.child === child && this.pending.size === 1) await this.close();
+          break;
+        }
       }
       throw e;
     }
   }
 
-  private send(child: ChildProcessWithoutNullStreams, op: string, params: Record<string, unknown>, limit: number, timeout: Error): Promise<unknown> {
+  private send(child: ChildProcessWithoutNullStreams, op: string, params: Record<string, unknown>, limit: number | undefined, timeout: Error): Promise<unknown> {
     const id = this.nextId++;
     const line = `${JSON.stringify({ id, op, ...params })}\n`;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(timeout); }, limit);
+      const timer = limit === undefined ? undefined : setTimeout(() => { this.pending.delete(id); reject(timeout); }, limit);
       this.pending.set(id, { resolve, reject, timer });
       try { child.stdin.write(line); }
       catch (e) {

@@ -19,9 +19,15 @@ function check(label: string, ok: boolean, detail = "") {
 
 /** Answers `{id, ok, result: {op}}` after the request's own `after` ms. */
 const SLOW_HELPER = `
+  let tail = Promise.resolve();
+  let stalled = false;
   require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
     const { id, op, after } = JSON.parse(line);
-    setTimeout(() => process.stdout.write(JSON.stringify({ id, ok: true, result: { op, pid: process.pid } }) + "\\n"), after);
+    if (op === "stall") stalled = true;
+    if (stalled) return;
+    const reply = () => process.stdout.write(JSON.stringify({ id, ok: true, result: { op, pid: process.pid } }) + "\\n");
+    if (op === "ping") reply();
+    else tail = tail.then(() => new Promise(resolve => setTimeout(() => { reply(); resolve(); }, after)));
   });
   // Asked to stop (its stdin closed), the real helper exits at once.
   process.stdin.on("end", () => process.exit(0));
@@ -45,7 +51,7 @@ async function main() {
     const t1 = Date.now();
     const hung = await helper.request("tree", { after: CEILING * 4 }).then(() => null, (e: Error) => e);
     check("a late request times out without retiring a responding helper",
-      hung instanceof Error && /'tree' did not answer within 400 ms; its outcome is uncertain/.test(hung.message) && Date.now() - t1 < CEILING * 3,
+      hung instanceof Error && /'tree' did not answer within 400 ms; its outcome is uncertain/.test(hung.message) && Date.now() - t1 < CEILING * 6,
       hung instanceof Error ? `${hung.message} (${Date.now() - t1} ms)` : "answered");
     const recovered = await helper.request("tree", { after: 1 }) as { pid: number };
     check("the next read succeeds on the live helper", recovered.pid === quick.pid);
@@ -54,6 +60,10 @@ async function main() {
     const second = helper.request("tree", { after: 260 });
     const replies = await Promise.all([first, second]);
     check("two individually healthy reads receive full budgets in FIFO order", replies.length === 2 && Date.now() - queuedAt >= 500);
+    const stopped = await helper.request("stall").then(() => false, () => true);
+    const replacement = await helper.request("apps") as { pid: number };
+    check("an expired request and missing heartbeat retire the silent helper",
+      stopped && replacement.pid !== quick.pid);
   } finally {
     await helper.close();
   }
