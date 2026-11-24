@@ -3,8 +3,9 @@
  *
  * - `stageExtension(dir)` lays out the unpacked copy a host ships beside its bundle (imported by
  *   hosts that bundle computer-use);
- * - `node scripts/extension.mjs --version <v> --out <dir> [--public-key <pem>]` also writes the
- *   deterministic, uncompressed Chrome Web Store ZIP, with Node alone (including on Windows).
+ * - `node scripts/extension.mjs --version <v> --out <dir> [--public-key <pem>]` (or
+ *   `packageForStore`) also writes the deterministic, uncompressed Chrome Web Store ZIP, with Node
+ *   alone (including on Windows). `scripts/web-store.mjs` uploads that ZIP to the store.
  */
 import { createHash, createPublicKey } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -63,18 +64,14 @@ export function stageExtension(destination, options = {}) {
   return { manifest, extensionId: extensionId(manifest.key), files: payload };
 }
 
-/** The Web Store ZIP and its receipt (the command line above). */
-function packageForStore() {
-  const { values } = parseArgs({ options: {
-    version: { type: 'string' }, out: { type: 'string' }, 'public-key': { type: 'string' }, help: { type: 'boolean' },
-  } });
-  if (values.help || !values.version || !values.out) {
-    console.log('Usage: node scripts/extension.mjs --version 0.1.1 --out /path/to/new-output [--public-key /path/to/store-public-key.pem]');
-    process.exit(values.help ? 0 : 1);
-  }
-  const out = path.resolve(values.out);
+/**
+ * The Web Store ZIP and its receipt, in `out` (a new directory): `<out>/<receipt.file>`,
+ * `<out>/package.json` (the receipt) and `<out>/extension/` (the unpacked copy).
+ */
+export function packageForStore({ version, out: outDir, publicKeyFile }) {
+  const out = path.resolve(outDir);
   if (existsSync(out)) throw new Error('Output already exists; choose a new directory so an earlier package is preserved.');
-  const staged = stageExtension(path.join(out, 'extension'), { version: values.version, publicKeyFile: values['public-key'] });
+  const staged = stageExtension(path.join(out, 'extension'), { version, publicKeyFile });
   // The Web Store refuses an uploaded manifest that carries `key`: the store assigns the item's
   // identity itself. Only the ZIP drops it — the unpacked copy keeps it, so loading that locally
   // runs under the same ID, and the build fingerprint never covered `key` (stageExtension above).
@@ -109,7 +106,17 @@ function packageForStore() {
   const receipt = { file: filename, version: staged.manifest.version, build: staged.manifest.version_name,
     extensionId: staged.extensionId, sha256: createHash('sha256').update(zip).digest('hex') };
   writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(receipt, null, 2)}\n`);
-  console.log(JSON.stringify(receipt, null, 2));
+  return receipt;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) packageForStore();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const { values } = parseArgs({ options: {
+    version: { type: 'string' }, out: { type: 'string' }, 'public-key': { type: 'string' }, help: { type: 'boolean' },
+  } });
+  if (values.help || !values.version || !values.out) {
+    console.log('Usage: node scripts/extension.mjs --version 0.1.1 --out /path/to/new-output [--public-key /path/to/store-public-key.pem]');
+    process.exit(values.help ? 0 : 1);
+  }
+  const receipt = packageForStore({ version: values.version, out: values.out, publicKeyFile: values['public-key'] });
+  console.log(JSON.stringify(receipt, null, 2));
+}

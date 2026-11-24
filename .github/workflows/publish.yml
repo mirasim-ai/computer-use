@@ -1,4 +1,5 @@
-# Publish @mirasim/computer-use and its four platform packages to npm.
+# Publish @mirasim/computer-use and its four platform packages to npm, then submit the browser
+# extension to the Chrome Web Store when it carries a version the store does not have yet.
 #
 # A release is pushing a tag `v<version>` that matches package.json; a manual run is a dry run
 # unless told otherwise. The helpers are compiled on the OS that can build them (Swift on macOS,
@@ -143,6 +144,17 @@ jobs:
           spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
           if npm view "$spec" version >/dev/null 2>&1; then echo "$spec already published"; exit 0; fi
           npm publish --access public --tag "$DIST_TAG" $PROVENANCE $DRY_RUN
+
+  # Uploads the extension to the Chrome Web Store and submits it for review, when
+  # extension/manifest.json carries a version newer than the store's (web-store.yml). After npm,
+  # so a release that failed never reaches the store. A manual run is a dry run here: it packs and
+  # reads the store, which checks the credentials; run web-store.yml itself to upload by hand.
+  web-store:
+    needs: publish
+    uses: ./.github/workflows/web-store.yml
+    with:
+      dry_run: ${{ github.event_name != 'push' }}
+    secrets: inherit
 
   # Lists the release in the official MCP Registry (registry.modelcontextprotocol.io) as
   # io.github.mirasim-ai/computer-use, from server.json with the version set to this release. The
