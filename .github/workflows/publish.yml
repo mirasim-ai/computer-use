@@ -22,15 +22,36 @@ on:
         description: "Pack and check everything, publish nothing"
         type: boolean
         default: true
+      skip_store_check:
+        description: "Publish even if the Chrome Web Store cannot be asked which extension it serves"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  # Runs beside the helper builds; the publish job waits for all three, so a failure here
+  # Runs beside the helper builds; the publish job waits for all four, so a failure here
   # publishes nothing.
   browser:
     uses: ./.github/workflows/browser.yml
+
+  # The bridge asks every user for MINIMUM_EXTENSION_VERSION; a release whose minimum the Chrome Web
+  # Store does not serve yet would hold every browser task on the extension route back (T-4050).
+  # Asks the store's public update check, the one Chrome polls: no credentials.
+  store-minimum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: the store serves the extension this release asks for
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_store_check) }}
+        run: node scripts/web-store.mjs --check-minimum
+      - name: store check skipped by hand
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_store_check }}
+        run: echo "::warning::The Chrome Web Store check was skipped by hand; this release may ask users for an extension the store does not serve."
 
   helpers-macos:
     runs-on: macos-15
@@ -79,7 +100,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [browser, helpers-macos, helpers-windows]
+    needs: [browser, store-minimum, helpers-macos, helpers-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: read

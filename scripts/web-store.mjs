@@ -5,10 +5,7 @@
  *   node scripts/web-store.mjs [--version <v>] [--out <new dir>] [--staged] [--dry-run]
  *
  * The package is `scripts/extension.mjs`'s ZIP of `extension/`, under the version in
- * `extension/manifest.json` unless `--version` names another: that packs the same files under a
- * newer number, so the store can have a version before the manifest asks for it. The manifest's
- * version is the oldest extension the bridge accepts (`extension-updates.ts`), so it must not run
- * ahead of the version the store serves.
+ * `extension/manifest.json` unless `--version` names another (the same files under that number).
  *
  * Only a version above both the one the store serves and the one in review is uploaded. The same
  * version again is nothing to do: every release tag runs this, and most carry no new extension.
@@ -19,6 +16,11 @@
  * someone publishes it from the Developer Dashboard. `--dry-run` packs and reads the store (when
  * credentials are set) and changes nothing there.
  *
+ * `--check-minimum` uploads nothing: it fails when MINIMUM_EXTENSION_VERSION
+ * (src/platform/browser/bridge/extension-updates.ts), the oldest extension the bridge accepts, is
+ * newer than the version the store serves today, read from the store's public update check (what
+ * Chrome itself polls; no credentials). The release workflow runs it before publishing to npm.
+ *
  * Credentials, all from the environment (docs/releasing.md, "Chrome Web Store"):
  *   CWS_CLIENT_ID, CWS_CLIENT_SECRET   the OAuth client
  *   CWS_REFRESH_TOKEN                  issued to the Google account that owns the item
@@ -28,11 +30,13 @@
 import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { extensionSource, packageForStore } from './extension.mjs';
+import { extensionId, extensionSource, packageForStore } from './extension.mjs';
 
 const API = 'https://chromewebstore.googleapis.com';
+const UPDATE_CHECK = 'https://clients2.google.com/service/update2/crx';
+const MINIMUM_SOURCE = fileURLToPath(new URL('../src/platform/browser/bridge/extension-updates.ts', import.meta.url));
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const CREDENTIALS = ['CWS_CLIENT_ID', 'CWS_CLIENT_SECRET', 'CWS_REFRESH_TOKEN', 'CWS_PUBLISHER_ID'];
 
@@ -151,6 +155,35 @@ export async function release({ version, out, staged = false, dryRun = false, en
   return { action: 'submitted', reason: decision.reason, state: submitted.state ?? null, staged, warnings, receipt, itemId, store: before };
 }
 
+/** The version the store offers Chrome for the item today: its public update check, the one browsers poll. */
+export async function servedVersion(itemId, fetchImpl = globalThis.fetch) {
+  const url = `${UPDATE_CHECK}?response=updatecheck&acceptformat=crx2,crx3&prodversion=131.0&x=${encodeURIComponent(`id=${itemId}&uc`)}`;
+  const res = await fetchImpl(url, { method: 'GET', headers: {} });
+  const text = await res.text();
+  const check = /<updatecheck\b[^>]*>/.exec(text)?.[0] ?? '';
+  const status = /\sstatus="([^"]*)"/.exec(check)?.[1] ?? /<app\b[^>]*\sstatus="([^"]*)"/.exec(text)?.[1] ?? null;
+  const version = /\sversion="(\d+(?:\.\d+){0,3})"/.exec(check)?.[1];
+  if (res.ok && status === 'ok' && version) return version;
+  throw new Error(`the Chrome Web Store's update check named no version for ${itemId} (HTTP ${res.status}${status ? `, ${status}` : ''})`);
+}
+
+/** MINIMUM_EXTENSION_VERSION, read from its source (this script runs with Node alone, before any build). */
+export function minimumVersion(source = readFileSync(MINIMUM_SOURCE, 'utf8')) {
+  const found = /^export const MINIMUM_EXTENSION_VERSION = "(\d+(?:\.\d+){0,3})";$/m.exec(source);
+  if (!found) throw new Error('MINIMUM_EXTENSION_VERSION = "<version>" not found in src/platform/browser/bridge/extension-updates.ts');
+  return found[1];
+}
+
+/** Refuse when the bridge would ask users for an extension the store does not serve yet. */
+export async function checkMinimum({ itemId, minimum = minimumVersion(), fetch: fetchImpl = globalThis.fetch }) {
+  const served = await servedVersion(itemId, fetchImpl);
+  if (compareVersions(minimum, served) > 0) {
+    throw new Error(`this release asks users for extension ${minimum} (MINIMUM_EXTENSION_VERSION), but the Chrome Web Store serves ${served}: `
+      + `wait until the store serves ${minimum}, or keep the minimum at ${served}`);
+  }
+  return { minimum, served };
+}
+
 function annotate(level, message) {
   console.log(process.env.GITHUB_ACTIONS === 'true' ? `::${level}::${message}` : `${level}: ${message}`);
 }
@@ -161,13 +194,30 @@ function summary(lines) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const { values } = parseArgs({ options: {
-    version: { type: 'string' }, out: { type: 'string' }, staged: { type: 'boolean' }, 'dry-run': { type: 'boolean' }, help: { type: 'boolean' },
+    version: { type: 'string' }, out: { type: 'string' }, staged: { type: 'boolean' }, 'dry-run': { type: 'boolean' },
+    'check-minimum': { type: 'boolean' }, help: { type: 'boolean' },
   } });
   if (values.help) {
-    console.log('Usage: node scripts/web-store.mjs [--version 0.1.6] [--out /path/to/new-output] [--staged] [--dry-run]');
+    console.log('Usage: node scripts/web-store.mjs [--version 0.1.6] [--out /path/to/new-output] [--staged] [--dry-run]\n'
+      + '       node scripts/web-store.mjs --check-minimum');
     process.exit(0);
   }
   const manifest = JSON.parse(readFileSync(path.join(extensionSource, 'manifest.json'), 'utf8'));
+  if (values['check-minimum']) {
+    try {
+      const itemId = extensionId(manifest.key);
+      if (process.env.CWS_ITEM_ID && process.env.CWS_ITEM_ID !== itemId) throw new Error(`CWS_ITEM_ID is ${process.env.CWS_ITEM_ID}, but the manifest's key makes the extension ${itemId}`);
+      const { minimum, served } = await checkMinimum({ itemId });
+      console.log(`the bridge asks for extension ${minimum} or newer; the Chrome Web Store serves ${served}`);
+      summary([`### Chrome Web Store: the store serves ${served}`, '', `- this release asks users for extension ${minimum} or newer (MINIMUM_EXTENSION_VERSION)`]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      summary(['### Chrome Web Store: release refused', '', `- ${message}`]);
+      annotate('error', `Chrome Web Store: ${message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
   const version = values.version || manifest.version;
   const out = path.resolve(values.out ?? path.join(mkdtempSync(path.join(tmpdir(), 'web-store-')), 'package'));
   const dryRun = values['dry-run'] === true;
