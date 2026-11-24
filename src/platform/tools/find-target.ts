@@ -56,6 +56,8 @@ export type Handle = {
  * reports a frame and none reports a parent in the observation. Do not read it as "a descendant of".
  */
 export interface FindScope {
+  id?: string;
+  editable?: boolean;
   /** Only this normalized role (button, textbox, checkbox, …). */
   role?: string;
   /** Only controls whose centre lies inside this element's box (a ref, or a find() handle). */
@@ -90,7 +92,7 @@ type Box = { x: number; y: number; w: number; h: number };
  *  - `text`: no control carries it, but the surface's readable text does;
  *  - `absent`: nothing on the surface carries it.
  */
-export type MissReason = "covered" | "offscreen" | "filtered" | "text" | "absent";
+export type MissReason = "changing" | "unreadable" | "covered" | "offscreen" | "filtered" | "text" | "absent";
 
 /**
  * What `find(name, {why: true})` answers instead of `null`. `ref: null` keeps `if (!el.ref)` the
@@ -246,11 +248,13 @@ export function rankByName(elements: Named[], name: string, scope: FindScope = {
 }
 
 /** The elements a scoped `find` is allowed to match. */
-function narrow<T extends { ref: string; role: string; offscreen?: boolean; rect: { x: number; y: number; w: number; h: number } }>(
+function narrow<T extends { id?: string; name?: string; editable?: boolean; ref: string; role: string; offscreen?: boolean; rect: { x: number; y: number; w: number; h: number } }>(
   elements: T[],
   scope: FindScope,
 ): T[] {
   let list = elements;
+  if (scope.id) list = list.filter(e => e.id === scope.id || (!e.id && e.name === "#" + scope.id));
+  if (scope.editable !== undefined) list = list.filter(e => e.editable === scope.editable);
   if (scope.role) {
     const role = scope.role.trim().toLowerCase();
     list = list.filter((e) => e.role.toLowerCase() === role);
@@ -328,7 +332,9 @@ export function anchorBox(
 export function findScope(opts: unknown): FindScope {
   if (opts === undefined || opts === null) return {};
   if (typeof opts !== "object") throw new Error("find's second argument is an options object: {role, within, visible, near, why}");
-  const o = opts as { role?: unknown; within?: unknown; visible?: unknown; near?: unknown };
+  const o = opts as { id?: string; editable?: boolean; role?: unknown; within?: unknown; visible?: unknown; near?: unknown };
+  if (o.id !== undefined && (typeof o.id !== "string" || !o.id.trim())) throw new Error("find's id must be a nonempty identifier");
+  if (o.editable !== undefined && typeof o.editable !== "boolean") throw new Error("find's editable must be true or false");
   const within = typeof o.within === "string" ? o.within
     : o.within && typeof o.within === "object" && typeof (o.within as Handle).ref === "string" ? (o.within as Handle).ref
       : undefined;
@@ -350,6 +356,8 @@ export function findScope(opts: unknown): FindScope {
       : undefined;
   if (o.near != null && near === undefined) throw new Error("find's `near` must be a name, a ref string or a find() handle");
   return {
+    ...(typeof o.id === "string" && o.id ? { id: o.id } : {}),
+    ...(typeof o.editable === "boolean" ? { editable: o.editable } : {}),
     ...(typeof o.role === "string" && o.role.trim() ? { role: o.role.trim() } : {}),
     ...(within ? { within } : {}),
     ...(o.visible ? { visible: true } : {}),
@@ -361,6 +369,8 @@ export function findScope(opts: unknown): FindScope {
 export function scopeLabel(scope: FindScope): string {
   const parts = [
     ...(scope.role ? [`role:${scope.role}`] : []),
+    ...(scope.id ? [`id:${scope.id}`] : []),
+    ...(scope.editable !== undefined ? [`editable:${scope.editable}`] : []),
     ...(scope.within ? [`within:${scope.within}`] : []),
     ...(scope.visible ? ["visible"] : []),
     ...(scope.near ? [`near:${scope.near}`] : []),
@@ -427,7 +437,7 @@ export function nearMiss(elements: Named[], name: string, scope: FindScope = {},
   // What the filters cost: the name found again with ONLY `visible` dropped is off screen; found
   // only with every filter dropped, a filter excluded it.
   const offscreen = scope.visible ? rankByName(elements, name, { ...scope, visible: false }, groups) : null;
-  const loose = offscreen ?? (scope.role || scope.visible || scope.within || group ? rankByName(elements, name, {}) : null);
+  const loose = offscreen ?? (scope.role || scope.visible || scope.within || scope.id || scope.editable !== undefined || group ? rankByName(elements, name, {}) : null);
   const scoped = (note: string): Omit<FindMiss, "ref"> => loose
     ? { reason: offscreen ? "offscreen" : "filtered", note, match: matchOf(loose) }
     : { reason: unseen, note };
@@ -443,11 +453,12 @@ export function nearMiss(elements: Named[], name: string, scope: FindScope = {},
 
   // Scoped out: same name, excluded by role/visible/within. Re-rank with no scope and say what
   // the scope cost, naming the role that DOES carry it.
-  if ((scope.role || scope.visible || scope.within) && loose) {
+  if ((scope.role || scope.visible || scope.within || scope.id || scope.editable !== undefined) && loose) {
     if (offscreen) {
       return scoped(`no match under visible:true — ${offscreen.ref} (${cutText(offscreen.name, 40)}) carries the name `
         + "outside the viewport; scroll it into view, then find again, or drop visible");
     }
+    if (scope.id || scope.editable !== undefined) return scoped("the name exists but no control matches the requested identifier and editability filters");
     const why = scope.role ? `role:'${scope.role}'` : scope.visible ? "visible:true" : `within:${scope.within}`;
     return scoped(`no match under ${why} — without it the name finds ${loose.ref} (${cutText(loose.name, 40)}); `
       + "widen the scope or name the control the surface actually carries");

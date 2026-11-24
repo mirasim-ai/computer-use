@@ -171,6 +171,8 @@ export interface VerbSpec {
 // ── Observation shapes ────────────────────────────────────────────────────────
 
 export interface Element {
+  /** Native AXValue writability, when the app reports it. */
+  editable?: boolean;
   ref: string; // e.g. "e12"; valid only within the snapshot that produced it
   role: string; // normalized: link | button | textbox | checkbox | ...
   name: string; // display-caliber name (may include inferred icon hints; never used to veto an action)

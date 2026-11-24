@@ -68,6 +68,7 @@ struct Node {
   /// `AXIdentifier` — what the app's own developer called this control. Not a name the user sees,
   /// but for a nameless control the only thing that says which one it is (see `json`).
   var ident = ""
+  var editable: Bool?
   /// `AXHelp` — the tooltip. What the control DOES, where the name says what it is called.
   var help = ""
   /// `AXSelected` — the chosen member of a set of buttons, rows or cells.
@@ -105,6 +106,7 @@ struct Node {
     if let seq { out["seq"] = seq }
     // Every real id is sent; the client decides where it earns a line (elements.ts). AppKit's
     // generated ones ("_NS:9") are a serial number and dropped here.
+    if let editable = editable { out["editable"] = editable }
     if !ident.isEmpty && !ident.hasPrefix("_NS:") { out["ident"] = ident }
     if !help.isEmpty { out["help"] = help }
     if valueCut { out["valueCut"] = true }
@@ -194,6 +196,12 @@ final class AXEngine {
       n.ident = string(list[9])
       n.help = string(list[10])
       n.selected = (list[11] as? NSNumber)?.boolValue ?? false
+    }
+    if ["AXTextArea", "AXTextField", "AXComboBox"].contains(n.role) {
+      var writable = DarwinBoolean(false)
+      if AXUIElementIsAttributeSettable(el, kAXValueAttribute as CFString, &writable) == .success {
+        n.editable = n.enabled && writable.boolValue
+      }
     }
     if contentActions || (n.role != "AXStaticText" && n.role != "AXImage") { n.actions = actionNames(el) }
     return n
