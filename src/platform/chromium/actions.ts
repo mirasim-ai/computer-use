@@ -6,7 +6,7 @@ import { embeddedClickEvidence } from "./embedded-click.ts";
  */
 
 import { existsSync } from "node:fs";
-import type { Download, ElementHandle, JSHandle, Locator, Page } from "playwright-core";
+import type { Download, ElementHandle, JSHandle, Locator, Page, Request } from "playwright-core";
 import { Type } from "typebox";
 import type { ActResult, VerbSpec } from "../types.ts";
 import { hearPress, type ClickReceipt } from "./click-receipt.ts";
@@ -93,7 +93,7 @@ export async function clickNamingCover(
 ): Promise<ActResult | null> {
   const embedded = embeddedInput && opts.button === "left" && opts.clickCount === 1;
   const evidence = embedded ? await embeddedClickEvidence(loc, COVER_CHECK_AFTER_MS) : null;
-  const watch = watchClick(loc.page());
+  const watch = watchClick(loc.page(), evidence?.destination);
   // Armed before the click and read only if the click is sent and not heard back about (click-receipt.ts).
   const receipt = await hearPress(target);
   try {
@@ -102,10 +102,10 @@ export async function clickNamingCover(
     try {
       result = await clickWatched(target, loc, opts, sent, ref, name);
     } catch (err) {
-      // Only counter a lost post-dispatch receipt with the original checkbox's actual change.
-      if (!/the click was sent/.test(String(err))) throw err;
+      // A delayed embedded release may change the control or navigate after the press grace.
+      if (!(err instanceof UnconfirmedClick)) throw err;
       if (!evidence || !await evidence.confirm(watch.started + CLICK_BUDGET_MS)) throw err;
-      return { ok: true, note: evidence.checkbox ? "the original checkbox changed state" : "the expected history entry became active" };
+      return { ok: true, note: evidence.confirmation };
     }
     if (evidence?.checkbox && result?.ok && !await evidence.confirm(watch.started + CLICK_BUDGET_MS)) {
       throw new Error("Checkbox click dispatched; the original control did not confirm a state change. Inspect before retrying.");
@@ -118,9 +118,18 @@ export async function clickNamingCover(
   }
 }
 
+/** Dispatch began but neither delivery nor a wrong target could be established. */
+class UnconfirmedClick extends Error {}
+
 /** What is known of a click from outside the page: when it began, and whether a navigation
  *  started while it ran. */
-interface ClickWatch { started: number; navigating(): boolean; downloaded(url: string): boolean; stop(): void }
+interface ClickWatch {
+  started: number;
+  destination?: string | null;
+  navigating(): boolean;
+  downloaded(url: string): boolean;
+  stop(): void;
+}
 /** The watch, with the page's own account of the press and the target's name for a refusal. */
 interface ClickSent extends ClickWatch {
   receipt: ClickReceipt | null; what: string; embedded?: boolean;
@@ -128,19 +137,27 @@ interface ClickSent extends ClickWatch {
   anywhere?: boolean;
 }
 
-function watchClick(page: Page): ClickWatch {
+function watchClick(page: Page, destination?: string | null): ClickWatch {
   const urlBefore = page.url();
   let requested = false;
-  const onRequest = (request: { isNavigationRequest(): boolean }) => { if (request.isNavigationRequest()) requested = true; };
-  const onNavigated = () => { requested = true; };
+  const onRequest = (request: Request) => {
+    if (!request.isNavigationRequest()) return;
+    if (!destination) requested = true;
+    else if (request.url() === destination) {
+      // A request from a not-yet-attached frame has no readable frame identity.
+      try { if (request.frame() === page.mainFrame()) requested = true; } catch {}
+    }
+  };
+  const onNavigated = () => { if (!destination) requested = true; };
   const downloads = new Set<string>();
   const onDownload = (download: Download) => { downloads.add(download.url()); };
   page.on("download", onDownload);
   page.on("request", onRequest);
   page.on("framenavigated", onNavigated);
   return {
+    destination,
     started: Date.now(),
-    navigating: () => requested || page.url() !== urlBefore,
+    navigating: () => requested || (destination ? page.url() === destination : page.url() !== urlBefore),
     downloaded: url => downloads.has(url),
     stop: () => { page.off("download", onDownload); page.off("request", onRequest); page.off("framenavigated", onNavigated); },
   };
@@ -150,13 +167,18 @@ async function clickWatched(
   target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
   opts: { button: "left" | "right" | "middle"; clickCount: number }, watch: ClickSent, ref?: string, name?: string,
 ): Promise<ActResult | null> {
+  // For a same-tab link, keep Playwright's navigation barrier on the normal return path:
+  // the next step in this run can consult history as soon as this one returns.
+  const clickOptions = { ...opts, noWaitAfter: !!watch.embedded && !watch.destination };
+  let last: unknown;
   try {
-    await target.click({ ...opts, ...(watch.embedded ? { noWaitAfter: true } : {}), timeout: COVER_CHECK_AFTER_MS });
+    await target.click({ ...clickOptions, timeout: COVER_CHECK_AFTER_MS });
     return { ok: true };
   } catch (e) {
     const after = await afterDispatch(e, loc.page(), watch);
     if (after) return after;
     if (!undispatchedTimeout(e)) throw e;
+    last = e;
   }
   // Before the probes below: each waits out its own 2 s for a node that is no longer there.
   if (await removed(loc)) return null;
@@ -174,17 +196,20 @@ async function clickWatched(
   }
   const early = await coveredBy(loc, ref, name);
   if (early) return { ok: false, journal: { covered: true }, note: early };
-  let last: unknown;
   for (let spent = COVER_CHECK_AFTER_MS; spent < CLICK_BUDGET_MS; spent += COVER_CHECK_AFTER_MS) {
     if (await removed(loc)) return null;
+    // In a throttled webview the two animation frames needed to establish stability can
+    // span an entire probe. Restarting every 2 s discards both samples on every attempt.
+    const timeout = watch.destination ? watch.started + CLICK_BUDGET_MS - Date.now() : COVER_CHECK_AFTER_MS;
+    if (timeout <= 0) break;
     try {
-      await target.click({ ...opts, ...(watch.embedded ? { noWaitAfter: true } : {}), timeout: COVER_CHECK_AFTER_MS });
+      await target.click({ ...clickOptions, timeout });
       return { ok: true };
     } catch (e) {
       const after = await afterDispatch(e, loc.page(), watch);
       if (after) return after;
       last = e;
-      if (!undispatchedTimeout(e)) break;
+      if (watch.destination || !undispatchedTimeout(e)) break;
     }
   }
   if (await removed(loc)) return null;
@@ -310,7 +335,7 @@ async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<
       throw new Error("the click on the download link is unconfirmed; inspect the download receipt before repeating it");
     }
     if (watch.embedded && (!landing || landing.on === "nothing")) {
-      throw new Error("the click was sent through the embedded page, but its effect is uncertain; read the document state before repeating it");
+      throw new UnconfirmedClick("the click was sent through the embedded page, but its effect is uncertain; read the document state before repeating it");
     }
     if (landing?.on === "nothing") {
       throw new Error(`the click was sent, but the page never received it: no press reached ${watch.what} or anything else on this page${took >= 1 ? ` in the ${took}s since` : ""}, `
@@ -321,7 +346,7 @@ async function afterDispatch(e: unknown, page: Page, watch: ClickSent): Promise<
     }
     return { ok: true, note: `clicked — the page was busy for ${took}s handling it` };
   }
-  throw new Error(`the click was sent, and the page has not answered in the ${took}s since — it may have landed; `
+  throw new UnconfirmedClick(`the click was sent, and the page has not answered in the ${took}s since — it may have landed; `
     + "observe before clicking again");
 }
 
