@@ -167,9 +167,12 @@ async function clickWatched(
   target: Pick<Locator, "click"> | Pick<ElementHandle, "click">, loc: Locator,
   opts: { button: "left" | "right" | "middle"; clickCount: number }, watch: ClickSent, ref?: string, name?: string,
 ): Promise<ActResult | null> {
+  // For a same-tab link, keep Playwright's navigation barrier on the normal return path:
+  // the next step in this run can consult history as soon as this one returns.
+  const clickOptions = { ...opts, noWaitAfter: !!watch.embedded && !watch.destination };
   let last: unknown;
   try {
-    await target.click({ ...opts, ...(watch.embedded ? { noWaitAfter: true } : {}), timeout: COVER_CHECK_AFTER_MS });
+    await target.click({ ...clickOptions, timeout: COVER_CHECK_AFTER_MS });
     return { ok: true };
   } catch (e) {
     const after = await afterDispatch(e, loc.page(), watch);
@@ -200,7 +203,7 @@ async function clickWatched(
     const timeout = watch.destination ? watch.started + CLICK_BUDGET_MS - Date.now() : COVER_CHECK_AFTER_MS;
     if (timeout <= 0) break;
     try {
-      await target.click({ ...opts, ...(watch.embedded ? { noWaitAfter: true } : {}), timeout });
+      await target.click({ ...clickOptions, timeout });
       return { ok: true };
     } catch (e) {
       const after = await afterDispatch(e, loc.page(), watch);

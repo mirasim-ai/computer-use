@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
 import { clickNamingCover } from "../src/platform/chromium/actions.ts";
-import { spawnChrome } from "./helpers.ts";
+import { sleep, spawnChrome } from "./helpers.ts";
 
 const chrome = await spawnChrome({});
 const browser = await chromium.connectOverCDP(chrome.cdpUrl);
@@ -11,8 +11,11 @@ try {
   const base = "http://pagination.test";
   const next = base + "/next";
   let arrivals = 0;
-  await page.route(base + "/**", route => {
-    if (route.request().url() === next) arrivals++;
+  await page.route(base + "/**", async route => {
+    if (route.request().url() === next) {
+      arrivals++;
+      await sleep(250);
+    }
     return route.fulfill({ contentType: "text/html", body: '<a href="/next">Next page</a>' });
   });
   await page.goto(base);
@@ -39,7 +42,7 @@ try {
   assert.equal(attempts.length, 2);
   assert.ok(attempts[1]! > attempts[0]!);
   assert.ok(clicked?.ok);
-  await page.waitForURL(next);
+  assert.equal(page.url(), next, "the next step can use the committed document");
   assert.equal(arrivals, 1);
   console.log("PASS  a slow stability sample still dispatches one link click");
 
