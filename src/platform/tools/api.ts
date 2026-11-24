@@ -278,7 +278,9 @@ export function createComputerUseApi(
           + "returns. Its one option is screenshot: true.");
       }
       ledger().charge("observe");
-      const { url, title, elements, groups, headings, partial, coverage, target } = await driver.readElements();
+      const data = await driver.readElements();
+      hooks.onObservation?.(data);
+      const { url, title, elements, groups, headings, partial, coverage, target } = data;
       hooks.onRefs?.(elements.map((e) => e.ref));
       let shot = "";
       if (opts.screenshot) {

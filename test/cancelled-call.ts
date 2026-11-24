@@ -35,9 +35,9 @@ const ownership = { claim: async () => {}, release: async () => {}, releaseAll: 
 /** How long a cancelled call may stay out here before it is ended. */
 const GRACE_MS = 300;
 
-function session() {
+function session(maxMs?: number) {
   const driver = new MacosDriver({ transport: stubTransport().transport, ...ONE_APP });
-  const tools = Object.fromEntries(createComputerUseTools([{ driver }], { ownership, cancelGraceMs: GRACE_MS }).map((t) => [t.name, t]));
+  const tools = Object.fromEntries(createComputerUseTools([{ driver }], { ownership, cancelGraceMs: GRACE_MS, maxMs }).map((t) => [t.name, t]));
   /** Run `code`; with `cancelAfterMs`, as a client that takes the call back that long into it. */
   const run = async (code: string, cancelAfterMs?: number, observation = "none") => {
     const cancel = new AbortController();
@@ -55,6 +55,21 @@ function session() {
 const BIND = "w = await computer.surface('49403:62106'); await w.observe(); return 'bound'";
 
 async function main() {
+  // A wait that cannot fit is refused before sleeping. Closing reads the bound
+  // window while the sandbox and the already executed prefix are still intact.
+  {
+    const s = session(350);
+    const r = await s.run("var saved = 17; var w = await computer.surface('49403:62106'); await w.observe(); await w.wait({ms:1500}); saved = 0");
+    const budget = r.details.budget as { operationOutcome?: string; observation?: { title: string } } | undefined;
+    check("over-budget wait reports a structured stop and observes the window", r.details.error === "budget_exhausted"
+      && budget?.operationOutcome === "not_dispatched" && !!budget.observation?.title && r.ms < 1000, head(r.text));
+    const next = await s.run("return saved");
+    check("the next call keeps variables and skips the suffix", next.text.includes("Returned: 17"), head(next.text));
+    const cap = await s.run("for(let i=0;i<110;i++) computer.log(i)");
+    check("action exhaustion gets the same read-only close", cap.details.error === "budget_exhausted"
+      && !!(cap.details.budget as { observation?: unknown })?.observation, head(cap.text));
+  }
+
   // The timers that end a call are unref'd (they must not keep a server alive), and a call
   // waiting on a promise nothing settles leaves this process nothing else to stay up for.
   setInterval(() => {}, 1_000);

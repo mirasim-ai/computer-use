@@ -20,7 +20,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createContext, runInContext, type Context } from "node:vm";
 import { Type } from "typebox";
 import { spec, text, type ComputerUseToolSpec, type TargetInfo, type ToolResult } from "../types.ts";
-import { ABANDON_DRAIN_MS, CANCEL_GRACE_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, trimObservation, type Render } from "./repl-budget.ts";
+import { ABANDON_DRAIN_MS, CANCEL_GRACE_MS, MAX_ACTIONS, MAX_MS, STUCK_GRACE_MS, SYNC_MAX_MS, RETURN_CAP, MAX_REF_OWNERS, budgetObservation, trimObservation, type Render } from "./repl-budget.ts";
 import { createComputerUseApi, noteOf, renderJournal, stringify, verbGate, type JournalLine, type RunLedger, type WriteRound } from "./api.ts";
 import { prepareCode } from "./repl-code.ts";
 import { pickSurface } from "./repl-pick.ts";
@@ -184,10 +184,12 @@ export function createReplTools(
     outside.end?.(capped);
     return true;
   });
+  const observations = new WeakMap<SurfaceHandle, ReturnType<typeof budgetObservation>>();
   const slices: Slice[] = mounted.map((m) => ({
     ...m,
     id: m.driver.platform,
     api: createComputerUseApi(m.driver, ledger, {
+      onObservation: data => { if (acting) observations.set(acting, budgetObservation(data)); },
       onRefs: rememberRefs, onTarget: checkOwner,
       beforeAction: async (kind, args) => {
         if (!acting) throw new Error("An action needs a bound surface.");
@@ -641,6 +643,13 @@ export function createReplTools(
       /** Say it once: code that catches a cap and calls on is not answered again (@see verbGate). */
       const stop = (why: string): never => { capped = why; throw new Error(why); };
       const waitedBefore = waited();
+      const closeBudgetMs = Math.min(2000, Math.max(1, Math.floor(maxMs / 5)));
+      const executionMs = maxMs - closeBudgetMs;
+      let exhausted: string | null = null;
+      const stopForBudget = (kind: string): never => {
+        exhausted = kind;
+        return stop(`execution budget exhausted before ${kind}; this operation was not dispatched`);
+      };
       let actions = 0;
       let acted: string | null = null; // the last verb the run dispatched, or null for a pure look
       let refused = false; // a verb was attempted and failed — the run was not a look either
@@ -654,8 +663,8 @@ export function createReplTools(
           stepStart ??= Date.now();
           if (resetPending) stop("The runtime was reset; this run stops before its next operation.");
           if (cancelled) stop(CANCELLED);
-          if (++actions > MAX_ACTIONS) stop(`step cap reached (${MAX_ACTIONS} actions) at ${kind} — split the work across calls, or narrow the loop`);
-          if (active() > maxMs) stop(`time cap reached (${maxMs / 1000}s) at ${kind} — the surface may be slower than the code assumes`);
+          if (++actions > MAX_ACTIONS) { exhausted = kind; stop(`step cap reached (${MAX_ACTIONS} actions) at ${kind} — split the work across calls, or narrow the loop`); }
+          if (active() >= executionMs) stopForBudget(kind);
         },
         push(kind, target, ok, note, read, outcome) {
           if (!read && ok && !READ_KINDS.has(kind) && !OFF_SURFACE_KINDS.has(kind)) acted = kind;
@@ -665,7 +674,8 @@ export function createReplTools(
           journal.push({ i: journal.length + 1, kind, target, ok, note, ...(outcome ? { outcome } : {}), ...(ms !== undefined ? { ms } : {}) });
         },
         attach(part) { images.push(part); },
-        remainingMs: () => maxMs - active(),
+        remainingMs: () => executionMs - active(),
+        stopForBudget,
       };
       const fresh = !sandbox;
       sandbox ??= freshSandbox();
@@ -784,13 +794,15 @@ export function createReplTools(
         current = null;
       }
 
+      const ranOver = !exhausted && ended.why === null && active() >= executionMs;
+      if (ranOver && !failure) failure = "the execution budget elapsed during the last operation; inspect its receipt and the closing observation";
       const runMs = Date.now() - started;
       const elapsed = (runMs / 1000).toFixed(1);
       // Where the call's time went, step by step, for the COMPUTER_USE_MCP_LOG file only: `details`
       // never reaches the model (entries/mcp.ts), so this costs it no context. `observeMs` is the
       // closing observation, the settle re-check included.
       const timing = (observeMs?: number) => ({
-        runMs, ...(observeMs !== undefined ? { observeMs } : {}),
+        runMs, executionMs: runMs, cleanupMs: Date.now() - started - runMs, ...(observeMs !== undefined ? { observeMs } : {}),
         steps: journal.map((l) => ({ kind: l.kind, target: l.target, ok: l.ok, ...(l.outcome ? { outcome: l.outcome } : {}),
           ...(l.ms !== undefined ? { ms: l.ms } : {}), note: l.note.slice(0, 160) })),
       });
@@ -819,6 +831,35 @@ export function createReplTools(
         r.content.push(...attach);
         return r;
       };
+      // A cooperative budget stop has no verb in flight. Inspect only the still-bound
+      // target; a failed read must not turn a dispatched write into a verified one.
+      if ((exhausted || ranOver) && ended.why === null && !cancelled && !resetPending) {
+        const closeStart = Date.now();
+        const target = lastBound;
+        const effect = journal.some(l => l.outcome === "dispatched" || l.outcome === "uncertain")
+          ? "uncertain" : journal.some(l => l.outcome === "verified") ? "verified" : "not_dispatched";
+        let timer: NodeJS.Timeout | undefined;
+        const capture = async () => {
+          if (!target || !leaseGroups.has(target) || !await landed.driver.isActiveTarget(owner.get(target)!.inner)) return null;
+          const observation = await landed.driver.readElements();
+          const snapshot = budgetObservation(observation);
+          observations.set(target, snapshot);
+          return snapshot;
+        };
+        const reading = capture().catch(() => null);
+        closingRead = reading;
+        void reading.finally(() => { if (closingRead === reading) closingRead = null; });
+        try {
+          const observation = await Promise.race([reading, new Promise<null>(resolve => {
+            timer = setTimeout(() => resolve(null), closeBudgetMs);
+          })]);
+          const summary = { operation: exhausted ?? journal.at(-1)?.kind, operationOutcome: exhausted ? "not_dispatched" : effect, priorActions: effect,
+            observation, ...(!observation && target ? { lastObservation: observations.get(target) } : {}), closeMs: Date.now() - closeStart };
+          const note = "Budget stop: " + JSON.stringify(summary);
+          lastRun.lines.push(note);
+          return ledgerOnly(images, "\n" + note, { error: "budget_exhausted", budget: summary });
+        } finally { clearTimeout(timer); }
+      }
       // A call ended from outside is not observed: its surface is the one that stopped answering
       // (or was just let go of), and its runtime is gone, so there is nothing still bound to name.
       if (ended.why !== null) {
@@ -968,7 +1009,9 @@ export function createReplTools(
       } catch { /* kept, as if no time had passed */ }
     })().finally(() => { idleReleasing = null; });
   };
+  let closingRead: Promise<unknown> | null = null;
   repl.execute = async (params, call) => {
+    if (closingRead) return text("The previous budget stop is still observing its window. No new operation was dispatched.", { error: "closing_observation_pending" });
     disarmIdle();
     if (idleReleasing) await idleReleasing;
     callRunning = true;

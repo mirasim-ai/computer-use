@@ -101,6 +101,12 @@ export function waitVerb(driver: ComputerUseDriver, ledger: () => RunLedger, clo
     const urlGone = typeof opts.url_gone === "string";
     const controlGone = typeof opts.control_gone === "string";
     const textGone = typeof opts.text_gone === "string";
+    if (ms !== undefined && (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0)) throw new Error("wait ms must be a finite, nonnegative number");
+    const requested = typeof ms === "number" && Number.isFinite(ms)
+      ? Math.max(0, Math.min(ms, MAX_WAIT_MS))
+      : urlGone || controlGone || textGone || opts.loaded || (url === null && control === null && needle === null)
+        ? DRIVER_WAIT_MS : APPEAR_WAIT_MS;
+    if (requested > (ledger().remainingMs?.() ?? Infinity)) ledger().stopForBudget?.("wait");
     const appearing = url !== null ? !urlGone : opts.loaded ? false : control !== null ? !controlGone : needle !== null && !textGone;
     // control_gone on a name no control carries is met at once — while a progress bar or a
     // "Loading…" line the text still shows may be exactly what the caller meant. Then the wait is

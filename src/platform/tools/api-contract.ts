@@ -40,11 +40,13 @@ export interface RunLedger {
   /** What is left of the call's wall-clock budget, in ms — for a verb that WAITS by its own
    *  clock (run_js), which the cap checked before each verb cannot interrupt. */
   remainingMs?(): number;
+  stopForBudget?(operation: string): never;
 }
 
 export interface WriteRound { fields: number; verified: number; ended: string | null }
 
 export interface ApiHooks {
+  onObservation?(data: import("../driver-select.ts").SurfaceData): void;
   /** Every ref a read handed the script (observe / find). The repl records which surface minted it. */
   onRefs?(refs: string[]): void;
   /** Every ref the script is about to act on. The repl refuses one minted on another surface. */

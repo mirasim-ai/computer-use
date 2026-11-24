@@ -30,8 +30,20 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
   return spec({
     ...s,
     async execute(params: unknown, call?: ToolCallOptions) {
+      const enqueued = Date.now();
       const epoch = chain.epoch;
+      const queueLimit = 125_000;
+      let queueTimer: NodeJS.Timeout;
+      let expired = false;
+      const refusal = () => text("Queue deadline elapsed before execution; nothing was dispatched.", {
+        error: "queue_timeout", budget: { phase: "queue", operationOutcome: "not_dispatched", queueMs: Date.now() - enqueued },
+      });
+      const timeout = new Promise<ReturnType<typeof text>>(resolve => {
+        queueTimer = setTimeout(() => { expired = true; resolve(refusal()); }, queueLimit);
+      });
       const run = chain.p.then(async () => {
+        clearTimeout(queueTimer);
+        if (expired || Date.now() - enqueued >= queueLimit) return refusal();
         if (epoch !== chain.epoch) return text("This queued call was cancelled by a runtime reset; bind fresh handles before continuing.", { error: "runtime_reset" });
         // Cancelled while it waited its turn: nobody reads the answer, so nothing is run for it.
         if (call?.signal?.aborted) {
@@ -42,7 +54,11 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
         const invalid = argComplaint(s.parameters, s.name, cleaned);
         if (invalid) return text(invalid, { error: "bad_arguments" });
         try {
+          const queueMs = Date.now() - enqueued;
           const result = await inner(cleaned, call);
+          if (result.details.timing && typeof result.details.timing === "object") {
+            result.details.timing = { ...result.details.timing, queueMs };
+          }
           // Cancelled by the time it answers: the answer is nobody's, so what it says is owed to the next one (repl.ts).
           if (call?.signal?.aborted) accounts.unanswered?.();
           for (const part of result.content) if (part.type === "text") part.text = wellFormed(part.text);
@@ -56,7 +72,7 @@ function guarded(s: ComputerUseToolSpec, chain: { p: Promise<void>; epoch: numbe
         }
       });
       chain.p = run.then(() => {}, () => {});
-      return run;
+      return Promise.race([run, timeout]);
     },
   });
 }

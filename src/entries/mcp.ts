@@ -262,6 +262,7 @@ export async function serveMcp(): Promise<void> {
       log({ type: "call", tool: tool.name, args, isError: typeof r.details.error === "string", ms: Date.now() - started, details: r.details,
         ...(extra.signal.aborted ? { cancelled: true } : {}) });
       return {
+        ...(r.details.budget ? { structuredContent: { error: r.details.error, budget: r.details.budget } } : {}),
         content: r.content.map((c) =>
           c.type === "image" ? { type: "image" as const, data: c.data, mimeType: c.mimeType } : { type: "text" as const, text: c.text },
         ),
