@@ -9,7 +9,9 @@
  *   · a capture with no screencast running is wrapped: start, first frame, capture, stop — and the
  *     bridge's own frames are acknowledged by it and delivered to no client;
  *   · a client's screencast (a preview) is left alone by another client's capture, its frames go to
- *     it alone, only its acknowledgements reach Chrome, and its stop ends it.
+ *     it alone, only its acknowledgements reach Chrome, and its stop ends it;
+ *   · a frame of the bridge's own that arrives once a client reads (its start crossed frames already
+ *     on the way) is still the bridge's: acknowledged by it, never shown as the client's picture.
  *
  * Hermetic: the REAL bridge (server, model, native-messaging socket), a scripted extension that
  * answers like Chrome and sends a frame after each screencast start, and raw CDP clients. No
@@ -29,6 +31,17 @@ function check(label: string, ok: boolean, detail = "") {
   if (!ok) failures++;
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A frame as Chrome encodes it, header only: the pixel size is what the bridge reads of it. */
+function png(width: number, height: number): string {
+  const head = Buffer.alloc(33);
+  head.writeUInt32BE(0x89504e47, 0); head.writeUInt32BE(0x0d0a1a0a, 4); head.writeUInt32BE(13, 8);
+  head.write("IHDR", 12); head.writeUInt32BE(width, 16); head.writeUInt32BE(height, 20);
+  return head.toString("base64");
+}
+function jpeg(width: number, height: number): string {
+  return Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, ...Buffer.from("JFIF\0"), 1, 1, 0, 0, 1, 0, 1, 0, 0,
+    0xff, 0xc0, 0, 17, 8, height >> 8, height & 255, width >> 8, width & 255, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9]).toString("base64");
+}
 async function until(what: () => boolean, ms = 3000): Promise<boolean> {
   for (const end = Date.now() + ms; Date.now() < end;) { if (what()) return true; await sleep(10); }
   return what();
@@ -55,6 +68,11 @@ class FakeExtension {
     this.write({ method: "extension.initialized", params: [{ id: "khflooofmndpmafhofjdcpjfgnlpikhg", version: "0.1.4", protocol: 1, capabilities: [] }] });
   }
   disconnect(): void { this.socket?.destroy(); }
+  /** A screencast frame of the tab, whichever settings it was made under; returns its number. */
+  sendFrame(tabId: number, data: string): number {
+    this.write({ method: "chrome.debugger.onEvent", params: [{ tabId }, "Page.screencastFrame", { data, metadata: {}, sessionId: ++this.frame }] });
+    return this.frame;
+  }
   methods(): string[] { return this.seen.map((s) => s.method).filter((m) => m.startsWith("Page.screencast") || m.endsWith("Screencast") || m === "Page.captureScreenshot"); }
 
   private write(message: unknown): void {
@@ -75,9 +93,9 @@ class FakeExtension {
           return answer({ targetInfo: { targetId: `target-${tabId}`, type: "page", url: "about:blank", title: "", attached: true, browserContextId: "ctx" } });
         if (cdpMethod === "Page.captureScreenshot") return answer({ data: "c2hvdA==" });
         answer({});
-        // Chrome sends a screencast's first frame right after it starts.
+        // Chrome sends a screencast's first frame right after it starts, as large as it was asked for.
         if (cdpMethod === "Page.startScreencast") {
-          this.write({ method: "chrome.debugger.onEvent", params: [{ tabId }, "Page.screencastFrame", { data: "ZnJhbWU=", metadata: {}, sessionId: ++this.frame }] });
+          this.sendFrame(tabId, (cdpParams?.maxWidth ?? 1280) <= 64 ? jpeg(64, 40) : png(1280, 800));
         }
         return;
       }
@@ -171,6 +189,23 @@ async function main() {
     check("a stop from a client that started none ends nothing", extension.methods().length === 0, JSON.stringify(extension.methods()));
     await preview.send("Page.stopScreencast", {}, p);
     check("its own stop ends it", JSON.stringify(extension.methods()) === JSON.stringify(["Page.stopScreencast"]), JSON.stringify(extension.methods()));
+
+    // ── A frame of the bridge's own that arrives once a client reads ─────────────────────
+    // A capture had the bridge's screencast running when a preview started its own: frames Chrome
+    // had already made for the bridge's (64 px, quality 1) arrive after the preview is a reader.
+    await preview.send("Page.startScreencast", { format: "png", maxWidth: 2560, maxHeight: 2560, everyNthFrame: 2 }, p);
+    await until(() => preview.frames.length === 2);
+    extension.seen.length = 0;
+    const late = extension.sendFrame(1, jpeg(64, 40));
+    await until(() => extension.methods().includes("Page.screencastFrameAck"));
+    await sleep(50);
+    check("a frame of the bridge's own is not the reader's picture", preview.frames.length === 2, JSON.stringify(preview.frames));
+    check("…the bridge acknowledges it", extension.seen.find((s) => s.method === "Page.screencastFrameAck")?.params?.sessionId === late, JSON.stringify(extension.seen));
+    const next = extension.sendFrame(1, png(1280, 800));
+    await until(() => preview.frames.length === 3);
+    check("…and the reader's next frame is its own", preview.frames.at(-1)?.endsWith(`#${next}`) === true, JSON.stringify(preview.frames));
+    extension.seen.length = 0;
+    await preview.send("Page.stopScreencast", {}, p);
 
     // ── A reader that goes away without a stop ───────────────────────────────────────────
     await preview.send("Page.startScreencast", { format: "png" }, p);

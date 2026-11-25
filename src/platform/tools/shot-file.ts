@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, join } from "node:path";
+import { imageSize } from "../image-size.ts";
 
 /** How many default-directory shots are kept; older ones are deleted as new ones land. */
 const SHOTS_KEEP = 200;
@@ -72,20 +73,6 @@ export function checkShotPath(path: string, mimeType: string): void {
   if (existsSync(path)) throw new Error(`${path} already exists — screenshots never overwrite; pick a new name`);
 }
 
-/** Pixel size read from the file's own header (JPEG SOF, PNG IHDR); null when unreadable. */
-function imageSize(buf: Buffer, mimeType: string): { width: number; height: number } | null {
-  if (mimeType === "image/png" && buf.length >= 24) return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-  for (let i = 2; i + 9 < buf.length;) {
-    if (buf[i] !== 0xff) { i += 1; continue; }
-    const m = buf[i + 1]!;
-    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
-      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-    }
-    i += 2 + buf.readUInt16BE(i + 2);
-  }
-  return null;
-}
-
 /** Write one captured image and say where it went. */
 export function saveShot(data: string, mimeType: string, path?: string): { path: string; host: string; width?: number; height?: number } {
   const buf = Buffer.from(data, "base64");
@@ -104,5 +91,5 @@ export function saveShot(data: string, mimeType: string, path?: string): { path:
   mkdirSync(dirname(file), { recursive: true });
   // `wx`: the existence check above races nothing if the write itself refuses to replace.
   writeFileSync(file, buf, { flag: path ? "wx" : "w" });
-  return { path: file, host: hostname(), ...(imageSize(buf, mimeType) ?? {}) };
+  return { path: file, host: hostname(), ...(imageSize(buf) ?? {}) };
 }

@@ -21,9 +21,11 @@
  * client reads it and no capture needs it; frames go to the clients that asked for them — not to
  * every client of the tab, where Playwright acknowledged each one too and undid the pace a preview
  * sets with its own acknowledgements — and the bridge acknowledges the frames of its own screencast
- * itself, delivering them to nobody.
+ * itself, delivering them to nobody. Those are told apart by their size, not only by whether anyone
+ * reads: a client's start can cross frames Chrome already made for the bridge's ({@link ownFrame}).
  */
 
+import { base64ImageSize } from "../../image-size.ts";
 import type { BridgeClient } from "./client.ts";
 
 /** Sends one CDP command to a tab's root debugger session. */
@@ -39,6 +41,23 @@ const SCREENCAST_EVENTS = new Set(["Page.screencastFrame", "Page.screencastVisib
 const FIRST_FRAME_MS = 1_000;
 /** The bridge's own screencast exists only to keep the tab drawing: the smallest frames Chrome makes. */
 const KEEP_DRAWING = { format: "jpeg", quality: 1, maxWidth: 64, maxHeight: 64, everyNthFrame: 1 };
+
+/**
+ * Whether a frame that came while `reader`'s settings run is the bridge's own after all. A capture
+ * starts the bridge's screencast; a preview starting its own a moment later does not stop the frames
+ * Chrome has already made for the bridge's from arriving, now with a reader to hand them to. Handed
+ * on, a 64-px quality-1 frame was the preview's whole picture — blurred past reading, ghosted, and
+ * kept until the page next changed, which an idle page does not. Told apart by size: a client is
+ * sent frames that small only when it asked for them.
+ */
+function ownFrame(reader: Reader | undefined, params: unknown): boolean {
+  const data = (params as { data?: unknown } | undefined)?.data;
+  const size = typeof data === "string" ? base64ImageSize(data) : null;
+  if (!size || size.width > KEEP_DRAWING.maxWidth || size.height > KEEP_DRAWING.maxHeight) return false;
+  const asked = (reader?.params ?? {}) as { maxWidth?: unknown; maxHeight?: unknown };
+  const wantsSmall = (max: unknown, keep: number) => typeof max === "number" && max <= keep;
+  return !wantsSmall(asked.maxWidth, KEEP_DRAWING.maxWidth) && !wantsSmall(asked.maxHeight, KEEP_DRAWING.maxHeight);
+}
 
 /** A client session reading a tab's screencast, with the settings it started it with. */
 interface Reader {
@@ -165,7 +184,8 @@ export class TabScreencasts {
   /**
    * Who gets a root-session event of `tabId`: null for any event that is not a screencast's (it
    * goes to every client of the tab as before). A screencast's goes to its readers alone; with
-   * none, it is the bridge's own, acknowledged here and delivered to nobody.
+   * none, or when the frame is one of the bridge's own ({@link ownFrame}), it is acknowledged here
+   * and delivered to nobody.
    */
   readersOf(tabId: number, method: string, params: unknown): Array<{ client: BridgeClient; alias: string }> | null {
     if (!SCREENCAST_EVENTS.has(method)) return null;
@@ -174,7 +194,9 @@ export class TabScreencasts {
       cast.drawing = true;
       for (const waiter of [...cast.frameWaiters]) waiter();
     }
-    if (cast?.readers.length) return cast.readers.map(({ client, alias }) => ({ client, alias }));
+    if (cast?.readers.length && !(method === "Page.screencastFrame" && ownFrame(cast.readers.at(-1), params))) {
+      return cast.readers.map(({ client, alias }) => ({ client, alias }));
+    }
     const frame = (params as { sessionId?: number } | undefined)?.sessionId;
     if (method === "Page.screencastFrame" && frame !== undefined) {
       void this.send(tabId, "Page.screencastFrameAck", { sessionId: frame }).catch(() => {});
