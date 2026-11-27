@@ -1,5 +1,6 @@
 /** Read-only video for one Chromium target, including the browser extension's flattened CDP. */
 import WsClient from "ws";
+import { base64ImageSize } from "../image-size.ts";
 import type { PreviewSink, PreviewStream, PreviewTarget } from "../types.ts";
 
 // Preserve text detail when the observer is expanded on a Retina display.
@@ -163,8 +164,12 @@ export class CdpPreviewStream implements PreviewStream {
     }
     if (msg.method === "Page.screencastFrame" && msg.params?.data) {
       this.sawScreencast = true;
-      this.pendingCast = { data: msg.params.data, w: msg.params.metadata?.deviceWidth ?? this.width,
-        h: msg.params.metadata?.deviceHeight ?? this.height };
+      const w = msg.params.metadata?.deviceWidth ?? this.width, h = msg.params.metadata?.deviceHeight ?? this.height;
+      if (this.undersized(msg.params.data, w, h)) {
+        this.send("Page.screencastFrameAck", { sessionId: msg.params.sessionId });
+        return;
+      }
+      this.pendingCast = { data: msg.params.data, w, h };
       this.unacked.push(msg.params.sessionId);
       this.scheduleCast();
     } else if (msg.result?.data) {
@@ -177,6 +182,18 @@ export class CdpPreviewStream implements PreviewStream {
       const scale = this.width ? this.width / pixelsWide : 1;
       this.frame(msg.result.data, pixelsWide * scale, pixelsHigh * scale);
     }
+  }
+
+  /**
+   * A frame under a quarter of the size this stream asked for and the page has: made under another
+   * client's settings, not this one's. An older extension bridge handed on its own 64-px frames when
+   * this stream's start crossed them (bridge/screencasts.ts); shown, one was the whole picture,
+   * blurred past reading, until the page next changed. Acknowledged at once and never shown.
+   */
+  private undersized(data: string, w: number, h: number): boolean {
+    const size = base64ImageSize(data);
+    const wanted = Math.min(this.maxSize, Math.max(w, h));
+    return !!size && wanted > 0 && Math.max(size.width, size.height) * 4 < wanted;
   }
 
   /** Show the newest screencast frame and return one ack, no sooner than FRAME_INTERVAL_MS after the last frame. */
